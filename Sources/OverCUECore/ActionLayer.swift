@@ -61,6 +61,44 @@ public enum ActionBehavior: Equatable, Sendable {
     case internalCommand
 }
 
+public enum ActionTarget: Equatable, Hashable, Sendable {
+    case action(ActionID)
+    case rekordboxCommand(String)
+
+    public init?(configurationValue: String) {
+        if let action = ActionID(rawValue: configurationValue) {
+            self = .action(action)
+        } else if configurationValue.hasPrefix("rekordbox:") {
+            let commandID = String(configurationValue.dropFirst("rekordbox:".count))
+            guard !commandID.isEmpty else { return nil }
+            self = .rekordboxCommand(commandID)
+        } else {
+            return nil
+        }
+    }
+
+    public var configurationValue: String {
+        switch self {
+        case let .action(action): action.rawValue
+        case let .rekordboxCommand(commandID): "rekordbox:\(commandID)"
+        }
+    }
+
+    public var behavior: ActionBehavior {
+        switch self {
+        case let .action(action): action.behavior
+        case .rekordboxCommand: .trigger
+        }
+    }
+
+    public var displayName: String {
+        switch self {
+        case let .action(action): action.displayName
+        case let .rekordboxCommand(commandID): "rekordbox \(commandID)"
+        }
+    }
+}
+
 public enum ActionPhase: Equatable, Sendable {
     case triggered
     case pressed
@@ -69,7 +107,7 @@ public enum ActionPhase: Equatable, Sendable {
 }
 
 public struct ActionEvent: Equatable, Sendable {
-    public let action: ActionID
+    public let target: ActionTarget
     public let phase: ActionPhase
     public let sourceKey: ACK05Key?
     public let sourceLabel: String
@@ -80,10 +118,28 @@ public struct ActionEvent: Equatable, Sendable {
         sourceKey: ACK05Key?,
         sourceLabel: String
     ) {
-        self.action = action
+        target = .action(action)
         self.phase = phase
         self.sourceKey = sourceKey
         self.sourceLabel = sourceLabel
+    }
+
+
+    public init(
+        target: ActionTarget,
+        phase: ActionPhase,
+        sourceKey: ACK05Key?,
+        sourceLabel: String
+    ) {
+        self.target = target
+        self.phase = phase
+        self.sourceKey = sourceKey
+        self.sourceLabel = sourceLabel
+    }
+
+    public var action: ActionID? {
+        guard case let .action(action) = target else { return nil }
+        return action
     }
 }
 
@@ -102,10 +158,15 @@ public struct KeyChord: Equatable, Hashable, Sendable {
 }
 
 public struct ActionMapping: Equatable, Sendable {
-    public let keys: [ACK05Key: ActionID]
-    public let chords: [KeyChord: ActionID]
+    public let keys: [ACK05Key: ActionTarget]
+    public let chords: [KeyChord: ActionTarget]
 
     public init(keys: [ACK05Key: ActionID], chords: [KeyChord: ActionID]) {
+        self.keys = keys.mapValues(ActionTarget.action)
+        self.chords = chords.mapValues(ActionTarget.action)
+    }
+
+    public init(keys: [ACK05Key: ActionTarget], chords: [KeyChord: ActionTarget]) {
         self.keys = keys
         self.chords = chords
     }
@@ -134,10 +195,10 @@ public struct InputActionResolver: Equatable, Sendable {
         for chord in mapping.chords.keys.sorted(by: { $0.label < $1.label })
         where newlyPressed.contains(chord.trigger)
             && nextPressedKeys.contains(chord.modifier) {
-            guard let action = mapping.chords[chord] else { continue }
+            guard let target = mapping.chords[chord] else { continue }
             events.append(
                 ActionEvent(
-                    action: action,
+                    target: target,
                     phase: .triggered,
                     sourceKey: chord.trigger,
                     sourceLabel: chord.label
@@ -150,26 +211,26 @@ public struct InputActionResolver: Equatable, Sendable {
         for key in ACK05Key.allCases where newlyPressed.contains(key) {
             if mapping.modifierKeys.contains(key) { continue }
             if suppressedChordTriggers.contains(key) { continue }
-            guard let action = mapping.keys[key] else { continue }
-            let phase: ActionPhase = action.behavior == .hold || action.behavior == .acceleratingRepeat
+            guard let target = mapping.keys[key] else { continue }
+            let phase: ActionPhase = target.behavior == .hold || target.behavior == .acceleratingRepeat
                 ? .pressed
                 : .triggered
-            events.append(event(action: action, phase: phase, key: key))
-            if action.behavior == .hold {
+            events.append(event(target: target, phase: phase, key: key))
+            if target.behavior == .hold {
                 activeHoldKeys.insert(key)
             }
         }
 
         for key in released where activeHoldKeys.remove(key) != nil {
-            guard let action = mapping.keys[key] else { continue }
-            events.append(event(action: action, phase: .released, key: key))
+            guard let target = mapping.keys[key] else { continue }
+            events.append(event(target: target, phase: .released, key: key))
         }
 
         for modifier in released where mapping.modifierKeys.contains(modifier) {
             if !usedChordModifiers.contains(modifier),
                !suppressedChordTriggers.contains(modifier),
-               let action = mapping.keys[modifier] {
-                events.append(event(action: action, phase: .triggered, key: modifier))
+               let target = mapping.keys[modifier] {
+                events.append(event(target: target, phase: .triggered, key: modifier))
             }
         }
 
@@ -181,18 +242,18 @@ public struct InputActionResolver: Equatable, Sendable {
 
     public func repeatedEvent(for key: ACK05Key, mapping: ActionMapping) -> ActionEvent? {
         guard pressedKeys.contains(key),
-              let action = mapping.keys[key],
-              action.behavior == .acceleratingRepeat
+              let target = mapping.keys[key],
+              target.behavior == .acceleratingRepeat
         else {
             return nil
         }
-        return event(action: action, phase: .repeated, key: key)
+        return event(target: target, phase: .repeated, key: key)
     }
 
     public mutating func reset(mapping: ActionMapping) -> [ActionEvent] {
         let releases = activeHoldKeys.compactMap { key -> ActionEvent? in
-            guard let action = mapping.keys[key] else { return nil }
-            return event(action: action, phase: .released, key: key)
+            guard let target = mapping.keys[key] else { return nil }
+            return event(target: target, phase: .released, key: key)
         }
         pressedKeys = []
         usedChordModifiers = []
@@ -201,9 +262,9 @@ public struct InputActionResolver: Equatable, Sendable {
         return releases
     }
 
-    private func event(action: ActionID, phase: ActionPhase, key: ACK05Key) -> ActionEvent {
+    private func event(target: ActionTarget, phase: ActionPhase, key: ACK05Key) -> ActionEvent {
         ActionEvent(
-            action: action,
+            target: target,
             phase: phase,
             sourceKey: key,
             sourceLabel: key.rawValue.uppercased()

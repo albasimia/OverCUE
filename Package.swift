@@ -9,7 +9,8 @@ let package = Package(
     ],
     products: [
         .library(name: "OverCUECore", targets: ["OverCUECore"]),
-        .executable(name: "overcue", targets: ["OverCUEBridge"]),
+        .executable(name: "overcue-cli", targets: ["OverCUEBridge"]),
+        .executable(name: "OverCUE", targets: ["OverCUEApp"]),
         .executable(name: "overcue-checks", targets: ["OverCUEChecks"]),
         .executable(name: "overcue-probe", targets: ["OverCUEProbe"]),
     ],
@@ -34,6 +35,17 @@ let package = Package(
         .executableTarget(
             name: "OverCUEChecks",
             dependencies: ["OverCUECore"]
+        ),
+        .executableTarget(
+            name: "OverCUEApp",
+            dependencies: ["OverCUECore"],
+            resources: [
+                .process("Resources"),
+            ],
+            linkerSettings: [
+                .linkedFramework("ApplicationServices"),
+                .linkedFramework("IOKit"),
+            ]
         ),
     ]
 )
