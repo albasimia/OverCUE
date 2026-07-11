@@ -41,10 +41,12 @@ private final class OverCUEApplicationDelegate: NSObject, NSApplicationDelegate 
 struct OverCUEApp: App {
     @NSApplicationDelegateAdaptor(OverCUEApplicationDelegate.self) private var applicationDelegate
     @StateObject private var model = ShortcutSettingsModel()
+    @StateObject private var localization = AppLocalization.shared
 
     var body: some Scene {
         WindowGroup("OverCUE", id: "main") {
             ContentView(model: model)
+                .environmentObject(localization)
                 .frame(minWidth: 1_080, minHeight: 720)
                 .preferredColorScheme(.dark)
                 .onAppear {
@@ -54,7 +56,7 @@ struct OverCUEApp: App {
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(after: .newItem) {
-                Button("rekordbox設定を再読み込み") {
+                Button(localization.text("app.reload")) {
                     model.reloadAndRestartBridge()
                 }
                 .keyboardShortcut("r", modifiers: [.command])
@@ -63,20 +65,39 @@ struct OverCUEApp: App {
 
         MenuBarExtra {
             MenuBarContent(model: model)
+                .environmentObject(localization)
         } label: {
-            Image(nsImage: MenuBarGhostIcon.image)
-                .renderingMode(.template)
+            Image(
+                nsImage: MenuBarStatusIcon.image(
+                    mode: model.runtimeModeLabel,
+                    group: model.runtimeGroup
+                )
+            )
+            .renderingMode(.template)
+            .accessibilityLabel(
+                localization.text(
+                    "app.status.accessibility",
+                    model.runtimeMode.displayName,
+                    model.runtimeGroup
+                )
+            )
         }
         .menuBarExtraStyle(.menu)
+
+        Settings {
+            LanguageSettingsView()
+                .environmentObject(localization)
+        }
     }
 }
 
 private struct MenuBarContent: View {
     @ObservedObject var model: ShortcutSettingsModel
+    @EnvironmentObject private var localization: AppLocalization
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("OverCUEを表示") {
+        Button(localization.text("app.show")) {
             openWindow(id: "main")
             DispatchQueue.main.async {
                 NSApp.activate(ignoringOtherApps: true)
@@ -87,7 +108,7 @@ private struct MenuBarContent: View {
         Divider()
 
         Toggle(
-            "ACK05入力を有効にする",
+            localization.text("app.input.enable"),
             isOn: Binding(
                 get: { model.isBridgeEnabled },
                 set: { enabled in model.setBridgeEnabled(enabled) }
@@ -98,7 +119,7 @@ private struct MenuBarContent: View {
 
         Divider()
 
-        Button("終了") {
+        Button(localization.text("app.quit")) {
             model.shutdown()
             NSApp.terminate(nil)
         }
@@ -108,23 +129,49 @@ private struct MenuBarContent: View {
 
 private struct ContentView: View {
     @ObservedObject var model: ShortcutSettingsModel
+    @EnvironmentObject private var localization: AppLocalization
 
     var body: some View {
-        VStack(spacing: 0) {
-            applicationHeader
-            Divider()
-            GeometryReader { geometry in
-                HStack(spacing: 0) {
-                    DevicePanelView(model: model)
-                        .frame(width: max(480, geometry.size.width * 0.46))
+        ZStack(alignment: .bottomTrailing) {
+            VStack(spacing: 0) {
+                applicationHeader
+                Divider()
+                GeometryReader { geometry in
+                    HStack(spacing: 0) {
+                        DevicePanelView(model: model)
+                            .frame(width: max(480, geometry.size.width * 0.46))
 
-                    Divider()
+                        Divider()
 
-                    ShortcutListView(model: model)
+                        ShortcutListView(model: model)
+                    }
                 }
+            }
+
+            if let toast = model.toast {
+                ToastView(toast: toast, onDismiss: model.dismissToast)
+                    .padding(.bottom, 22)
+                    .padding(.trailing, 22)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(10)
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .animation(.easeInOut(duration: 0.22), value: model.toast)
+        .alert(item: $model.overwriteConfirmation) { confirmation in
+            Alert(
+                title: Text(localization.text("alert.overwrite.title")),
+                message: Text(confirmation.message),
+                primaryButton: .destructive(
+                    Text(localization.text("alert.overwrite.action")),
+                    action: model.confirmOverwrite
+                ),
+                secondaryButton: .cancel(
+                    Text(localization.text("common.cancel")),
+                    action: model.cancelOverwrite
+                )
+            )
+        }
     }
 
     private var applicationHeader: some View {
@@ -171,6 +218,54 @@ private struct ContentView: View {
         case .starting: .orange
         case .stopped: .secondary
         case .failed: .red
+        }
+    }
+}
+
+private struct ToastView: View {
+    let toast: ToastMessage
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 11) {
+            Image(systemName: iconName)
+                .font(.system(size: 15, weight: .bold))
+            Text(toast.text)
+                .font(.subheadline.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+            }
+            .buttonStyle(.plain)
+        }
+        .foregroundStyle(.white)
+        .padding(.leading, 14)
+        .padding(.trailing, 11)
+        .padding(.vertical, 12)
+        .frame(maxWidth: 460, alignment: .leading)
+        .background(backgroundColor)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.38), radius: 14, y: 7)
+    }
+
+    private var backgroundColor: Color {
+        switch toast.style {
+        case .error: Color.red.opacity(0.92)
+        case .success: Color.green.opacity(0.88)
+        case .info: Color(nsColor: .darkGray).opacity(0.96)
+        }
+    }
+
+    private var iconName: String {
+        switch toast.style {
+        case .error: "exclamationmark.triangle.fill"
+        case .success: "checkmark.circle.fill"
+        case .info: "info.circle.fill"
         }
     }
 }
@@ -259,7 +354,25 @@ private enum MenuBarGhostIcon {
     }()
 }
 
-private enum AppResources {
+private enum MenuBarStatusIcon {
+    static func image(mode: String, group: Int) -> NSImage {
+        let output = NSImage(size: NSSize(width: 48, height: 18))
+        output.lockFocus()
+        MenuBarGhostIcon.image.draw(in: NSRect(x: 0, y: 0, width: 18, height: 18))
+        NSString(string: "\(mode) \(group)").draw(
+            at: NSPoint(x: 22, y: 1),
+            withAttributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold),
+                .foregroundColor: NSColor.white,
+            ]
+        )
+        output.unlockFocus()
+        output.isTemplate = true
+        return output
+    }
+}
+
+enum AppResources {
     static let bundle: Bundle = {
         if let resourcesURL = Bundle.main.resourceURL,
            let packagedBundle = Bundle(
@@ -269,4 +382,32 @@ private enum AppResources {
         }
         return .module
     }()
+}
+
+private struct LanguageSettingsView: View {
+    @EnvironmentObject private var localization: AppLocalization
+
+    var body: some View {
+        Form {
+            Picker(
+                localization.text("settings.language"),
+                selection: Binding(
+                    get: { localization.language },
+                    set: { localization.setLanguage($0) }
+                )
+            ) {
+                ForEach(AppLanguage.allCases) { language in
+                    Text(language.nativeName).tag(language)
+                }
+            }
+            .pickerStyle(.radioGroup)
+
+            Text(localization.text("settings.language.help"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(24)
+        .frame(width: 420, height: 220)
+        .navigationTitle(localization.text("settings.title"))
+    }
 }

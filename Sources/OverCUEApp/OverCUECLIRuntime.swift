@@ -3,6 +3,7 @@ import OverCUECore
 
 @MainActor
 final class OverCUECLIRuntime {
+    @MainActor
     enum Status: Equatable {
         case stopped
         case starting
@@ -11,10 +12,10 @@ final class OverCUECLIRuntime {
 
         var displayText: String {
             switch self {
-            case .stopped: "ACK05停止中"
-            case .starting: "ACK05起動中"
-            case .running: "ACK05入力待機中"
-            case let .failed(message): "ACK05起動失敗: \(message)"
+            case .stopped: L10n.text("app.status.stopped")
+            case .starting: L10n.text("app.status.starting")
+            case .running: L10n.text("app.status.running")
+            case let .failed(message): L10n.text("app.status.failed", message)
             }
         }
     }
@@ -26,21 +27,22 @@ final class OverCUECLIRuntime {
         didSet { onStatusChanged?(status) }
     }
 
-    func start(mode: RekordboxMappingMode) {
+    func start(mode: RekordboxMappingMode, group: Int) {
         stop()
         status = .starting
 
-        guard let launch = launchConfiguration(mode: mode) else {
-            status = .failed("overcue-cliが見つかりません")
+        guard let launch = launchConfiguration(mode: mode, group: group) else {
+            status = .failed(L10n.text("cli.notFound"))
             return
         }
 
         let process = Process()
+        let errorPipe = Pipe()
         process.executableURL = launch.executableURL
         process.arguments = launch.arguments
         process.currentDirectoryURL = launch.currentDirectoryURL
         process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        process.standardError = errorPipe
         process.terminationHandler = { [weak self] terminatedProcess in
             let exitStatus = terminatedProcess.terminationStatus
             Task { @MainActor in
@@ -49,7 +51,10 @@ final class OverCUECLIRuntime {
                 if exitStatus == 0 {
                     self.status = .stopped
                 } else {
-                    self.status = .failed("overcue-cliが終了しました（\(exitStatus)）")
+                    let detail = Self.errorDetail(from: errorPipe)
+                    self.status = .failed(
+                        detail ?? L10n.text("cli.exited", exitStatus)
+                    )
                 }
             }
         }
@@ -63,8 +68,22 @@ final class OverCUECLIRuntime {
         }
     }
 
-    func restart(mode: RekordboxMappingMode) {
-        start(mode: mode)
+    private static func errorDetail(from pipe: Pipe) -> String? {
+        guard let data = try? pipe.fileHandleForReading.readToEnd(),
+              let output = String(data: data, encoding: .utf8)
+        else { return nil }
+        let firstLine = output
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+            .first(where: { !$0.isEmpty })
+        if firstLine?.localizedCaseInsensitiveContains("HID access was denied") == true {
+            return L10n.text("cli.inputPermission")
+        }
+        return firstLine
+    }
+
+    func restart(mode: RekordboxMappingMode, group: Int) {
+        start(mode: mode, group: group)
     }
 
     func stop() {
@@ -80,10 +99,11 @@ final class OverCUECLIRuntime {
         status = .stopped
     }
 
-    private func launchConfiguration(mode: RekordboxMappingMode) -> LaunchConfiguration? {
+    private func launchConfiguration(mode: RekordboxMappingMode, group: Int) -> LaunchConfiguration? {
         let arguments = [
             "--output", "mouse",
             "--rekordbox-mode", mode.rawValue,
+            "--group", String(group),
             "--no-accessibility-prompt",
         ]
         let fileManager = FileManager.default

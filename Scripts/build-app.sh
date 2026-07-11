@@ -25,6 +25,8 @@ cp "${ROOT_DIR}/Sources/OverCUEApp/Resources/OverCUEIcon.png" \
     "${APP_DIR}/Contents/Resources/OverCUEIcon.png"
 cp -R "${BIN_DIR}/OverCUE_OverCUEApp.bundle" \
     "${APP_DIR}/Contents/Resources/OverCUE_OverCUEApp.bundle"
+cp -R "${BIN_DIR}/OverCUE_OverCUECore.bundle" \
+    "${APP_DIR}/Contents/Resources/OverCUE_OverCUECore.bundle"
 
 chmod 755 \
     "${APP_DIR}/Contents/MacOS/OverCUE" \

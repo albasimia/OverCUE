@@ -15,7 +15,12 @@ let package = Package(
         .executable(name: "overcue-probe", targets: ["OverCUEProbe"]),
     ],
     targets: [
-        .target(name: "OverCUECore"),
+        .target(
+            name: "OverCUECore",
+            resources: [
+                .process("Resources"),
+            ]
+        ),
         .executableTarget(
             name: "OverCUEBridge",
             dependencies: ["OverCUECore"],

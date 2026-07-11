@@ -13,6 +13,96 @@ public struct ActionMigrationWarning: Equatable, Sendable {
 }
 
 public enum ActionConfigurationMigrator {
+    public static func migrateToCurrentVersion(
+        _ source: OverCUEConfiguration
+    ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
+        migrateToVersion6(source)
+    }
+
+    public static func migrateToVersion6(
+        _ source: OverCUEConfiguration
+    ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
+        var result = source.version < 5
+            ? migrateToVersion5(source)
+            : (configuration: source, warnings: [])
+        let defaultGroup1 = OverCUEProfile.defaultValue.storedMapping(for: 1)
+
+        for profileName in result.configuration.profiles.keys.sorted() {
+            guard var profile = result.configuration.profiles[profileName] else { continue }
+            var group1 = profile.storedMapping(for: 1)
+            let usesPreviousDefaultLayout = defaultGroup1.keyMap.allSatisfy {
+                group1.keyMap[$0.key] == $0.value
+            }
+            guard usesPreviousDefaultLayout else { continue }
+
+            for input in ["K7+K2", "K7+K5"] where group1.chordMap[input] == nil {
+                group1.chordMap[input] = defaultGroup1.chordMap[input]
+            }
+            profile.setMapping(group1, for: 1)
+            result.configuration.profiles[profileName] = profile
+        }
+        result.configuration.version = 6
+        return result
+    }
+
+    public static func migrateToVersion5(
+        _ source: OverCUEConfiguration
+    ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
+        var result = source.version < 4
+            ? migrateToVersion4(source)
+            : (configuration: source, warnings: [])
+        let defaults = OverCUEProfile.defaultValue
+        let defaultGroup1 = defaults.storedMapping(for: 1)
+
+        for profileName in result.configuration.profiles.keys.sorted() {
+            guard var profile = result.configuration.profiles[profileName] else { continue }
+            var group1 = profile.storedMapping(for: 1)
+            let group2 = profile.storedMapping(for: 2)
+            let group3 = profile.storedMapping(for: 3)
+            let usesPreviousDefaultLayout = defaultGroup1.keyMap.allSatisfy {
+                group1.keyMap[$0.key] == $0.value
+            }
+            guard usesPreviousDefaultLayout,
+                  group2.hasNoInputMappings,
+                  group3.hasNoInputMappings
+            else { continue }
+
+            for (input, target) in defaultGroup1.dialChordMap
+            where group1.dialChordMap[input] == nil {
+                group1.dialChordMap[input] = target
+            }
+            group1.rekordboxMode = .performance
+            profile.setMapping(group1, for: 1)
+            profile.setMapping(defaults.storedMapping(for: 2), for: 2)
+            profile.setMapping(defaults.storedMapping(for: 3), for: 3)
+            result.configuration.profiles[profileName] = profile
+        }
+        result.configuration.version = 5
+        return result
+    }
+
+    public static func migrateToVersion4(
+        _ source: OverCUEConfiguration
+    ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
+        var result = source.version < 3
+            ? migrateToVersion3(source)
+            : (configuration: source, warnings: [])
+        for profileName in result.configuration.profiles.keys.sorted() {
+            guard var profile = result.configuration.profiles[profileName] else { continue }
+            var group1 = profile.mapping(for: 1)
+            if group1.dialMap.isEmpty {
+                group1.dialMap = [
+                    DialDirection.counterclockwise.rawValue: ActionID.jogSearchLeft.rawValue,
+                    DialDirection.clockwise.rawValue: ActionID.jogSearchRight.rawValue,
+                ]
+            }
+            profile.setMapping(group1, for: 1)
+            result.configuration.profiles[profileName] = profile
+        }
+        result.configuration.version = 4
+        return result
+    }
+
     public static func migrateToVersion3(
         _ source: OverCUEConfiguration
     ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
@@ -69,5 +159,11 @@ public enum ActionConfigurationMigrator {
             }
         }
         return migrated
+    }
+}
+
+private extension OverCUEGroupMapping {
+    var hasNoInputMappings: Bool {
+        keyMap.isEmpty && chordMap.isEmpty && dialMap.isEmpty && dialChordMap.isEmpty
     }
 }

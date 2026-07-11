@@ -32,6 +32,13 @@ for action in ActionID.allCases {
 check(ActionID.cue.behavior == .hold, "Cue uses hold behavior")
 check(ActionID.jumpForward.behavior == .acceleratingRepeat, "Jump uses repeat behavior")
 check(ActionID.captureWaveformPosition.behavior == .internalCommand, "capture uses internal behavior")
+check(ActionID.jogSearchLeft.behavior == .internalCommand, "Jog Search Left uses internal behavior")
+check(ActionID.cycleGroup.behavior == .internalCommand, "group cycle uses internal behavior")
+check(
+    ActionID.cycleGroupBackward.behavior == .internalCommand,
+    "descending group cycle uses internal behavior"
+)
+check(ActionID.toggleRekordboxMode.behavior == .internalCommand, "mode toggle uses internal behavior")
 check(RekordboxActionAdapter.commandID(for: .hotCue1) == "301e", "rekordbox Hot Cue 1 command")
 check(RekordboxActionAdapter.commandID(for: .callNextMemoryCue) == "3039", "rekordbox next Memory Cue command")
 check(RekordboxActionAdapter.commandID(for: .callPreviousMemoryCue) == "303a", "rekordbox previous Memory Cue command")
@@ -96,6 +103,99 @@ check(unusedModifierResolver.handle(pressedKeys: [], mapping: actionMapping) == 
     ActionEvent(action: .quantize, phase: .triggered, sourceKey: .k7, sourceLabel: "K7")
 ], "unused modifier emits standalone Action on release")
 
+let threeKeyChord = KeyChord(keys: [.k7, .k8, .k1])!
+let overlappingChordMapping = ActionMapping(
+    keys: [:],
+    chords: [
+        KeyChord(modifier: .k8, trigger: .k1): .captureWaveformPosition,
+        threeKeyChord: .cycleGroup,
+    ]
+)
+var threeChordResolver = InputActionResolver()
+check(
+    threeChordResolver.handle(pressedKeys: [.k7, .k8], mapping: overlappingChordMapping).isEmpty,
+    "three-key chord modifiers are deferred"
+)
+check(threeChordResolver.handle(pressedKeys: [.k7, .k8, .k1], mapping: overlappingChordMapping) == [
+    ActionEvent(action: .cycleGroup, phase: .triggered, sourceKey: .k1, sourceLabel: "K7+K8+K1")
+], "three-key chord wins over overlapping two-key chord")
+
+let fiveKeyChord = KeyChord(keys: [.k7, .k8, .k5, .k4, .k1])!
+let fiveKeyMapping = ActionMapping(keys: [:], chords: [fiveKeyChord: .toggleRekordboxMode])
+var fiveKeyResolver = InputActionResolver()
+check(
+    fiveKeyResolver.handle(pressedKeys: [.k7, .k8, .k5, .k4], mapping: fiveKeyMapping).isEmpty,
+    "arbitrary chord modifiers are deferred"
+)
+check(
+    fiveKeyResolver.handle(
+        pressedKeys: [.k7, .k8, .k5, .k4, .k1],
+        mapping: fiveKeyMapping
+    ).first?.action == .toggleRekordboxMode,
+    "five-key chord resolves an Action"
+)
+check(KeyChord(keys: ACK05Key.allCases) != nil, "all ACK05 buttons can form one chord")
+check(KeyChord(keys: [.k1]) == nil, "single key is not represented as a chord")
+
+let occupiedConflict = ActionMappingConflictDetector.conflict(
+    for: .key(.k1),
+    target: .action(.hotCue2),
+    profile: .defaultValue,
+    selectedGroup: 1
+)
+check(
+    occupiedConflict?.kind == .occupied(existing: .action(.hotCue3)),
+    "detect an existing physical shortcut collision"
+)
+let longModifierChord = KeyChord(keys: [.k9, .k1])!
+let modifierConflict = ActionMappingConflictDetector.conflict(
+    for: .chord(longModifierChord),
+    target: .action(.deleteHotCue1),
+    profile: .defaultValue,
+    selectedGroup: 1
+)
+check(
+    modifierConflict?.kind == .chordUsesLongPressModifier(key: .k9, existing: .action(.cue)),
+    "detect a chord modifier assigned to a hold Action"
+)
+var longTargetProfile = OverCUEProfile.defaultValue
+longTargetProfile.keyMap["K7"] = "unassigned"
+let longTargetConflict = ActionMappingConflictDetector.conflict(
+    for: .key(.k7),
+    target: .action(.cue),
+    profile: longTargetProfile,
+    selectedGroup: 1
+)
+check(
+    longTargetConflict?.kind == .longPressTargetUsesChord(
+        chord: KeyChord(modifier: .k7, trigger: .k1),
+        chordTarget: .action(.deleteHotCue3)
+    ),
+    "detect a hold Action assigned to an existing chord modifier"
+)
+var dialChordConflictProfile = OverCUEProfile.defaultValue
+dialChordConflictProfile.dialChordMap["K7+DIAL_RIGHT"] = ActionID.toggleRekordboxMode.rawValue
+let occupiedDialChord = DialChord(keys: [.k7], direction: .clockwise)!
+check(
+    ActionMappingConflictDetector.conflict(
+        for: .dialChord(occupiedDialChord),
+        target: .action(.cycleGroup),
+        profile: dialChordConflictProfile,
+        selectedGroup: 1
+    )?.kind == .occupied(existing: .action(.toggleRekordboxMode)),
+    "detect an existing key hold plus dial collision"
+)
+let longDialChord = DialChord(keys: [.k9], direction: .counterclockwise)!
+check(
+    ActionMappingConflictDetector.conflict(
+        for: .dialChord(longDialChord),
+        target: .action(.cycleGroup),
+        profile: .defaultValue,
+        selectedGroup: 1
+    )?.kind == .dialChordUsesLongPressModifier(key: .k9, existing: .action(.cue)),
+    "detect a held dial modifier assigned to a hold Action"
+)
+
 let legacyConfiguration = OverCUEConfiguration(
     version: 2,
     defaultProfile: "legacy",
@@ -139,6 +239,148 @@ check(
     migration.configuration.profiles["legacy"]?.chordMap["K7+K3"] == "call_next_memory_cue",
     "migration upgrades prior default chords"
 )
+let version4Migration = ActionConfigurationMigrator.migrateToVersion4(legacyConfiguration)
+check(version4Migration.configuration.version == 4, "migration updates configuration to version 4")
+check(
+    version4Migration.configuration.profiles["legacy"]?.dialMap["clockwise"] == "jog_search_right",
+    "version 4 migration adds default clockwise Jog Search mapping"
+)
+check(
+    OverCUEProfile.defaultValue.storedMapping(for: 1).rekordboxMode == .performance,
+    "default group 1 uses Performance mode"
+)
+check(
+    OverCUEProfile.defaultValue.storedMapping(for: 2).rekordboxMode == .performance,
+    "default group 2 uses Performance mode"
+)
+check(
+    OverCUEProfile.defaultValue.storedMapping(for: 2).keyMap["K10"] == "rekordbox:3106",
+    "default group 2 targets Deck 2 commands"
+)
+check(
+    OverCUEProfile.defaultValue.storedMapping(for: 3).rekordboxMode == .export,
+    "default group 3 uses Export mode"
+)
+check(
+    OverCUEProfile.defaultValue.storedMapping(for: 1).dialChordMap["K7+DIAL_LEFT"]
+        == "rekordbox:3050",
+    "default group 1 maps K7 plus dial left to Deck 1 Pitch Bend minus"
+)
+check(
+    OverCUEProfile.defaultValue.storedMapping(for: 2).dialChordMap["K7+DIAL_RIGHT"]
+        == "rekordbox:314f",
+    "default group 2 maps K7 plus dial right to Deck 2 Pitch Bend plus"
+)
+check(
+    OverCUEProfile.defaultValue.storedMapping(for: 1).chordMap["K7+K2"]
+        == ActionID.cycleGroup.rawValue,
+    "default mapping cycles groups in ascending order with K7+K2"
+)
+check(
+    OverCUEProfile.defaultValue.storedMapping(for: 1).chordMap["K7+K5"]
+        == ActionID.cycleGroupBackward.rawValue,
+    "default mapping cycles groups in descending order with K7+K5"
+)
+
+var previousDefaultProfile = OverCUEProfile.defaultValue
+var previousGroup1 = previousDefaultProfile.storedMapping(for: 1)
+previousGroup1.dialChordMap = [:]
+previousGroup1.rekordboxMode = .export
+previousGroup1.chordMap["K7+K2"] = ActionID.cycleGroup.rawValue
+previousDefaultProfile.setMapping(previousGroup1, for: 1)
+previousDefaultProfile.setMapping(OverCUEGroupMapping(rekordboxMode: .export), for: 2)
+previousDefaultProfile.setMapping(OverCUEGroupMapping(rekordboxMode: .export), for: 3)
+let version5Migration = ActionConfigurationMigrator.migrateToVersion5(
+    OverCUEConfiguration(version: 4, profiles: ["default": previousDefaultProfile])
+)
+check(version5Migration.configuration.version == 5, "migration updates configuration to version 5")
+check(
+    version5Migration.configuration.profiles["default"]?.storedMapping(for: 1).rekordboxMode
+        == .performance,
+    "version 5 migration updates previous default group 1 mode"
+)
+check(
+    version5Migration.configuration.profiles["default"]?.storedMapping(for: 1)
+        .dialChordMap["K7+DIAL_RIGHT"] == "rekordbox:304f",
+    "version 5 migration adds Deck 1 Pitch Bend mapping"
+)
+check(
+    version5Migration.configuration.profiles["default"]?.storedMapping(for: 1)
+        .chordMap["K7+K2"] == ActionID.cycleGroup.rawValue,
+    "version 5 migration preserves custom group 1 mappings"
+)
+check(
+    version5Migration.configuration.profiles["default"]?.storedMapping(for: 2)
+        .keyMap["K10"] == "rekordbox:3106",
+    "version 5 migration seeds Deck 2 defaults"
+)
+var previousVersion5Profile = version5Migration.configuration.profiles["default"]!
+var previousVersion5Group1 = previousVersion5Profile.storedMapping(for: 1)
+previousVersion5Group1.chordMap.removeValue(forKey: "K7+K5")
+previousVersion5Profile.setMapping(previousVersion5Group1, for: 1)
+let version6Migration = ActionConfigurationMigrator.migrateToVersion6(
+    OverCUEConfiguration(version: 5, profiles: ["default": previousVersion5Profile])
+)
+check(version6Migration.configuration.version == 6, "migration updates configuration to version 6")
+check(
+    version6Migration.configuration.profiles["default"]?.storedMapping(for: 1)
+        .chordMap["K7+K5"] == ActionID.cycleGroupBackward.rawValue,
+    "version 6 migration adds descending group cycle"
+)
+var globalGroupProfile = OverCUEProfile.defaultValue
+globalGroupProfile.chordMap["K7+K8+K1"] = ActionID.cycleGroup.rawValue
+check(
+    globalGroupProfile.mapping(for: 3).chordMap["K7+K8+K1"] == ActionID.cycleGroup.rawValue,
+    "group cycle mapping is inherited by every group"
+)
+check(
+    globalGroupProfile.storedMapping(for: 3).chordMap["K7+K8+K1"] == nil,
+    "inherited group cycle mapping is not duplicated in stored group maps"
+)
+let stableVersion3 = OverCUEConfiguration(
+    version: 3,
+    profiles: [
+        "default": OverCUEProfile(keyMap: ["K1": "rekordbox:42ff"], chordMap: [:]),
+    ]
+)
+check(
+    ActionConfigurationMigrator.migrateToVersion4(stableVersion3)
+        .configuration.profiles["default"]?.keyMap["K1"] == "rekordbox:42ff",
+    "version 4 migration preserves generic rekordbox targets"
+)
+
+let heldDialChord = DialChord(keys: [.k7], direction: .clockwise)!
+let heldDialMapping = ActionMapping(
+    keys: [.k7: .quantize],
+    chords: [:],
+    dialChords: [heldDialChord: .toggleRekordboxMode]
+)
+var heldDialResolver = InputActionResolver()
+check(
+    heldDialResolver.handle(pressedKeys: [.k7], mapping: heldDialMapping).isEmpty,
+    "key used by a dial chord is deferred while held"
+)
+check(
+    heldDialResolver.dialEvent(for: .clockwise, mapping: heldDialMapping)?.action
+        == .toggleRekordboxMode,
+    "held key plus dial resolves an Action"
+)
+check(
+    heldDialResolver.handle(pressedKeys: [], mapping: heldDialMapping).isEmpty,
+    "dial chord suppresses the held key standalone Action"
+)
+
+do {
+    let legacyGroupJSON = Data("""
+    {"keyMap":{"K1":"hot_cue_1"},"chordMap":{},"dialMap":{}}
+    """.utf8)
+    let group = try JSONDecoder().decode(OverCUEGroupMapping.self, from: legacyGroupJSON)
+    check(group.dialChordMap.isEmpty, "decode group mapping without dialChordMap")
+    check(group.rekordboxMode == nil, "decode group mapping without rekordboxMode")
+} catch {
+    failureCount += 1
+    fputs("FAIL: unexpected legacy group mapping error: \(error)\n", stderr)
+}
 
 check(
     decoder.decode(reportID: 6, bytes: [6, 1, 0x57, 0, 0, 0, 0, 0]) == .dial(.clockwise),
@@ -197,6 +439,15 @@ check(
     ) == [.k5, .k1],
     "retain modifier-only K5 in K5+K1 chord"
 )
+let k7Report: [UInt8] = [6, 1, 0x16, 0, 0, 0, 0, 0]
+check(
+    decoder.pressedKeys(reportID: 6, bytes: k7Report, previousKeys: []) == [.k7],
+    "decode initial K7 press"
+)
+check(
+    decoder.pressedKeys(reportID: 6, bytes: k7Report, previousKeys: [.k7]) == [.k7, .k5],
+    "infer K5 added after K7 from a duplicate HID report"
+)
 check(
     decoder.pressedKeys(
         reportID: 6,
@@ -212,6 +463,14 @@ check(
         previousKeys: [.k6]
     ) == [.k6, .k9, .k5],
     "reconstruct combined modifier-only keys"
+)
+check(
+    decoder.pressedKeys(
+        reportID: 6,
+        bytes: [6, 1, 0x16, 0x1D, 0x12, 0, 0, 0],
+        previousKeys: [.k7, .k8]
+    ) == [.k7, .k8, .k1],
+    "decode three simultaneously pressed keys"
 )
 check(
     decoder.pressedKeys(reportID: 6, bytes: [6, 0, 0, 0, 0, 0, 0, 0]) == [],
@@ -328,10 +587,21 @@ do {
 
     let settingsXML = """
     <?xml version="1.0" encoding="UTF-8"?>
-    <PROPERTIES><VALUE name="performaceKeyMapping" val="1234567890123"/></PROPERTIES>
+    <PROPERTIES>
+      <VALUE name="performanceKeyMapping" val="1234567890123"/>
+      <VALUE name="exportKeyMapping" val="9876543210123"/>
+    </PROPERTIES>
     """
     let settings = try RekordboxSettings.parse(data: Data(settingsXML.utf8))
     check(settings.performanceKeyMappingID == "1234567890123", "parse selected Performance mapping")
+    check(settings.exportKeyMappingID == "9876543210123", "parse selected Export mapping when available")
+
+    let functionShortcut = try RekordboxKeyboardShortcut(rawValue: "command+F10")
+    check(functionShortcut.keyCode == 109, "parse F10 key code without spacing around separators")
+    check(functionShortcut.modifiers == [.command], "parse command modifier for F10")
+    let symbolShortcut = try RekordboxKeyboardShortcut(rawValue: "shift + >")
+    check(symbolShortcut.keyCode == 47, "parse symbol shortcut from rekordbox preset")
+    check(symbolShortcut.modifiers == [.shift], "parse symbol shortcut modifier")
 } catch {
     failureCount += 1
     fputs("FAIL: unexpected rekordbox XML parsing error: \(error)\n", stderr)
@@ -341,7 +611,7 @@ do {
     let temporaryHome = FileManager.default.temporaryDirectory
         .appendingPathComponent("overcue-loader-\(UUID().uuidString)")
     let baseURL = temporaryHome
-        .appendingPathComponent("Library/Application Support/Pioneer/rekordbox6")
+        .appendingPathComponent("Library/Application Support/Pioneer/rekordbox7")
     let mappingsURL = baseURL.appendingPathComponent("KeyMappings")
     try FileManager.default.createDirectory(at: mappingsURL, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: temporaryHome) }
@@ -376,17 +646,18 @@ do {
         to: mappingsURL.appendingPathComponent("rekordbox_1234567890123.mappings")
     )
     try Data(exportMappingXML.utf8).write(
-        to: mappingsURL.appendingPathComponent("rekordbox_0000000000030.mappings")
+        to: mappingsURL.appendingPathComponent("rekordbox_4567890123456.mappings")
     )
 
     let loader = RekordboxKeyMappingLoader(homeDirectory: temporaryHome)
+    check(loader.baseURL.lastPathComponent == "rekordbox7", "discover versioned rekordbox settings directory")
     let performance = try loader.load(mode: .performance)
     check(performance.mappingID == "1234567890123", "load selected Performance mapping ID")
     check(performance.mapping.name == "Loader Test", "load selected Performance mapping XML")
     check(performance.mapping.entries.count == 1, "load Performance shortcut entries")
     let export = try loader.load(mode: .export)
-    check(export.mappingID == "0000000000030", "load fixed Export mapping ID")
-    check(export.mapping.name == "Export Loader Test", "switch loader to Export mapping XML")
+    check(export.mappingID == "4567890123456", "discover Export mapping ID from mapping contents")
+    check(export.mapping.name == "Export Loader Test", "load discovered Export mapping XML")
     check(export.mapping.entries.count == 2, "load distinct Export shortcut entries")
 } catch {
     failureCount += 1
@@ -398,11 +669,14 @@ do {
     configuration.profiles["default"]?.waveformPosition = WaveformPosition(x: 640.5, y: 212.25)
     configuration.profiles["default"]?.keyMap["K1"] = "hot_cue_1"
     configuration.profiles["alternate"] = OverCUEProfile.defaultValue
+    var group2 = configuration.profiles["default"]!.storedMapping(for: 2)
+    group2.rekordboxMode = .performance
+    configuration.profiles["default"]!.setMapping(group2, for: 2)
     configuration.deviceProfiles["device-uuid"] = "alternate"
     let data = try JSONEncoder().encode(configuration)
     let decoded = try JSONDecoder().decode(OverCUEConfiguration.self, from: data)
     check(decoded == configuration, "round-trip external configuration")
-    check(decoded.version == 3, "persist profile configuration version")
+    check(decoded.version == 6, "persist profile configuration version")
     check(
         decoded.profiles["default"]?.waveformPosition == WaveformPosition(x: 640.5, y: 212.25),
         "persist profile waveform position"
@@ -420,7 +694,15 @@ do {
         decoded.profiles["default"]?.chordMap["K7+K6"] == "call_previous_memory_cue",
         "persist previous Memory Cue chord"
     )
+    check(
+        decoded.profiles["default"]?.dialMap["clockwise"] == "jog_search_right",
+        "persist clockwise dial mapping"
+    )
     check(decoded.deviceProfiles["device-uuid"] == "alternate", "persist device profile assignment")
+    check(
+        decoded.profiles["default"]?.mapping(for: 2).rekordboxMode == .performance,
+        "persist rekordbox mode independently for group 2"
+    )
 } catch {
     failureCount += 1
     fputs("FAIL: unexpected configuration error: \(error)\n", stderr)

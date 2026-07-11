@@ -11,7 +11,7 @@ OverCUEは、XPPen ACK05のダイヤルと10個のキーをrekordboxのCUE仕込
 
 - ダイヤル: 拡大波形上のマウスドラッグ
 - K1〜K10: rekordboxの現在のキーボードショートカット
-- 2キーコード: Hot Cue削除、波形位置登録などの任意操作
+- 2〜10キーコード: Hot Cue削除、波形位置登録などの任意操作
 
 DDJ-SX互換の仮想MIDI出力も残しているが、rekordbox Freeプランでは接続機器としての制御が制限されるため、通常運用にはマウス方式を使用する。
 
@@ -191,11 +191,13 @@ rekordbox固有のcommandIdは`RekordboxActionAdapter`だけが保持する。`c
 
 ## 8. rekordboxショートカット連携
 
-OverCUEは固定キーを直接決め打ちせず、起動時にrekordboxのKeyMappings XMLを読み、commandIdから現在のショートカットを解決する。
+OverCUEは固定キーやマッピングファイルIDを直接決め打ちせず、起動時にrekordboxの設定とKeyMappings XMLを読み、commandIdから現在のショートカットを解決する。
 
-- Export: `rekordbox_0000000000030.mappings`
-- Performance: `rekordbox3.settings`の`performaceKeyMapping`で選択されたマッピング
-- 基準ディレクトリ: `~/Library/Application Support/Pioneer/rekordbox6/`
+- Export: 設定に選択IDがあればその値を使用し、現行設定のように値がなければKeyMappings内のマッピング名からExport用を検索
+- Performance: rekordbox設定の`performaceKeyMapping`（表記差異も許容）で選択されたマッピング
+- 基準ディレクトリ: `~/Library/Application Support/Pioneer/`以下からKeyMappingsを持つrekordboxディレクトリを検索
+
+`command + F10`を含むF1〜F20、修飾キーの順序・区切り空白の差異、および標準プリセットで使われる記号キーを解釈する。未知のキー表現が残っていても、その割り当てだけを警告してスキップし、CLI全体は停止しない。
 
 対象操作がrekordbox側で未割り当ての場合、代替キーは推測せず、ログへ`unassigned`を表示して何も送信しない。標準Performance 1ではQuantizeが未割り当てである。
 
@@ -209,11 +211,11 @@ OverCUEは固定キーを直接決め打ちせず、起動時にrekordboxのKeyM
 ~/Library/Application Support/OverCUE/config.json
 ```
 
-設定形式はversion 3。初回起動時に自動生成する。version 1または2設定を検出した場合は原本を`config.vN.backup.json`へ保存し、表示名を安定Action IDへ変換してversion 3へ自動移行する。未知の旧操作名は該当項目だけ無効化して警告し、その他の設定は保持する。
+設定形式はversion 6。初回起動時に自動生成する。version 1〜5設定を検出した場合は原本を`config.vN.backup.json`へ保存してversion 6へ自動移行する。旧デフォルト構成ではグループ1をPERFORMANCE / Deck 1、グループ2をPERFORMANCE / Deck 2、グループ3をEXPORT / Deck 1とし、K7＋ダイヤル左右へrekordbox既存のPitch Bend − / ＋、K7+K2へ昇順グループ切り替え、K7+K5へ降順グループ切り替えを追加する。ユーザーが変更した割り当ては保持する。デフォルトマップは`Sources/OverCUECore/Resources/DefaultKeyMapping.json`から読み込む。
 
 ```json
 {
-  "version": 3,
+  "version": 6,
   "defaultProfile": "default",
   "deviceProfiles": {
     "DEVICE-PHYSICAL-UUID": "default"
@@ -224,25 +226,35 @@ OverCUEは固定キーを直接決め打ちせず、起動時にrekordboxのKeyM
         "x": 640.5,
         "y": 212.25
       },
-      "keyMap": {
-        "K1": "hot_cue_3",
-        "K2": "delete_memory_cue",
-        "K3": "jump_forward",
-        "K4": "hot_cue_2",
-        "K5": "set_memory_cue",
-        "K6": "jump_backward",
-        "K7": "quantize",
-        "K8": "hot_cue_1",
-        "K9": "cue",
-        "K10": "play_pause"
-      },
-      "chordMap": {
-        "K8+K1": "capture_waveform_position",
-        "K7+K8": "delete_hot_cue_1",
-        "K7+K4": "delete_hot_cue_2",
-        "K7+K1": "delete_hot_cue_3",
-        "K7+K3": "call_next_memory_cue",
-        "K7+K6": "call_previous_memory_cue"
+      "groupMappings": {
+        "1": {
+          "rekordboxMode": "performance",
+          "keyMap": {
+            "K1": "hot_cue_3",
+            "K2": "delete_memory_cue",
+            "K3": "jump_forward",
+            "K4": "hot_cue_2",
+            "K5": "set_memory_cue",
+            "K6": "jump_backward",
+            "K7": "quantize",
+            "K8": "hot_cue_1",
+            "K9": "cue",
+            "K10": "play_pause"
+          },
+          "chordMap": {
+            "K8+K1": "capture_waveform_position",
+            "K7+K2": "cycle_group",
+            "K7+K5": "cycle_group_backward"
+          },
+          "dialMap": {
+            "counterclockwise": "jog_search_left",
+            "clockwise": "jog_search_right"
+          },
+          "dialChordMap": {
+            "K7+DIAL_LEFT": "rekordbox:3050",
+            "K7+DIAL_RIGHT": "rekordbox:304f"
+          }
+        }
       }
     }
   }
@@ -254,10 +266,22 @@ OverCUEは固定キーを直接決め打ちせず、起動時にrekordboxのKeyM
 各プロファイルは以下を独立して保持する。
 
 - `waveformPosition`: 波形ドラッグ座標
+- `groupMappings`: グループ1〜4の入力マップ
+- `rekordboxMode`: グループで使用する`export`または`performance`
 - `keyMap`: K1〜K10の単体操作
-- `chordMap`: 2キーコード操作
+- `chordMap`: 2〜10キーの任意数コード操作。末尾のキーをトリガーとして扱う
+- `dialMap`: `clockwise`と`counterclockwise`のダイヤル操作
+- `dialChordMap`: 1つ以上のキー保持とダイヤル左右を組み合わせた操作。例: `K7+DIAL_RIGHT`
 
-`keyMap`で省略したキーはデフォルト割り当てを使用する。`chordMap`から項目を削除すると、そのコードは無効になる。設定編集後はOverCUEを再起動する。
+グループ切り替えActionはグループ1で設定するプロファイル共通割り当てで、昇順は1→2→3→4→1、降順は1→4→3→2→1と循環する。旧`cycle_group` Actionは昇順として扱う。EXPORT / PERFORMANCE切り替えActionは、CLIが参照するrekordboxショートカットセットを切り替える。設定編集後はOverCUEを再起動する。
+
+GUIのグループPickerとCLIの実行グループは双方向に同期する。GUIからグループを変更した場合はCLIとメニューバーも更新し、ACK05から変更した場合はGUIのPickerも更新する。モードは各グループの`rekordboxMode`へ保存し、グループ変更時に保存値を復元する。ACK05またはGUIからモードを変更した場合は現在グループへ直ちに保存する。
+
+表示言語はOverCUEメニューの設定画面から日本語、英語、簡体字中国語を切り替える。翻訳辞書は`Sources/OverCUEApp/Resources/Localization`のJSONファイルとして管理し、選択はUserDefaultsへ保存する。rekordbox由来の機能名はrekordboxマッピングの記述を優先する。
+
+割り当て保存前に物理入力の競合を検査する。同じ単体キー、同じコード、同じダイヤル操作が別Actionへ割り当て済みの場合は、ダイアログで上書きを確認する。コードまたはキー保持＋ダイヤルの修飾キーにCue保持やJumpリピートなどの長押しActionが存在する場合、および長押しActionを既存の修飾キーへ設定する場合は保存しない。競合は赤、保存・更新成功は緑、入力待ちや状態変更はグレーのトーストで画面右下に表示する。OverCUE設定セクションは他カテゴリと同様に折りたためる。
+
+メニューバーはゴーストアイコン、現在のモード頭文字（E/P）、現在の実行グループの順に表示する。CLI内のグループ／モードActionによる変更はプロセス間通知でGUIへ同期する。
 
 ### 9.2 デバイスとプロファイルの対応
 

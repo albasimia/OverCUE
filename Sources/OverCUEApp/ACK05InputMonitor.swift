@@ -7,20 +7,21 @@ private enum ACK05HardwareIdentity {
     static let productID = 0x0202
 }
 
-enum ACK05InputMonitorError: LocalizedError {
+enum ACK05InputMonitorError: @preconcurrency LocalizedError {
     case openFailed(IOReturn)
 
-    var errorDescription: String? {
+    @MainActor var errorDescription: String? {
         switch self {
         case let .openFailed(status):
             let code = String(format: "0x%08X", UInt32(bitPattern: status))
-            return "ACK05を開けませんでした（\(code)）。overcue-cliが起動中の場合は終了してから再試行してください。"
+            return L10n.text("input.openFailed", code)
         }
     }
 }
 
 final class ACK05InputMonitor {
     var onPressedKeysChanged: ((Set<ACK05Key>) -> Void)?
+    var onDialTurned: ((DialDirection) -> Void)?
     var onConnectionChanged: ((Bool) -> Void)?
 
     private let manager: IOHIDManager
@@ -93,6 +94,10 @@ final class ACK05InputMonitor {
     ) {
         guard result == kIOReturnSuccess else { return }
         let bytes = Array(UnsafeBufferPointer(start: report, count: max(0, Int(reportLength))))
+        if case let .dial(direction) = decoder.decode(reportID: reportID, bytes: bytes) {
+            onDialTurned?(direction)
+            return
+        }
         guard let keys = decoder.pressedKeys(
             reportID: reportID,
             bytes: bytes,

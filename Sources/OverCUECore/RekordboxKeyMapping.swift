@@ -89,7 +89,7 @@ private final class MappingXMLDelegate: NSObject, XMLParserDelegate {
     }
 }
 
-public enum RekordboxMappingMode: String, CaseIterable, Identifiable, Sendable {
+public enum RekordboxMappingMode: String, Codable, CaseIterable, Identifiable, Sendable {
     case performance
     case export
 
@@ -126,44 +126,126 @@ public struct RekordboxKeyMappingLoader: Sendable {
     public let baseURL: URL
 
     public init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
-        baseURL = homeDirectory
-            .appendingPathComponent("Library/Application Support/Pioneer/rekordbox6")
+        let pioneerURL = homeDirectory
+            .appendingPathComponent("Library/Application Support/Pioneer")
+        baseURL = Self.rekordboxDirectory(in: pioneerURL)
+            ?? pioneerURL.appendingPathComponent("rekordbox6")
     }
 
     public func load(mode: RekordboxMappingMode) throws -> LoadedRekordboxKeyMapping {
-        let mappingID: String
-        switch mode {
-        case .export:
-            mappingID = "0000000000030"
-        case .performance:
-            let settingsURL = baseURL.appendingPathComponent("rekordbox3.settings")
-            let settings = try RekordboxSettings.parse(data: Data(contentsOf: settingsURL))
-            guard let selectedID = settings.performanceKeyMappingID else {
-                throw RekordboxKeyMappingLoaderError.selectedPerformanceMappingNotFound
-            }
-            mappingID = selectedID
+        let mappings = try availableMappings()
+        let settings = try loadSettingsIfPresent()
+        let selectedID = settings?.keyMappingID(for: mode)
+        let selected: MappingFile?
+
+        if let selectedID {
+            selected = mappings.first { $0.id == selectedID }
+        } else if mode == .export {
+            selected = mappings
+                .filter { $0.mapping.name.localizedCaseInsensitiveContains("export") }
+                .sorted { lhs, rhs in
+                    let lhsPreset = lhs.mapping.name.localizedCaseInsensitiveCompare("Export (Preset)") == .orderedSame
+                    let rhsPreset = rhs.mapping.name.localizedCaseInsensitiveCompare("Export (Preset)") == .orderedSame
+                    if lhsPreset != rhsPreset { return lhsPreset }
+                    return lhs.url.lastPathComponent.localizedStandardCompare(rhs.url.lastPathComponent) == .orderedAscending
+                }
+                .first
+        } else {
+            throw RekordboxKeyMappingLoaderError.selectedPerformanceMappingNotFound
         }
 
-        let mappingURL = baseURL
-            .appendingPathComponent("KeyMappings")
-            .appendingPathComponent("rekordbox_\(mappingID).mappings")
-        let mapping = try RekordboxKeyMapping.parse(data: Data(contentsOf: mappingURL))
+        guard let selected else {
+            throw RekordboxKeyMappingLoaderError.mappingNotFound(mode: mode, selectedID: selectedID)
+        }
         return LoadedRekordboxKeyMapping(
             mode: mode,
-            mappingID: mappingID,
-            url: mappingURL,
-            mapping: mapping
+            mappingID: selected.id,
+            url: selected.url,
+            mapping: selected.mapping
         )
+    }
+
+    private func loadSettingsIfPresent() throws -> RekordboxSettings? {
+        let candidates = try FileManager.default.contentsOfDirectory(
+            at: baseURL,
+            includingPropertiesForKeys: nil
+        )
+        let settingsURL = candidates
+            .filter { $0.pathExtension == "settings" && !$0.lastPathComponent.contains("backup") }
+            .sorted { lhs, rhs in
+                let lhsPreferred = lhs.lastPathComponent == "rekordbox3.settings"
+                let rhsPreferred = rhs.lastPathComponent == "rekordbox3.settings"
+                if lhsPreferred != rhsPreferred { return lhsPreferred }
+                return lhs.lastPathComponent.localizedStandardCompare(rhs.lastPathComponent) == .orderedAscending
+            }
+            .first
+        guard let settingsURL else { return nil }
+        return try RekordboxSettings.parse(data: Data(contentsOf: settingsURL))
+    }
+
+    private func availableMappings() throws -> [MappingFile] {
+        let mappingsURL = baseURL.appendingPathComponent("KeyMappings")
+        let urls = try FileManager.default.contentsOfDirectory(
+            at: mappingsURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        )
+        return try urls
+            .filter {
+                $0.pathExtension.lowercased() == "mappings"
+                    && $0.lastPathComponent.lowercased().hasPrefix("rekordbox_")
+            }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+            .map { url in
+                MappingFile(
+                    id: Self.mappingID(from: url),
+                    url: url,
+                    mapping: try RekordboxKeyMapping.parse(data: Data(contentsOf: url))
+                )
+            }
+    }
+
+    private static func mappingID(from url: URL) -> String {
+        url.deletingPathExtension().lastPathComponent
+            .split(separator: "_").last.map(String.init) ?? url.deletingPathExtension().lastPathComponent
+    }
+
+    private static func rekordboxDirectory(in pioneerURL: URL) -> URL? {
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: pioneerURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+        return urls
+            .filter {
+                $0.lastPathComponent.lowercased().hasPrefix("rekordbox")
+                    && FileManager.default.fileExists(atPath: $0.appendingPathComponent("KeyMappings").path)
+            }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedDescending }
+            .first
+    }
+
+    private struct MappingFile {
+        let id: String
+        let url: URL
+        let mapping: RekordboxKeyMapping
     }
 }
 
 public enum RekordboxKeyMappingLoaderError: Error, LocalizedError {
     case selectedPerformanceMappingNotFound
+    case mappingNotFound(mode: RekordboxMappingMode, selectedID: String?)
 
     public var errorDescription: String? {
         switch self {
         case .selectedPerformanceMappingNotFound:
             "選択中のPERFORMANCEキーマッピングをrekordbox設定から取得できませんでした。"
+        case let .mappingNotFound(mode, selectedID):
+            if let selectedID {
+                "rekordbox設定が参照する\(mode.displayName)キーマッピング（ID: \(selectedID)）が見つかりません。"
+            } else {
+                "\(mode.displayName)キーマッピングをrekordboxのKeyMappingsから検出できませんでした。"
+            }
         }
     }
 }
@@ -210,6 +292,19 @@ public enum RekordboxShortcutCategory: String, CaseIterable, Identifiable, Senda
 
 public struct RekordboxSettings: Equatable, Sendable {
     public let performanceKeyMappingID: String?
+    public let exportKeyMappingID: String?
+
+    public init(performanceKeyMappingID: String?, exportKeyMappingID: String? = nil) {
+        self.performanceKeyMappingID = performanceKeyMappingID
+        self.exportKeyMappingID = exportKeyMappingID
+    }
+
+    public func keyMappingID(for mode: RekordboxMappingMode) -> String? {
+        switch mode {
+        case .performance: performanceKeyMappingID
+        case .export: exportKeyMappingID
+        }
+    }
 
     public static func parse(data: Data) throws -> RekordboxSettings {
         let delegate = SettingsXMLDelegate()
@@ -219,12 +314,16 @@ public struct RekordboxSettings: Equatable, Sendable {
         guard parser.parse() else {
             throw parser.parserError ?? RekordboxKeyMappingError.invalidXML
         }
-        return RekordboxSettings(performanceKeyMappingID: delegate.performanceKeyMappingID)
+        return RekordboxSettings(
+            performanceKeyMappingID: delegate.performanceKeyMappingID,
+            exportKeyMappingID: delegate.exportKeyMappingID
+        )
     }
 }
 
 private final class SettingsXMLDelegate: NSObject, XMLParserDelegate {
     var performanceKeyMappingID: String?
+    var exportKeyMappingID: String?
 
     func parser(
         _ parser: XMLParser,
@@ -233,9 +332,17 @@ private final class SettingsXMLDelegate: NSObject, XMLParserDelegate {
         qualifiedName qName: String?,
         attributes attributeDict: [String: String] = [:]
     ) {
-        if elementName == "VALUE",
-           attributeDict["name"] == "performaceKeyMapping" {
-            performanceKeyMappingID = attributeDict["val"]
+        guard elementName == "VALUE",
+              let name = attributeDict["name"]?.lowercased(),
+              name.contains("keymapping"),
+              let value = attributeDict["val"],
+              !value.isEmpty
+        else { return }
+
+        if name.contains("performace") || name.contains("performance") {
+            performanceKeyMappingID = value
+        } else if name.contains("export") {
+            exportKeyMappingID = value
         }
     }
 }
