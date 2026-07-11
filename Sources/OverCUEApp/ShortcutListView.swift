@@ -3,7 +3,9 @@ import SwiftUI
 
 struct ShortcutListView: View {
     @ObservedObject var model: ShortcutSettingsModel
+    @EnvironmentObject private var localization: AppLocalization
     @State private var expandedCategories: Set<RekordboxShortcutCategory> = [.deck1]
+    @State private var isOverCUEExpanded = true
     private let modeOrder: [RekordboxMappingMode] = [.export, .performance]
 
     var body: some View {
@@ -27,42 +29,27 @@ struct ShortcutListView: View {
 
     @ViewBuilder
     private var captureStatus: some View {
-        if let message = model.captureMessage {
+        if model.isCapturing, let message = model.captureMessage {
             HStack(spacing: 10) {
                 Image(systemName: model.isCapturing ? "keyboard.badge.ellipsis" : "checkmark.circle.fill")
-                    .foregroundStyle(model.isCapturing ? Color.orange : Color.green)
+                    .foregroundStyle(.secondary)
                 Text(message)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(2)
                 Spacer()
-                if model.isCapturing {
-                    Button("キャンセル", action: model.cancelCapture)
-                        .buttonStyle(.bordered)
-                }
+                Button(localization.text("common.cancel"), action: model.cancelCapture)
+                    .buttonStyle(.bordered)
             }
             .padding(.horizontal, 13)
             .frame(minHeight: 42)
-            .background((model.isCapturing ? Color.orange : Color.green).opacity(0.12))
-            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-        } else if let error = model.captureError {
-            HStack(spacing: 10) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
-                Text(error)
-                    .font(.subheadline)
-                    .lineLimit(3)
-                Spacer()
-            }
-            .padding(.horizontal, 13)
-            .frame(minHeight: 42)
-            .background(Color.red.opacity(0.12))
+            .background(Color.secondary.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("ショートカット設定")
+            Text(localization.text("shortcuts.title"))
                 .font(.largeTitle.bold())
                 .lineLimit(1)
 
@@ -70,7 +57,7 @@ struct ShortcutListView: View {
                 Spacer()
 
                 HStack(spacing: 8) {
-                    Text("モード")
+                    Text(localization.text("shortcuts.mode"))
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
@@ -92,10 +79,10 @@ struct ShortcutListView: View {
                 }
 
                 Button(action: model.reloadAndRestartBridge) {
-                    Label("再読み込み", systemImage: "arrow.clockwise")
+                    Label(localization.text("shortcuts.reload"), systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.bordered)
-                .help("rekordboxのキーマッピングXMLを再読み込み")
+                .help(localization.text("shortcuts.reload.help"))
             }
         }
     }
@@ -104,7 +91,7 @@ struct ShortcutListView: View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("機能、キー、commandIdを検索", text: $model.searchText)
+            TextField(localization.text("shortcuts.search"), text: $model.searchText)
                 .textFieldStyle(.plain)
             if !model.searchText.isEmpty {
                 Button {
@@ -133,7 +120,7 @@ struct ShortcutListView: View {
                 .frame(width: 8, height: 8)
             Text(model.mappingName)
                 .font(.subheadline.weight(.semibold))
-            Text("\(model.entries.count)件")
+            Text(localization.text("shortcuts.count", model.entries.count))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             Spacer()
@@ -154,14 +141,19 @@ struct ShortcutListView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 1) {
-                    if model.sections.isEmpty, model.errorMessage == nil {
+                    if !model.filteredInternalEntries.isEmpty {
+                        overCUESection
+                    }
+
+                    if model.sections.isEmpty, model.filteredInternalEntries.isEmpty,
+                       model.errorMessage == nil {
                         VStack(spacing: 12) {
                             Image(systemName: "keyboard")
                                 .font(.system(size: 34))
                                 .foregroundStyle(.secondary)
-                            Text("該当するショートカットがありません")
+                            Text(localization.text("shortcuts.empty"))
                                 .font(.headline)
-                            Text("検索条件を変更してください。")
+                            Text(localization.text("shortcuts.empty.help"))
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
@@ -189,6 +181,41 @@ struct ShortcutListView: View {
         }
     }
 
+    private var overCUESection: some View {
+        let isExpanded = !model.searchText.isEmpty || isOverCUEExpanded
+        return VStack(spacing: 0) {
+            Button {
+                isOverCUEExpanded.toggle()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 12, weight: .bold))
+                        .frame(width: 14)
+                    Image(systemName: "slider.horizontal.3")
+                    Text(localization.text("shortcuts.overcue"))
+                        .font(.headline)
+                    Text("\(model.filteredInternalEntries.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, 16)
+                .frame(height: 44)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                columnHeader
+                ForEach(model.filteredInternalEntries) { entry in
+                    shortcutRow(entry)
+                        .id(entry.id)
+                }
+            }
+            Divider()
+        }
+    }
+
     private func categorySection(_ section: ShortcutSection) -> some View {
         let isExpanded = !model.searchText.isEmpty || expandedCategories.contains(section.category)
 
@@ -204,7 +231,7 @@ struct ShortcutListView: View {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .font(.system(size: 12, weight: .bold))
                         .frame(width: 14)
-                    Text(section.category.rawValue)
+                    Text(categoryName(section.category))
                         .font(.headline)
                     Text("\(section.entries.count)")
                         .font(.caption.monospacedDigit())
@@ -231,11 +258,11 @@ struct ShortcutListView: View {
 
     private var columnHeader: some View {
         HStack(spacing: 16) {
-            Text("機能")
+            Text(localization.text("shortcuts.column.function"))
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text("rekordbox")
+            Text(localization.text("shortcuts.column.rekordbox"))
                 .frame(width: 150, alignment: .leading)
-            Text("ACK05 キーマップ")
+            Text(localization.text("shortcuts.column.ack05"))
                 .frame(width: 190, alignment: .leading)
         }
         .font(.caption.weight(.semibold))
@@ -281,7 +308,7 @@ struct ShortcutListView: View {
 
             HStack(spacing: 7) {
                 if labels.isEmpty {
-                    Text("未設定")
+                    Text(localization.text("common.unassigned"))
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 } else {
@@ -302,7 +329,7 @@ struct ShortcutListView: View {
                         .foregroundStyle(model.editingEntryID == entry.id ? Color.orange : Color.accentColor)
                 }
                 .buttonStyle(.plain)
-                .help("ACK05から入力してキーマップを変更")
+                .help(localization.text("shortcuts.edit.help"))
 
                 Button {
                     model.removeBindings(for: entry)
@@ -312,7 +339,7 @@ struct ShortcutListView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!configured)
-                .help("ACK05キーマップから削除")
+                .help(localization.text("shortcuts.remove.help"))
             }
             .frame(width: 190, alignment: .leading)
         }
@@ -328,5 +355,22 @@ struct ShortcutListView: View {
                 Color.clear
             }
         }
+    }
+
+    private func categoryName(_ category: RekordboxShortcutCategory) -> String {
+        let key: String
+        switch category {
+        case .browse: key = "category.browse"
+        case .deck1: key = "category.deck1"
+        case .deck2: key = "category.deck2"
+        case .allDecks: key = "category.allDecks"
+        case .sampler: key = "category.sampler"
+        case .recordings: key = "category.recordings"
+        case .general: key = "category.general"
+        case .view: key = "category.view"
+        case .playlist: key = "category.playlist"
+        case .other: key = "category.other"
+        }
+        return localization.text(key)
     }
 }

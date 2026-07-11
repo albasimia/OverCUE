@@ -3,6 +3,7 @@ import SwiftUI
 
 struct DevicePanelView: View {
     @ObservedObject var model: ShortcutSettingsModel
+    @EnvironmentObject private var localization: AppLocalization
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -10,7 +11,7 @@ struct DevicePanelView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("ACK05")
                         .font(.title2.bold())
-                    Text("デバイスマップ")
+                    Text(localization.text("device.map"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -19,9 +20,15 @@ struct DevicePanelView: View {
             }
 
             HStack {
-                Text("グループ")
+                Text(localization.text("device.group"))
                     .font(.headline)
-                Picker("グループ", selection: $model.selectedGroup) {
+                Picker(
+                    localization.text("device.group"),
+                    selection: Binding(
+                        get: { model.selectedGroup },
+                        set: { model.setGroup($0) }
+                    )
+                ) {
                     ForEach(1...4, id: \.self) { group in
                         Text("\(group)").tag(group)
                     }
@@ -36,7 +43,8 @@ struct DevicePanelView: View {
                     rotationQuarterTurns: model.rotationQuarterTurns,
                     highlightedKeys: model.highlightedKeys,
                     selectedKey: model.selectedDeviceKey,
-                    shortcutForKey: model.shortcutAssigned(to:),
+                    assignmentForKey: model.deviceAssignment(to:),
+                    dialAssignment: model.dialAssignment(_:),
                     onSelectKey: model.selectDeviceKey
                 )
 
@@ -46,7 +54,7 @@ struct DevicePanelView: View {
                         .frame(width: 34, height: 34)
                 }
                 .buttonStyle(.bordered)
-                .help("筐体を90°回転")
+                .help(localization.text("device.rotate"))
                 .padding(6)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -55,11 +63,14 @@ struct DevicePanelView: View {
                 if let key = model.selectedDeviceKey {
                     Text(key.rawValue.uppercased())
                         .font(.headline)
-                    Text(model.shortcutAssigned(to: key)?.description ?? "未割り当て")
+                    Text(
+                        model.deviceAssignment(to: key)?.functionName
+                            ?? localization.text("common.unassigned")
+                    )
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("ボタンまたはショートカットを選択")
+                    Text(localization.text("device.select"))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -76,7 +87,8 @@ private struct ACK05DeviceMap: View {
     let rotationQuarterTurns: Int
     let highlightedKeys: Set<ACK05Key>
     let selectedKey: ACK05Key?
-    let shortcutForKey: (ACK05Key) -> RekordboxShortcutEntry?
+    let assignmentForKey: (ACK05Key) -> ACK05DeviceAssignment?
+    let dialAssignment: (DialDirection) -> ACK05DeviceAssignment?
     let onSelectKey: (ACK05Key) -> Void
 
     private var angle: Angle {
@@ -97,7 +109,7 @@ private struct ACK05DeviceMap: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("ACK05ボタン配置")
+        .accessibilityLabel(L10n.text("device.accessibility"))
     }
 
     private var deviceBody: some View {
@@ -116,7 +128,7 @@ private struct ACK05DeviceMap: View {
             Capsule()
                 .fill(Color.white.opacity(0.18))
                 .frame(width: 5, height: 28)
-                .offset(x: -356, y: 104)
+                .offset(x: -309, y: 104)
 
             ForEach(ACK05Key.allCases, id: \.self) { key in
                 let layout = layout(for: key)
@@ -140,17 +152,35 @@ private struct ACK05DeviceMap: View {
                 .overlay {
                     Circle().stroke(Color.white.opacity(0.16), lineWidth: 1)
                 }
-            Capsule()
-                .fill(Color.accentColor)
-                .frame(width: 3, height: 20)
-                .offset(y: -106)
+            HStack(spacing: 0) {
+                dialLabel(.counterclockwise, symbol: "←")
+                Spacer(minLength: 0)
+                dialLabel(.clockwise, symbol: "→")
+            }
+            .frame(width: 232)
+            .rotationEffect(.degrees(Double(-rotationQuarterTurns * 90)))
         }
+    }
+
+    private func dialLabel(_ direction: DialDirection, symbol: String) -> some View {
+        let assignment = dialAssignment(direction)
+        return VStack(spacing: 1) {
+            Text(symbol)
+                .font(.caption.bold())
+            Text(assignment?.functionName ?? L10n.text("common.unassigned"))
+                .font(.system(size: 8, weight: .medium, design: .rounded))
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(width: 82)
+        .foregroundStyle(assignment == nil ? Color.secondary : Color.primary)
     }
 
     private func keyButton(_ key: ACK05Key, size: CGSize) -> some View {
         let isHighlighted = highlightedKeys.contains(key)
         let isSelected = selectedKey == key
-        let entry = shortcutForKey(key)
+        let assignment = assignmentForKey(key)
 
         return Button {
             onSelectKey(key)
@@ -158,10 +188,12 @@ private struct ACK05DeviceMap: View {
             VStack(spacing: 4) {
                 Text(key.rawValue.uppercased())
                     .font(.system(size: 16, weight: .semibold, design: .rounded))
-                if let entry {
-                    Text(entry.shortcut)
+                if let assignment {
+                    Text(assignment.functionName)
                         .font(.system(size: 9, weight: .medium, design: .rounded))
-                        .lineLimit(1)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.72)
                 }
             }
             .rotationEffect(.degrees(Double(-rotationQuarterTurns * 90)))
@@ -183,9 +215,12 @@ private struct ACK05DeviceMap: View {
             )
         }
         .buttonStyle(.plain)
-        .help(entry.map { "\(key.rawValue.uppercased()): \($0.description) [\($0.shortcut)]" } ?? "未割り当て")
+        .help(assignment.map {
+            let shortcut = $0.shortcut.map { " [\($0)]" } ?? ""
+            return "\(key.rawValue.uppercased()): \($0.functionName)\(shortcut)"
+        } ?? L10n.text("common.unassigned"))
         .accessibilityLabel(key.rawValue.uppercased())
-        .accessibilityValue(entry?.description ?? "未割り当て")
+        .accessibilityValue(assignment?.functionName ?? L10n.text("common.unassigned"))
     }
 
     private func layout(for key: ACK05Key) -> KeyLayout {
@@ -218,38 +253,68 @@ private struct KeyLayout {
 
 private struct ACK05BodyShape: Shape {
     func path(in rect: CGRect) -> Path {
-        let x = rect.minX
-        let y = rect.minY
-        let width = rect.width
-        let height = rect.height
+        let left = rect.minX + rect.width * 0.075
+        let top = rect.minY + rect.height * 0.10
+        let right = rect.minX + rect.width * 0.99
+        let bottom = rect.minY + rect.height * 0.92
+        let cornerRadius = min(rect.width * 0.04, rect.height * 0.06)
+
+        // Keep the enclosure contour concentric with the dial. The map is drawn
+        // horizontally and then rotated, so this arc becomes the top/right
+        // shoulder visible around the dial in the normal vertical orientation.
+        let dialCenter = CGPoint(
+            x: rect.midX - rect.width * (222.0 / 720.0),
+            y: rect.midY - rect.height * (72.0 / 430.0)
+        )
+        let shoulderRadius = min(
+            rect.width * (124.0 / 720.0),
+            rect.height * (124.0 / 430.0)
+        )
+        let leftOffset = dialCenter.x - left
+        let leftIntersectionOffset = sqrt(max(0, shoulderRadius * shoulderRadius - leftOffset * leftOffset))
+        let shoulderStart = CGPoint(x: left, y: dialCenter.y + leftIntersectionOffset)
+
+        let topOffset = dialCenter.y - top
+        let topIntersectionOffset = sqrt(max(0, shoulderRadius * shoulderRadius - topOffset * topOffset))
+        let shoulderEnd = CGPoint(x: dialCenter.x + topIntersectionOffset, y: top)
+
+        let startAngle = Angle(radians: atan2(
+            Double(shoulderStart.y - dialCenter.y),
+            Double(shoulderStart.x - dialCenter.x)
+        ))
+        var endRadians = atan2(
+            Double(shoulderEnd.y - dialCenter.y),
+            Double(shoulderEnd.x - dialCenter.x)
+        )
+        if endRadians < startAngle.radians {
+            endRadians += Double.pi * 2
+        }
+
         var path = Path()
 
-        path.move(to: CGPoint(x: x + width * 0.31, y: y + height * 0.10))
-        path.addLine(to: CGPoint(x: x + width * 0.955, y: y + height * 0.10))
+        path.move(to: shoulderEnd)
+        path.addLine(to: CGPoint(x: right - cornerRadius, y: top))
         path.addQuadCurve(
-            to: CGPoint(x: x + width * 0.99, y: y + height * 0.17),
-            control: CGPoint(x: x + width * 0.99, y: y + height * 0.10)
+            to: CGPoint(x: right, y: top + cornerRadius),
+            control: CGPoint(x: right, y: top)
         )
-        path.addLine(to: CGPoint(x: x + width * 0.99, y: y + height * 0.86))
+        path.addLine(to: CGPoint(x: right, y: bottom - cornerRadius))
         path.addQuadCurve(
-            to: CGPoint(x: x + width * 0.95, y: y + height * 0.92),
-            control: CGPoint(x: x + width * 0.99, y: y + height * 0.92)
+            to: CGPoint(x: right - cornerRadius, y: bottom),
+            control: CGPoint(x: right, y: bottom)
         )
-        path.addLine(to: CGPoint(x: x + width * 0.10, y: y + height * 0.92))
+        path.addLine(to: CGPoint(x: left + cornerRadius, y: bottom))
         path.addQuadCurve(
-            to: CGPoint(x: x + width * 0.075, y: y + height * 0.86),
-            control: CGPoint(x: x + width * 0.075, y: y + height * 0.92)
+            to: CGPoint(x: left, y: bottom - cornerRadius),
+            control: CGPoint(x: left, y: bottom)
         )
-        path.addLine(to: CGPoint(x: x + width * 0.075, y: y + height * 0.48))
-        path.addCurve(
-            to: CGPoint(x: x + width * 0.075, y: y + height * 0.22),
-            control1: CGPoint(x: x + width * 0.01, y: y + height * 0.39),
-            control2: CGPoint(x: x + width * 0.02, y: y + height * 0.27)
-        )
-        path.addCurve(
-            to: CGPoint(x: x + width * 0.31, y: y + height * 0.10),
-            control1: CGPoint(x: x + width * 0.12, y: y - height * 0.02),
-            control2: CGPoint(x: x + width * 0.25, y: y + height * 0.01)
+        path.addLine(to: shoulderStart)
+        path.addArc(
+            center: dialCenter,
+            radius: shoulderRadius,
+            startAngle: startAngle,
+            endAngle: Angle(radians: endRadians),
+            clockwise: false
         )
         path.closeSubpath()
         return path

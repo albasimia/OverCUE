@@ -77,7 +77,7 @@ swift run overcue-cli --output mouse --rekordbox-mode export
 swift run overcue-cli --output mouse --rekordbox-mode performance
 ```
 
-Exportが初期値です。OverCUEは起動時にrekordboxのKeyMappings XMLを読み、現在のショートカットをcommandIdから解決します。未割り当ての操作について代替キーは推測しません。
+Exportが初期値です。OverCUEは起動時にrekordboxの設定とKeyMappings XMLを検索し、選択中のマッピングと現在のショートカットをcommandIdから解決します。F1〜F20や標準プリセットの記号キーにも対応し、未知のキー表現はその割り当てだけをスキップします。未割り当ての操作について代替キーは推測しません。
 
 ### デフォルトキーマップ
 
@@ -101,8 +101,14 @@ ACK05は縦向きで使用します。
 | K7+K1 | Hot Cue Cを削除 |
 | K7+K3 | 次のMemory Cueへ移動 |
 | K7+K6 | 前のMemory Cueへ移動 |
+| K7+K2 | グループを昇順に切り替え（1→2→3→4→1） |
+| K7+K5 | グループを降順に切り替え（1→4→3→2→1） |
+| K7+ダイヤル左 | rekordboxのピッチベンド − |
+| K7+ダイヤル右 | rekordboxのピッチベンド ＋ |
 
-K1〜K10の任意の異なる2キーをコードとして設定できます。`K5+K1`ではK5が修飾キー、K1がトリガーです。修飾キーを先に保持してからトリガーを押します。
+K1〜K10の任意数（2〜10個）の異なるキーをコードとして設定できます。`K7+K8+K1`ではK7とK8が修飾キー、K1がトリガーです。修飾キーを先に保持してからトリガーを押します。ダイヤルの左右も独立した入力としてActionへ割り当てられ、初期設定はJog Search左／右です。
+
+ボタンを1つ以上保持してダイヤルを回す操作も、左右それぞれ独立してActionへ割り当てられます。割り当て時に同じボタン／コード／ダイヤル操作が既存機能で使用されている場合は、ダイアログで上書きを確認します。コードや保持＋ダイヤルの修飾ボタンがCueやJumpなどの長押し機能と競合する場合は保存せず、赤いトーストで理由を表示します。更新成功は緑、入力待ちや状態変更はグレーのトーストで画面右下に表示します。
 
 ### 外部設定
 
@@ -112,11 +118,11 @@ K1〜K10の任意の異なる2キーをコードとして設定できます。`K
 ~/Library/Application Support/OverCUE/config.json
 ```
 
-設定version 3では、表示名ではなく安定したAction IDを保存します。各プロファイルは波形位置、キーマップ、コードマップを持ち、`deviceProfiles`でACK05の`PhysicalDeviceUniqueID`と対応付けます。
+設定version 6では、表示名ではなく安定したAction IDまたはrekordbox command IDを保存します。各プロファイルは波形位置と、グループ1〜4ごとのキー・コード・ダイヤルマップを持ち、`deviceProfiles`でACK05の`PhysicalDeviceUniqueID`と対応付けます。初期状態はグループ1がPERFORMANCE / Deck 1、グループ2がPERFORMANCE / Deck 2、グループ3がEXPORT / Deck 1です。デフォルトマップの原本は`Sources/OverCUECore/Resources/DefaultKeyMapping.json`に分離されています。
 
 ```json
 {
-  "version": 3,
+  "version": 6,
   "defaultProfile": "default",
   "deviceProfiles": {
     "DEVICE-PHYSICAL-UUID": "default"
@@ -124,32 +130,69 @@ K1〜K10の任意の異なる2キーをコードとして設定できます。`K
   "profiles": {
     "default": {
       "waveformPosition": { "x": 640.5, "y": 212.25 },
-      "keyMap": {
-        "K1": "hot_cue_3",
-        "K2": "delete_memory_cue",
-        "K3": "jump_forward",
-        "K4": "hot_cue_2",
-        "K5": "set_memory_cue",
-        "K6": "jump_backward",
-        "K7": "quantize",
-        "K8": "hot_cue_1",
-        "K9": "cue",
-        "K10": "play_pause"
-      },
-      "chordMap": {
-        "K8+K1": "capture_waveform_position",
-        "K7+K8": "delete_hot_cue_1",
-        "K7+K4": "delete_hot_cue_2",
-        "K7+K1": "delete_hot_cue_3",
-        "K7+K3": "call_next_memory_cue",
-        "K7+K6": "call_previous_memory_cue"
+      "groupMappings": {
+        "1": {
+          "rekordboxMode": "performance",
+          "keyMap": {
+            "K1": "hot_cue_3",
+            "K2": "delete_memory_cue",
+            "K3": "jump_forward",
+            "K4": "hot_cue_2",
+            "K5": "set_memory_cue",
+            "K6": "jump_backward",
+            "K7": "quantize",
+            "K8": "hot_cue_1",
+            "K9": "cue",
+            "K10": "play_pause"
+          },
+          "chordMap": {
+            "K8+K1": "capture_waveform_position",
+            "K7+K8": "delete_hot_cue_1",
+            "K7+K2": "cycle_group",
+            "K7+K5": "cycle_group_backward"
+          },
+          "dialMap": {
+            "counterclockwise": "jog_search_left",
+            "clockwise": "jog_search_right"
+          },
+          "dialChordMap": {
+            "K7+DIAL_LEFT": "rekordbox:3050",
+            "K7+DIAL_RIGHT": "rekordbox:304f"
+          }
+        },
+        "2": {
+          "rekordboxMode": "performance",
+          "keyMap": {
+            "K10": "rekordbox:3106"
+          },
+          "chordMap": {},
+          "dialMap": {
+            "counterclockwise": "jog_search_left",
+            "clockwise": "jog_search_right"
+          },
+          "dialChordMap": {
+            "K7+DIAL_LEFT": "rekordbox:3150",
+            "K7+DIAL_RIGHT": "rekordbox:314f"
+          }
+        },
+        "3": {
+          "rekordboxMode": "export",
+          "keyMap": { "K10": "play_pause" },
+          "chordMap": {}, "dialMap": {}, "dialChordMap": {}
+        }
       }
     }
   }
 }
 ```
 
-version 1または2の設定は、`config.vN.backup.json`へバックアップした後、version 3へ自動移行します。未知の旧操作名は該当項目だけ無効化し、その他の設定は保持します。JSON編集後はOverCUEを再起動してください。
+version 1〜5の設定は、`config.vN.backup.json`へバックアップした後、version 6へ自動移行します。従来の割り当ては保持し、旧デフォルト構成の未使用グループには新しいDeck別マップ、Pitch Bend、昇順／降順グループ切り替えを追加します。未知の旧操作名は該当項目だけ無効化し、その他の設定は保持します。JSON編集後はOverCUEを再起動してください。
+
+### 表示言語
+
+macOSのOverCUEメニューから「設定」を開き、日本語、English、简体中文を切り替えられます。言語設定は保存され、画面、メニュー、OverCUE独自機能名、トーストへ即時反映されます。翻訳辞書は`Sources/OverCUEApp/Resources/Localization`にあります。rekordbox由来の機能名は、rekordboxのキーマッピングファイルに記録された言語で表示します。
+
+`rekordboxMode`はグループごとに`export`または`performance`を保存します。GUIとCLIのグループは双方向に同期し、グループ変更時はそのグループに保存されたモードへ自動的に切り替わります。ACK05からモードを変更した場合も現在グループへ保存され、GUIのPickerとメニューバーへ反映されます。
 
 別の設定ファイルを使う場合:
 
@@ -235,7 +278,7 @@ open dist/OverCUE.app
 
 `OverCUE.app` bundles its `overcue-cli` input helper. A white template OverCUE icon appears in the menu bar while the app is running. Its menu can enable or disable ACK05 input, reopen the settings window, or quit the app. Closing the window leaves enabled ACK05 input running in the background.
 
-In Xcode, open `Package.swift`, select the `OverCUE` scheme, and run it. The settings window reads the selected rekordbox mapping and provides a searchable, categorized three-column list, selection synchronization with the ACK05 device map, multi-key chord highlighting, four group tabs, and 90-degree device rotation. Use the edit button in the right column and press the actual ACK05 key or two-key chord to save the default-profile assignment.
+In Xcode, open `Package.swift`, select the `OverCUE` scheme, and run it. The settings window reads the selected rekordbox mapping and provides a searchable, categorized three-column list, OverCUE-specific actions at the top, selection synchronization with the ACK05 device map, arbitrary multi-key chord highlighting, dial mappings, four group tabs, conflict-aware assignment, toast notifications, and 90-degree device rotation. Use the edit button in the right column and press an ACK05 key/chord or turn the dial to save the default-profile assignment.
 
 OverCUE automatically starts the `overcue-cli` input bridge. It pauses only while capturing a new ACK05 assignment and resumes after saving or canceling. Key and dial output is active only while rekordbox is frontmost. Only the bundled OverCUE application requests Accessibility permission on first launch; restarting its CLI helper does not prompt again.
 
@@ -277,7 +320,7 @@ swift run overcue-cli --output mouse --rekordbox-mode export
 swift run overcue-cli --output mouse --rekordbox-mode performance
 ```
 
-Export is the default. At startup, OverCUE reads rekordbox's KeyMappings XML and resolves the current shortcut for each commandId. It never guesses a fallback for an unassigned action.
+Export is the default. At startup, OverCUE discovers rekordbox's settings and KeyMappings XML, then resolves the selected mapping and current shortcut for each commandId. F1–F20 and symbol keys used by the standard presets are supported; an unknown key representation skips only that binding. It never guesses a fallback for an unassigned action.
 
 ### Default key map
 
@@ -312,7 +355,7 @@ OverCUE creates this file on first launch:
 ~/Library/Application Support/OverCUE/config.json
 ```
 
-Configuration version 3 stores stable Action IDs instead of display labels. Each profile owns its waveform position, key map, and chord map. `deviceProfiles` associates an ACK05 `PhysicalDeviceUniqueID` with a profile. See the Japanese example above for the complete JSON structure.
+Configuration version 6 stores stable Action IDs or rekordbox command IDs instead of display labels. Each profile owns its waveform position and key, chord, and dial maps for groups 1–4. Versions 1–5 migrate automatically with a backup. `deviceProfiles` associates an ACK05 `PhysicalDeviceUniqueID` with a profile. See the Japanese example above for the complete JSON structure.
 
 Version 1 and 2 files are backed up as `config.vN.backup.json` and migrated automatically. Unknown legacy action labels disable only the affected entry; all other settings are preserved. Restart OverCUE after editing JSON.
 

@@ -1,6 +1,13 @@
-public enum DialDirection: Equatable, Sendable {
+public enum DialDirection: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
     case clockwise
     case counterclockwise
+
+    public var displayName: String {
+        switch self {
+        case .clockwise: "Dial Right"
+        case .counterclockwise: "Dial Left"
+        }
+    }
 }
 
 public enum ACK05Key: String, CaseIterable, Equatable, Hashable, Sendable {
@@ -127,6 +134,7 @@ public struct ACK05ReportDecoder: Sendable {
 
         let keys = ACK05Key.allCases
         var best: (keys: Set<ACK05Key>, retained: Int, changes: Int, count: Int, mask: Int)?
+        var matches: [(keys: Set<ACK05Key>, mask: Int)] = []
 
         for mask in 0..<(1 << keys.count) {
             var candidate: Set<ACK05Key> = []
@@ -143,6 +151,7 @@ public struct ACK05ReportDecoder: Sendable {
             }
 
             guard candidateModifier == modifier, candidateUsages == usages else { continue }
+            matches.append((candidate, mask))
             let retained = candidate.intersection(previousKeys).count
             let changes = candidate.symmetricDifference(previousKeys).count
             let score = (candidate, retained, changes, candidate.count, mask)
@@ -158,6 +167,20 @@ public struct ACK05ReportDecoder: Sendable {
             } else {
                 best = score
             }
+        }
+
+        if best?.keys == previousKeys,
+           let expanded = matches
+            .filter({ candidate in
+                previousKeys.isSubset(of: candidate.keys)
+                    && candidate.keys.count == previousKeys.count + 1
+                    && candidate.keys.subtracting(previousKeys).allSatisfy {
+                        Self.signature(for: $0).usage == nil
+                    }
+            })
+            .sorted(by: { $0.mask < $1.mask })
+            .first {
+            return expanded.keys
         }
 
         return best?.keys
