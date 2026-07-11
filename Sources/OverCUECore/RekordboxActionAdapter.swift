@@ -19,4 +19,22 @@ public enum RekordboxActionAdapter {
         case .captureWaveformPosition: nil
         }
     }
+
+    public static func commandID(for target: ActionTarget) -> String? {
+        switch target {
+        case let .action(action): commandID(for: action)
+        case let .rekordboxCommand(commandID): commandID
+        }
+    }
+
+    public static func action(for commandID: String) -> ActionID? {
+        ActionID.allCases.first { self.commandID(for: $0) == commandID }
+    }
+
+    public static func target(for commandID: String) -> ActionTarget {
+        if let action = action(for: commandID) {
+            return .action(action)
+        }
+        return .rekordboxCommand(commandID)
+    }
 }

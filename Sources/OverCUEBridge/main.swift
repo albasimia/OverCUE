@@ -33,6 +33,7 @@ private struct BridgeOptions {
     var maximumDragPixels = 20.0
     var accelerationEnabled = true
     var invertDial = false
+    var promptForAccessibility = true
     var configPath: String?
 
     static func parse(_ arguments: [String]) throws -> BridgeOptions {
@@ -78,6 +79,8 @@ private struct BridgeOptions {
                 options.accelerationEnabled = false
             case "--invert-dial":
                 options.invertDial = true
+            case "--no-accessibility-prompt":
+                options.promptForAccessibility = false
             case "--config":
                 options.configPath = try stringValue(after: argument, arguments: arguments, index: &index)
             case "--help", "-h":
@@ -114,7 +117,7 @@ private struct BridgeOptions {
     static func printUsage() {
         print(
             """
-            Usage: overcue [options]
+            Usage: overcue-cli [options]
 
             Convert XPPen ACK05 dial input into MIDI or waveform mouse dragging.
 
@@ -129,6 +132,7 @@ private struct BridgeOptions {
               --max-drag-pixels <px> Fast mouse movement per detent. Default: 20.
               --no-acceleration      Disable rotation-speed acceleration.
               --invert-dial          Reverse the mouse drag direction.
+              --no-accessibility-prompt Do not show the macOS permission prompt. Used by OverCUE.app.
               --config <path>        Settings JSON path. Default: ~/Library/Application Support/OverCUE/config.json.
               --shared               Do not suppress ACK05 factory keyboard input.
               -h, --help             Show this help.
@@ -425,20 +429,24 @@ private extension ActionMapping {
             ($0.rawValue.uppercased(), $0)
         })
         var resolvedKeys = Dictionary(uniqueKeysWithValues: ACK05Key.allCases.map {
-            ($0, defaultAction(for: $0))
+            ($0, ActionTarget.action(defaultAction(for: $0)))
         })
 
         for (rawKey, rawAction) in profile.keyMap {
             guard let key = knownKeys[rawKey.uppercased()] else {
                 throw BridgeError.configuration("Unknown key '\(rawKey)' in keyMap.")
             }
-            guard let action = ActionID(rawValue: rawAction) else {
+            if rawAction == "unassigned" {
+                resolvedKeys.removeValue(forKey: key)
+                continue
+            }
+            guard let target = ActionTarget(configurationValue: rawAction) else {
                 throw BridgeError.configuration("Unknown action '\(rawAction)' for \(rawKey).")
             }
-            resolvedKeys[key] = action
+            resolvedKeys[key] = target
         }
 
-        var resolvedChords: [KeyChord: ActionID] = [:]
+        var resolvedChords: [KeyChord: ActionTarget] = [:]
         for (rawChord, rawAction) in profile.chordMap {
             let components = rawChord.uppercased()
                 .replacingOccurrences(of: " ", with: "")
@@ -457,10 +465,10 @@ private extension ActionMapping {
             guard resolvedChords[chord] == nil else {
                 throw BridgeError.configuration("Duplicate chord '\(chord.label)' in chordMap.")
             }
-            guard let action = ActionID(rawValue: rawAction) else {
+            guard let target = ActionTarget(configurationValue: rawAction) else {
                 throw BridgeError.configuration("Unknown action '\(rawAction)' for \(rawChord).")
             }
-            resolvedChords[chord] = action
+            resolvedChords[chord] = target
         }
 
         self.init(keys: resolvedKeys, chords: resolvedChords)
@@ -525,7 +533,10 @@ private struct RekordboxAdapter {
             .appendingPathComponent("Library/Application Support/Pioneer/rekordbox6")
     }
 
-    func load(mode: RekordboxMode) throws -> (name: String, actions: [ActionID: ResolvedKeyboardCommand]) {
+    func load(
+        mode: RekordboxMode,
+        requiredTargets: Set<ActionTarget>
+    ) throws -> (name: String, actions: [ActionTarget: ResolvedKeyboardCommand]) {
         let mappingID: String
         switch mode {
         case .export:
@@ -543,18 +554,28 @@ private struct RekordboxAdapter {
             .appendingPathComponent("KeyMappings")
             .appendingPathComponent("rekordbox_\(mappingID).mappings")
         let mapping = try RekordboxKeyMapping.parse(data: Data(contentsOf: mappingURL))
-        var actions: [ActionID: ResolvedKeyboardCommand] = [:]
+        var actions: [ActionTarget: ResolvedKeyboardCommand] = [:]
 
-        for action in ActionID.allCases {
-            guard let commandID = RekordboxActionAdapter.commandID(for: action),
+        for target in requiredTargets {
+            guard let commandID = RekordboxActionAdapter.commandID(for: target),
                   let rawShortcut = mapping.shortcut(for: commandID)
             else {
                 continue
             }
-            actions[action] = ResolvedKeyboardCommand(
-                displayName: action.displayName,
-                shortcut: try KeyboardShortcut(rawValue: rawShortcut)
-            )
+            let displayName = mapping.entries.first(where: { $0.commandID == commandID })?.description
+                ?? target.displayName
+            do {
+                actions[target] = ResolvedKeyboardCommand(
+                    displayName: displayName,
+                    shortcut: try KeyboardShortcut(rawValue: rawShortcut)
+                )
+            } catch {
+                log(
+                    "Skipping unsupported rekordbox shortcut for \(displayName) "
+                        + "(commandId=\(commandID)): \(rawShortcut)"
+                )
+                continue
+            }
         }
         return (mapping.name, actions)
     }
@@ -571,7 +592,7 @@ private final class RekordboxKeyboardOutput {
     }
 
     func send(command: ResolvedKeyboardCommand, keyLabel: String) {
-        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.pioneerdj.rekordboxdj" else {
+        guard isRekordboxFrontmost() else {
             log("KEY \(keyLabel) ignored because rekordbox is not frontmost.")
             return
         }
@@ -586,7 +607,7 @@ private final class RekordboxKeyboardOutput {
 
     func pressAndHold(key: ACK05Key, command: ResolvedKeyboardCommand) {
         guard heldKeys[key] == nil else { return }
-        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.pioneerdj.rekordboxdj" else {
+        guard isRekordboxFrontmost() else {
             log("KEY \(key.rawValue.uppercased()) ignored because rekordbox is not frontmost.")
             return
         }
@@ -663,6 +684,10 @@ private final class MIDIBridgeController: NSObject, ACK05ReportHandling {
 
         switch event {
         case let .dial(direction):
+            guard isRekordboxFrontmost() else {
+                emit(state.touchDidTimeout())
+                return
+            }
             emit(state.rotate(direction))
             scheduleTouchOff()
         case let .keyDown(key):
@@ -706,7 +731,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     private let decoder = ACK05ReportDecoder()
     private let profile: WaveformDragProfile
     private let keyboardOutput: RekordboxKeyboardOutput
-    private let keyboardCommands: [ActionID: ResolvedKeyboardCommand]
+    private let keyboardCommands: [ActionTarget: ResolvedKeyboardCommand]
     private let internalActionHandler = InternalActionHandler()
     private var mappings: ActionMapping
     private let mappingsByProfile: [String: ActionMapping]
@@ -732,10 +757,11 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     init(
         profile: WaveformDragProfile,
         keyboardOutput: RekordboxKeyboardOutput,
-        keyboardCommands: [ActionID: ResolvedKeyboardCommand],
+        keyboardCommands: [ActionTarget: ResolvedKeyboardCommand],
         mappingsByProfile: [String: ActionMapping],
         configurationStore: ConfigurationStore,
-        releaseMilliseconds: Int
+        releaseMilliseconds: Int,
+        promptForAccessibility: Bool
     ) throws {
         self.profile = profile
         self.keyboardOutput = keyboardOutput
@@ -757,8 +783,17 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
             self?.captureWaveformAnchor()
         }
 
-        guard AXIsProcessTrusted() else {
-            throw BridgeError.accessibilityPermissionMissing
+        let isAccessibilityGranted: Bool
+        if promptForAccessibility {
+            let accessibilityOptions = [
+                "AXTrustedCheckOptionPrompt": true,
+            ] as CFDictionary
+            isAccessibilityGranted = AXIsProcessTrustedWithOptions(accessibilityOptions)
+        } else {
+            isAccessibilityGranted = AXIsProcessTrusted()
+        }
+        if !isAccessibilityGranted {
+            log("Accessibility permission is not granted yet. Waiting for permission in System Settings.")
         }
     }
 
@@ -828,7 +863,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         for event in events {
             route(event)
             if event.phase == .pressed,
-               event.action.behavior == .acceleratingRepeat,
+               event.target.behavior == .acceleratingRepeat,
                let key = event.sourceKey {
                 startKeyRepeat(for: key)
             }
@@ -840,7 +875,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
 
     private func route(_ event: ActionEvent) {
         if internalActionHandler.handle(event) {
-            log("ACTION \(event.action.rawValue) from \(event.sourceLabel).")
+            log("ACTION \(event.target.configurationValue) from \(event.sourceLabel).")
             return
         }
 
@@ -851,7 +886,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         case .pressed:
             guard let key = event.sourceKey else { return }
             guard let command = resolveKeyboardCommand(for: event) else { return }
-            if event.action.behavior == .hold {
+            if event.target.behavior == .hold {
                 keyboardOutput.pressAndHold(key: key, command: command)
             } else {
                 keyboardOutput.send(command: command, keyLabel: event.sourceLabel)
@@ -863,8 +898,8 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     }
 
     private func resolveKeyboardCommand(for event: ActionEvent) -> ResolvedKeyboardCommand? {
-        guard let command = keyboardCommands[event.action] else {
-            log("KEY \(event.sourceLabel) \(event.action.displayName) is unassigned in rekordbox.")
+        guard let command = keyboardCommands[event.target] else {
+            log("KEY \(event.sourceLabel) \(event.target.displayName) is unassigned in rekordbox.")
             return nil
         }
         return command
@@ -944,6 +979,10 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     }
 
     private func drag(_ direction: DialDirection) {
+        guard isRekordboxFrontmost() else {
+            finishDrag(restorePointer: true)
+            return
+        }
         guard let waveformAnchor else {
             if !didWarnAboutMissingAnchor {
                 log("MOUSE not calibrated. Hover over the enlarged waveform and press K8+K1.")
@@ -1186,6 +1225,12 @@ private func deviceIdentity(_ device: IOHIDDevice) -> String {
     return "\(manufacturer ?? "unknown") / \(product ?? "unknown")"
 }
 
+private func isRekordboxFrontmost() -> Bool {
+    MainActor.assumeIsolated {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.pioneerdj.rekordboxdj"
+    }
+}
+
 private func deviceIdentifier(_ device: IOHIDDevice) -> String {
     for key in ["PhysicalDeviceUniqueID", "DeviceAddress"] {
         if let value = IOHIDDeviceGetProperty(device, key as CFString) as? String,
@@ -1259,7 +1304,15 @@ do {
             maximumPixelsPerDetent: maximumPixels,
             isInverted: options.invertDial
         )
-        let loadedShortcuts = try RekordboxAdapter().load(mode: options.rekordboxMode)
+        let requiredTargets = Set(
+            mappingsByProfile.values.flatMap { mapping in
+                Array(mapping.keys.values) + Array(mapping.chords.values)
+            }
+        )
+        let loadedShortcuts = try RekordboxAdapter().load(
+            mode: options.rekordboxMode,
+            requiredTargets: requiredTargets
+        )
         let keyboardOutput = RekordboxKeyboardOutput()
         controller = try MouseBridgeController(
             profile: profile,
@@ -1267,7 +1320,8 @@ do {
             keyboardCommands: loadedShortcuts.actions,
             mappingsByProfile: mappingsByProfile,
             configurationStore: configurationStore,
-            releaseMilliseconds: options.touchOffMilliseconds
+            releaseMilliseconds: options.touchOffMilliseconds,
+            promptForAccessibility: options.promptForAccessibility
         )
         log("Free-plan mouse output is ready.")
         log(
@@ -1285,7 +1339,7 @@ do {
         log(options.accelerationEnabled ? "Rotation-speed acceleration is ON." : "Rotation-speed acceleration is OFF.")
         log(options.invertDial ? "Dial direction is inverted." : "Dial direction is normal.")
         for key in ACK05Key.allCases {
-            let action = mappings.keys[key] ?? defaultAction(for: key)
+            let action = mappings.keys[key] ?? .action(defaultAction(for: key))
             if let resolved = loadedShortcuts.actions[action] {
                 log("  \(key.rawValue.uppercased()): \(action.displayName) [\(resolved.shortcut.rawValue)]")
             } else {
@@ -1299,7 +1353,7 @@ do {
             else {
                 continue
             }
-            if chordAction == .captureWaveformPosition {
+            if chordAction == .action(.captureWaveformPosition) {
                 log("  \(chord): \(chordAction.displayName)")
             } else {
                 let action = chordAction

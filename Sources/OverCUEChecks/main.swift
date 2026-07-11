@@ -36,6 +36,22 @@ check(RekordboxActionAdapter.commandID(for: .hotCue1) == "301e", "rekordbox Hot 
 check(RekordboxActionAdapter.commandID(for: .callNextMemoryCue) == "3039", "rekordbox next Memory Cue command")
 check(RekordboxActionAdapter.commandID(for: .callPreviousMemoryCue) == "303a", "rekordbox previous Memory Cue command")
 check(RekordboxActionAdapter.commandID(for: .captureWaveformPosition) == nil, "internal action has no rekordbox command")
+check(ActionTarget(configurationValue: "hot_cue_1") == .action(.hotCue1), "built-in Action target parses")
+check(ActionTarget(configurationValue: "rekordbox:42ff") == .rekordboxCommand("42ff"), "generic rekordbox target parses")
+check(ActionTarget(configurationValue: "rekordbox:") == nil, "empty generic rekordbox target is rejected")
+check(RekordboxActionAdapter.commandID(for: .rekordboxCommand("42ff")) == "42ff", "generic target keeps command ID")
+check(RekordboxActionAdapter.target(for: "301e") == .action(.hotCue1), "known command ID maps to built-in Action")
+check(RekordboxActionAdapter.target(for: "42ff") == .rekordboxCommand("42ff"), "unknown command ID maps to generic target")
+
+let genericMapping = ActionMapping(
+    keys: [.k2: .rekordboxCommand("42ff")],
+    chords: [:]
+)
+var genericResolver = InputActionResolver()
+check(
+    genericResolver.handle(pressedKeys: [.k2], mapping: genericMapping).first?.target == .rekordboxCommand("42ff"),
+    "generic rekordbox target resolves from a physical key"
+)
 
 let actionMapping = ActionMapping(
     keys: [
@@ -282,8 +298,33 @@ do {
     """
     let mapping = try RekordboxKeyMapping.parse(data: Data(mappingXML.utf8))
     check(mapping.name == "Test Mapping", "parse rekordbox mapping name")
+    check(mapping.entries.count == 2, "preserve ordered rekordbox shortcut entries")
+    check(mapping.entries[0].commandID == "3006", "preserve rekordbox command ID")
+    check(mapping.entries[0].description == "Play/Pause", "preserve rekordbox description")
+    check(mapping.entries[1].shortcut == "shift + C", "preserve rekordbox shortcut text")
     check(mapping.shortcut(for: "3006") == "spacebar", "parse rekordbox Play/Pause shortcut")
     check(mapping.shortcut(for: "3007") == "shift + C", "parse rekordbox Cue shortcut")
+
+    check(
+        RekordboxShortcutCategory.category(for: "b129") == .browse,
+        "categorize Browse shortcut"
+    )
+    check(
+        RekordboxShortcutCategory.category(for: "3006") == .deck1,
+        "categorize Deck 1 shortcut"
+    )
+    check(
+        RekordboxShortcutCategory.category(for: "3106") == .deck2,
+        "categorize Deck 2 shortcut"
+    )
+    check(
+        RekordboxShortcutCategory.category(for: "3000") == .allDecks,
+        "categorize All Decks shortcut"
+    )
+    check(
+        RekordboxShortcutCategory.category(for: "f001") == .sampler,
+        "categorize Sampler shortcut"
+    )
 
     let settingsXML = """
     <?xml version="1.0" encoding="UTF-8"?>
@@ -294,6 +335,62 @@ do {
 } catch {
     failureCount += 1
     fputs("FAIL: unexpected rekordbox XML parsing error: \(error)\n", stderr)
+}
+
+do {
+    let temporaryHome = FileManager.default.temporaryDirectory
+        .appendingPathComponent("overcue-loader-\(UUID().uuidString)")
+    let baseURL = temporaryHome
+        .appendingPathComponent("Library/Application Support/Pioneer/rekordbox6")
+    let mappingsURL = baseURL.appendingPathComponent("KeyMappings")
+    try FileManager.default.createDirectory(at: mappingsURL, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: temporaryHome) }
+
+    let settingsXML = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <PROPERTIES><VALUE name="performaceKeyMapping" val="1234567890123"/></PROPERTIES>
+    """
+    let mappingXML = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <PROPERTIES>
+      <VALUE name="keyMappingName" val="Loader Test"/>
+      <VALUE name="keyMappingXml">
+        <KEYMAPPINGS><MAPPING commandId="3006" description="Play/Pause" key="spacebar"/></KEYMAPPINGS>
+      </VALUE>
+    </PROPERTIES>
+    """
+    let exportMappingXML = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <PROPERTIES>
+      <VALUE name="keyMappingName" val="Export Loader Test"/>
+      <VALUE name="keyMappingXml">
+        <KEYMAPPINGS>
+          <MAPPING commandId="3006" description="Play/Pause" key="spacebar"/>
+          <MAPPING commandId="3007" description="Cue" key="C"/>
+        </KEYMAPPINGS>
+      </VALUE>
+    </PROPERTIES>
+    """
+    try Data(settingsXML.utf8).write(to: baseURL.appendingPathComponent("rekordbox3.settings"))
+    try Data(mappingXML.utf8).write(
+        to: mappingsURL.appendingPathComponent("rekordbox_1234567890123.mappings")
+    )
+    try Data(exportMappingXML.utf8).write(
+        to: mappingsURL.appendingPathComponent("rekordbox_0000000000030.mappings")
+    )
+
+    let loader = RekordboxKeyMappingLoader(homeDirectory: temporaryHome)
+    let performance = try loader.load(mode: .performance)
+    check(performance.mappingID == "1234567890123", "load selected Performance mapping ID")
+    check(performance.mapping.name == "Loader Test", "load selected Performance mapping XML")
+    check(performance.mapping.entries.count == 1, "load Performance shortcut entries")
+    let export = try loader.load(mode: .export)
+    check(export.mappingID == "0000000000030", "load fixed Export mapping ID")
+    check(export.mapping.name == "Export Loader Test", "switch loader to Export mapping XML")
+    check(export.mapping.entries.count == 2, "load distinct Export shortcut entries")
+} catch {
+    failureCount += 1
+    fputs("FAIL: unexpected rekordbox mapping loader error: \(error)\n", stderr)
 }
 
 do {
