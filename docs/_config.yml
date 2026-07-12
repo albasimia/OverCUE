@@ -1,5 +1,7 @@
 title: OverCUE
 description: Cue preparation controls for rekordbox with XPPen ACK05
+url: https://albasimia.github.io
+baseurl: /OverCUE
 theme: jekyll-theme-cayman
 show_downloads: false
 github:
