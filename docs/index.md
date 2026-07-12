@@ -2,17 +2,17 @@
 layout: default
 title: OverCUE 日本語ガイド
 lang: ja
+description: XPPen ACK05でrekordboxのCUE仕込みを快適に
 ---
 
 <nav class="language-nav">日本語 ｜ <a href="./en/">English</a> ｜ <a href="./zh-hans/">简体中文</a></nav>
 
-# OverCUE
+# OverCUE 使い方
+{: #overcue }
 
 XPPen ACK05のダイヤルと10個のキーを、macOS版rekordboxのCUE仕込み操作へ変換する常駐アプリです。rekordbox Freeプランで利用できるマウス・キーボード方式を採用しています。
 
 ![OverCUEの設定画面](./assets/images/overcue-ja.png)
-
-<a class="download-button" href="https://github.com/albasimia/OverCUE/releases/latest/download/OverCUE-v0.1.0-macos-universal.zip">OverCUE v0.1.0をダウンロード</a>
 
 ## 動作環境
 

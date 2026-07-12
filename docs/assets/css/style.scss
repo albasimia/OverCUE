@@ -8,6 +8,26 @@
   background-image: linear-gradient(135deg, #111318, #2867c7);
 }
 
+.app-icon {
+  display: block;
+  width: 96px;
+  height: 96px;
+  margin: 0 auto 1rem;
+  border-radius: 22%;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+}
+
+.header-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.header-actions .btn {
+  margin: 0;
+}
+
 .main-content {
   max-width: 72rem;
 }
@@ -36,20 +56,16 @@
   color: #183d20;
 }
 
-.download-button {
-  display: inline-block;
-  margin: 0.4rem 0 1rem;
-  padding: 0.75rem 1.1rem;
-  border-radius: 8px;
-  background: #1769d2;
-  color: #fff !important;
-  font-weight: 700;
-  text-decoration: none;
-}
-
 table {
   display: table;
   width: 100%;
+}
+
+@media screen and (max-width: 42em) {
+  .app-icon {
+    width: 78px;
+    height: 78px;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
