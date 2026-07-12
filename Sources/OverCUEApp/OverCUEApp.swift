@@ -7,8 +7,8 @@ private final class OverCUEApplicationDelegate: NSObject, NSApplicationDelegate 
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
-        requestAccessibilityPermissionIfNeeded()
         activateMainWindow()
+        requestAccessibilityPermissionAfterWindowPresentation()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -23,10 +23,16 @@ private final class OverCUEApplicationDelegate: NSObject, NSApplicationDelegate 
         shutdownHandler?()
     }
 
-    private func requestAccessibilityPermissionIfNeeded() {
+    private func requestAccessibilityPermissionAfterWindowPresentation() {
         guard !AXIsProcessTrusted() else { return }
-        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
+        // Request only after SwiftUI has presented the main window. Nothing
+        // brings OverCUE forward after this call, so the system permission UI
+        // remains visible instead of being covered by the app window.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            guard !AXIsProcessTrusted() else { return }
+            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
+        }
     }
 
     private func activateMainWindow() {
@@ -35,6 +41,7 @@ private final class OverCUEApplicationDelegate: NSObject, NSApplicationDelegate 
             NSApp.windows.first?.makeKeyAndOrderFront(nil)
         }
     }
+
 }
 
 @main
@@ -148,7 +155,7 @@ private struct ContentView: View {
                 }
             }
 
-            if let toast = model.toast {
+            if ToastPresentationConfiguration.isEnabled, let toast = model.toast {
                 ToastView(toast: toast, onDismiss: model.dismissToast)
                     .padding(.bottom, 22)
                     .padding(.trailing, 22)

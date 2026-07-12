@@ -53,6 +53,12 @@ struct ToastMessage: Identifiable, Equatable {
     let style: ToastStyle
 }
 
+enum ToastPresentationConfiguration {
+    // Keep the toast implementation available, but use the inline status area
+    // below the search field as the sole message presentation for now.
+    static let isEnabled = false
+}
+
 private enum PendingAssignment {
     case keys(entryID: String, keys: [ACK05Key])
     case dial(entryID: String, direction: DialDirection, heldKeys: [ACK05Key])
@@ -82,6 +88,7 @@ final class ShortcutSettingsModel: ObservableObject {
     @Published private(set) var selectedGroup = 1
     @Published var rotationQuarterTurns = 1
     @Published var selectedDeviceKey: ACK05Key?
+    @Published var selectedDialDirection: DialDirection?
     @Published var errorMessage: String?
     @Published private(set) var bindingsByTarget: [String: [ACK05Binding]] = [:]
     @Published private(set) var editingEntryID: String?
@@ -93,6 +100,8 @@ final class ShortcutSettingsModel: ObservableObject {
     @Published private(set) var runtimeMode: RekordboxMappingMode = .export
     @Published private(set) var runtimeGroup = 1
     @Published var overwriteConfirmation: OverwriteConfirmation?
+    @Published private(set) var pressedDeviceKeys: Set<ACK05Key> = []
+    @Published private(set) var activeDialDirection: DialDirection?
 
     private let loader = RekordboxKeyMappingLoader()
     private let runtimeBridge = OverCUECLIRuntime()
@@ -103,7 +112,9 @@ final class ShortcutSettingsModel: ObservableObject {
     private var previousCaptureKeys: Set<ACK05Key> = []
     private var capturedKeyOrder: [ACK05Key] = []
     private var toastDismissTask: Task<Void, Never>?
+    private var dialHighlightTask: Task<Void, Never>?
     private var runtimeStatusObserver: SendableObserverToken?
+    private var inputStatusObserver: SendableObserverToken?
     private var pendingAssignment: PendingAssignment?
 
     var internalEntries: [RekordboxShortcutEntry] {
@@ -152,6 +163,29 @@ final class ShortcutSettingsModel: ObservableObject {
                 }
             }
         )
+        inputStatusObserver = SendableObserverToken(
+            DistributedNotificationCenter.default().addObserver(
+                forName: OverCUEInputStatusNotification.name,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                let rawKeys = notification.userInfo?[OverCUEInputStatusNotification.keysKey]
+                    as? [String] ?? []
+                let includesKeyState = notification.userInfo?[OverCUEInputStatusNotification.keysKey] != nil
+                let keys = Set(rawKeys.compactMap { ACK05Key(rawValue: $0.lowercased()) })
+                let direction = (notification.userInfo?[OverCUEInputStatusNotification.dialDirectionKey]
+                    as? String).flatMap(DialDirection.init(rawValue:))
+                Task { @MainActor in
+                    guard let self else { return }
+                    if includesKeyState {
+                        self.pressedDeviceKeys = keys
+                    }
+                    if let direction {
+                        self.showDialInput(direction)
+                    }
+                }
+            }
+        )
         runtimeBridge.onStatusChanged = { [weak self] status in
             self?.bridgeStatus = status
             if case let .failed(message) = status {
@@ -165,8 +199,12 @@ final class ShortcutSettingsModel: ObservableObject {
 
     deinit {
         toastDismissTask?.cancel()
+        dialHighlightTask?.cancel()
         if let runtimeStatusObserver {
             DistributedNotificationCenter.default().removeObserver(runtimeStatusObserver.value)
+        }
+        if let inputStatusObserver {
+            DistributedNotificationCenter.default().removeObserver(inputStatusObserver.value)
         }
     }
 
@@ -186,6 +224,7 @@ final class ShortcutSettingsModel: ObservableObject {
     }
 
     func showToast(_ text: String, style: ToastStyle, durationNanoseconds: UInt64 = 4_000_000_000) {
+        guard ToastPresentationConfiguration.isEnabled else { return }
         toastDismissTask?.cancel()
         toast = ToastMessage(text: text, style: style)
         toastDismissTask = Task { [weak self] in
@@ -239,6 +278,17 @@ final class ShortcutSettingsModel: ObservableObject {
         return Set(bindingsByTarget[bindingKey(for: entry), default: []].flatMap(\.keys))
     }
 
+    var highlightedDialDirections: Set<DialDirection> {
+        guard let entry = selectedEntry else { return [] }
+        return Set(bindingsByTarget[bindingKey(for: entry), default: []].compactMap { binding in
+            switch binding {
+            case let .dial(direction): direction
+            case let .dialChord(chord): chord.direction
+            case .key, .chord: nil
+            }
+        })
+    }
+
     var isCapturing: Bool { editingEntryID != nil }
 
     func reload() {
@@ -283,6 +333,7 @@ final class ShortcutSettingsModel: ObservableObject {
         UserDefaults.standard.set(newMode.rawValue, forKey: "rekordboxMappingMode")
         selectedEntryID = nil
         selectedDeviceKey = nil
+        selectedDialDirection = nil
         captureMessage = nil
         captureError = nil
         reload()
@@ -303,6 +354,8 @@ final class ShortcutSettingsModel: ObservableObject {
             showToast(L10n.text("message.inputEnabled"), style: .info)
         } else {
             runtimeBridge.stop()
+            pressedDeviceKeys = []
+            activeDialDirection = nil
             showToast(L10n.text("message.inputStopped"), style: .info)
         }
     }
@@ -315,16 +368,31 @@ final class ShortcutSettingsModel: ObservableObject {
     func select(_ entry: RekordboxShortcutEntry) {
         selectedEntryID = entry.id
         selectedDeviceKey = highlightedKeys.sorted(by: keyOrder).first
+        selectedDialDirection = highlightedDialDirections.sorted(by: dialDirectionOrder).first
     }
 
     func selectDeviceKey(_ key: ACK05Key) {
         selectedDeviceKey = key
-        let targetKey = bindingsByTarget
-            .sorted(by: { $0.key < $1.key })
-            .first(where: { $0.value.contains(where: { $0.keys.contains(key) }) })?.key
+        selectedDialDirection = nil
+        let targetKey = assignedTargetKey(to: key)
         guard let targetKey,
               let entry = allEntries.first(where: { bindingKey(for: $0) == targetKey })
-        else { return }
+        else {
+            selectedEntryID = nil
+            return
+        }
+        selectedEntryID = entry.id
+    }
+
+    func selectDial(_ direction: DialDirection) {
+        selectedDeviceKey = nil
+        selectedDialDirection = direction
+        guard let targetKey = assignedTargetKey(to: direction),
+              let entry = allEntries.first(where: { bindingKey(for: $0) == targetKey })
+        else {
+            selectedEntryID = nil
+            return
+        }
         selectedEntryID = entry.id
     }
 
@@ -338,6 +406,7 @@ final class ShortcutSettingsModel: ObservableObject {
         runtimeMode = mode
         UserDefaults.standard.set(mode.rawValue, forKey: "rekordboxMappingMode")
         selectedDeviceKey = nil
+        selectedDialDirection = nil
         rebuildBindings()
         selectedEntryID = nil
         reload()
@@ -364,7 +433,7 @@ final class ShortcutSettingsModel: ObservableObject {
     }
 
     func dialAssignment(_ direction: DialDirection) -> ACK05DeviceAssignment? {
-        guard let targetKey = bindingsByTarget.first(where: { $0.value.contains(.dial(direction)) })?.key,
+        guard let targetKey = assignedTargetKey(to: direction),
               let target = ActionTarget(configurationValue: targetKey)
         else { return nil }
         let entry = allEntries.first { bindingKey(for: $0) == targetKey }
@@ -373,6 +442,32 @@ final class ShortcutSettingsModel: ObservableObject {
                 ?? target.displayName,
             shortcut: entry?.shortcut
         )
+    }
+
+    private func assignedTargetKey(to direction: DialDirection) -> String? {
+        let directTarget = bindingsByTarget
+            .sorted(by: { $0.key < $1.key })
+            .first(where: { $0.value.contains(.dial(direction)) })?.key
+        if let directTarget { return directTarget }
+
+        let preferredTarget = selectedEntry.flatMap { entry in
+            let targetKey = bindingKey(for: entry)
+            return bindingsByTarget[targetKey]?.contains(where: {
+                if case let .dialChord(chord) = $0 { return chord.direction == direction }
+                return false
+            }) == true ? targetKey : nil
+        }
+        return preferredTarget
+    }
+
+    private func showDialInput(_ direction: DialDirection) {
+        dialHighlightTask?.cancel()
+        activeDialDirection = direction
+        dialHighlightTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 220_000_000)
+            guard !Task.isCancelled else { return }
+            self?.activeDialDirection = nil
+        }
     }
 
     private func assignedTargetKey(to key: ACK05Key) -> String? {
@@ -431,11 +526,15 @@ final class ShortcutSettingsModel: ObservableObject {
         }
         monitor.onPressedKeysChanged = { [weak self] keys in
             guard let self else { return }
-            Task { @MainActor in self.handleCapturedKeys(keys) }
+            Task { @MainActor in
+                self.pressedDeviceKeys = keys
+                self.handleCapturedKeys(keys)
+            }
         }
         monitor.onDialTurned = { [weak self] direction in
             guard let self else { return }
             Task { @MainActor in
+                self.showDialInput(direction)
                 self.commitDialCapture(direction, heldKeys: self.capturedKeyOrder)
             }
         }
@@ -483,6 +582,7 @@ final class ShortcutSettingsModel: ObservableObject {
             try saveConfiguration()
             rebuildBindings()
             selectedDeviceKey = nil
+            selectedDialDirection = nil
             captureError = nil
             captureMessage = L10n.text(
                 "message.bindingRemoved",
@@ -576,6 +676,7 @@ final class ShortcutSettingsModel: ObservableObject {
             rebuildBindings()
             selectedEntryID = entry.id
             selectedDeviceKey = highlightedKeys.sorted(by: keyOrder).first
+            selectedDialDirection = nil
             captureError = nil
             captureMessage = L10n.text(
                 "message.bindingSet",
@@ -650,6 +751,8 @@ final class ShortcutSettingsModel: ObservableObject {
             try saveConfiguration()
             rebuildBindings()
             selectedEntryID = entry.id
+            selectedDeviceKey = highlightedKeys.sorted(by: keyOrder).first
+            selectedDialDirection = direction
             captureError = nil
             captureMessage = L10n.text("message.bindingSet", entry.description, inputLabel)
             showToast(captureMessage ?? L10n.text("message.dialUpdated"), style: .success)
@@ -822,6 +925,8 @@ final class ShortcutSettingsModel: ObservableObject {
         captureMessage = nil
         previousCaptureKeys = []
         capturedKeyOrder = []
+        pressedDeviceKeys = []
+        activeDialDirection = nil
     }
 
     private func startRuntimeIfEnabled() {
@@ -923,6 +1028,7 @@ final class ShortcutSettingsModel: ObservableObject {
         saveMode(newMode, for: group)
         UserDefaults.standard.set(newMode.rawValue, forKey: "rekordboxMappingMode")
         selectedDeviceKey = nil
+        selectedDialDirection = nil
         selectedEntryID = nil
         rebuildBindings()
         reload()
@@ -1036,5 +1142,10 @@ final class ShortcutSettingsModel: ObservableObject {
               let right = ACK05Key.allCases.firstIndex(of: rhs)
         else { return lhs.rawValue < rhs.rawValue }
         return left < right
+    }
+
+    private func dialDirectionOrder(_ lhs: DialDirection, _ rhs: DialDirection) -> Bool {
+        let order: [DialDirection] = [.counterclockwise, .clockwise]
+        return order.firstIndex(of: lhs)! < order.firstIndex(of: rhs)!
     }
 }

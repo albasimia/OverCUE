@@ -42,10 +42,15 @@ struct DevicePanelView: View {
                 ACK05DeviceMap(
                     rotationQuarterTurns: model.rotationQuarterTurns,
                     highlightedKeys: model.highlightedKeys,
+                    highlightedDialDirections: model.highlightedDialDirections,
+                    pressedKeys: model.pressedDeviceKeys,
+                    activeDialDirection: model.activeDialDirection,
                     selectedKey: model.selectedDeviceKey,
+                    selectedDialDirection: model.selectedDialDirection,
                     assignmentForKey: model.deviceAssignment(to:),
                     dialAssignment: model.dialAssignment(_:),
-                    onSelectKey: model.selectDeviceKey
+                    onSelectKey: model.selectDeviceKey,
+                    onSelectDial: model.selectDial
                 )
 
                 Button(action: model.rotateDevice) {
@@ -60,7 +65,16 @@ struct DevicePanelView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             VStack(alignment: .leading, spacing: 5) {
-                if let key = model.selectedDeviceKey {
+                if let direction = model.selectedDialDirection {
+                    Text(direction.displayName)
+                        .font(.headline)
+                    Text(
+                        model.dialAssignment(direction)?.functionName
+                            ?? localization.text("common.unassigned")
+                    )
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else if let key = model.selectedDeviceKey {
                     Text(key.rawValue.uppercased())
                         .font(.headline)
                     Text(
@@ -86,10 +100,15 @@ struct DevicePanelView: View {
 private struct ACK05DeviceMap: View {
     let rotationQuarterTurns: Int
     let highlightedKeys: Set<ACK05Key>
+    let highlightedDialDirections: Set<DialDirection>
+    let pressedKeys: Set<ACK05Key>
+    let activeDialDirection: DialDirection?
     let selectedKey: ACK05Key?
+    let selectedDialDirection: DialDirection?
     let assignmentForKey: (ACK05Key) -> ACK05DeviceAssignment?
     let dialAssignment: (DialDirection) -> ACK05DeviceAssignment?
     let onSelectKey: (ACK05Key) -> Void
+    let onSelectDial: (DialDirection) -> Void
 
     private var angle: Angle {
         .degrees(Double(rotationQuarterTurns * 90))
@@ -164,22 +183,67 @@ private struct ACK05DeviceMap: View {
 
     private func dialLabel(_ direction: DialDirection, symbol: String) -> some View {
         let assignment = dialAssignment(direction)
-        return VStack(spacing: 1) {
-            Text(symbol)
-                .font(.caption.bold())
-            Text(assignment?.functionName ?? L10n.text("common.unassigned"))
-                .font(.system(size: 8, weight: .medium, design: .rounded))
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .minimumScaleFactor(0.7)
+        let isHighlighted = highlightedDialDirections.contains(direction)
+            || selectedDialDirection == direction
+        let isActive = activeDialDirection == direction
+        return Button {
+            onSelectDial(direction)
+        } label: {
+            VStack(spacing: 1) {
+                Text(symbol)
+                    .font(.caption.bold())
+                Text(assignment?.functionName ?? L10n.text("common.unassigned"))
+                    .font(.system(size: 8, weight: .medium, design: .rounded))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(width: 82, height: 72)
+            .background {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(
+                        isActive
+                            ? Color.green.opacity(0.46)
+                            : isHighlighted
+                                ? Color.accentColor.opacity(0.38)
+                                : Color.clear
+                    )
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(
+                        isActive
+                            ? Color.green
+                            : isHighlighted
+                                ? Color.accentColor
+                                : Color.clear,
+                        lineWidth: isActive || isHighlighted ? 3 : 1
+                    )
+            }
+            .shadow(
+                color: isActive
+                    ? Color.green.opacity(0.6)
+                    : isHighlighted
+                        ? Color.accentColor.opacity(0.55)
+                        : .clear,
+                radius: 8
+            )
         }
-        .frame(width: 82)
+        .buttonStyle(.plain)
         .foregroundStyle(assignment == nil ? Color.secondary : Color.primary)
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .help(assignment.map {
+            let shortcut = $0.shortcut.map { " [\($0)]" } ?? ""
+            return "\(direction.displayName): \($0.functionName)\(shortcut)"
+        } ?? L10n.text("common.unassigned"))
+        .accessibilityLabel(direction.displayName)
+        .accessibilityValue(assignment?.functionName ?? L10n.text("common.unassigned"))
     }
 
     private func keyButton(_ key: ACK05Key, size: CGSize) -> some View {
         let isHighlighted = highlightedKeys.contains(key)
         let isSelected = selectedKey == key
+        let isPressed = pressedKeys.contains(key)
         let assignment = assignmentForKey(key)
 
         return Button {
@@ -200,17 +264,31 @@ private struct ACK05DeviceMap: View {
             .frame(width: size.width, height: size.height)
             .background {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(isHighlighted || isSelected ? Color.accentColor.opacity(0.38) : Color.black.opacity(0.28))
+                    .fill(
+                        isPressed
+                            ? Color.green.opacity(0.46)
+                            : isHighlighted || isSelected
+                                ? Color.accentColor.opacity(0.38)
+                                : Color.black.opacity(0.28)
+                    )
             }
             .overlay {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(
-                        isHighlighted || isSelected ? Color.accentColor : Color.white.opacity(0.14),
-                        lineWidth: isHighlighted || isSelected ? 3 : 1
+                        isPressed
+                            ? Color.green
+                            : isHighlighted || isSelected
+                                ? Color.accentColor
+                                : Color.white.opacity(0.14),
+                        lineWidth: isPressed || isHighlighted || isSelected ? 3 : 1
                     )
             }
             .shadow(
-                color: isHighlighted || isSelected ? Color.accentColor.opacity(0.55) : .clear,
+                color: isPressed
+                    ? Color.green.opacity(0.6)
+                    : isHighlighted || isSelected
+                        ? Color.accentColor.opacity(0.55)
+                        : .clear,
                 radius: 8
             )
         }

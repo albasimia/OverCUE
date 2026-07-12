@@ -11,3 +11,9 @@ public enum OverCUERuntimeControlNotification {
     public static let modeKey = OverCUERuntimeStatusNotification.modeKey
     public static let groupKey = OverCUERuntimeStatusNotification.groupKey
 }
+
+public enum OverCUEInputStatusNotification {
+    public static let name = Notification.Name("com.overcue.input-status-changed")
+    public static let keysKey = "pressedKeys"
+    public static let dialDirectionKey = "dialDirection"
+}
