@@ -4,8 +4,11 @@
 @import "jekyll-theme-cayman";
 
 .page-header {
-  background-color: #17191d;
-  background-image: linear-gradient(135deg, #111318, #2867c7);
+  background-color: #000;
+  background-image: url("{{ '/assets/images/kv_pc.png' | relative_url }}");
+  background-position: left center;
+  background-repeat: no-repeat;
+  background-size: cover;
 }
 
 .app-icon {
@@ -104,6 +107,10 @@ table {
 }
 
 @media screen and (max-width: 42em) {
+  .page-header {
+    background-image: url("{{ '/assets/images/kv_sp.png' | relative_url }}");
+  }
+
   .app-icon {
     width: 78px;
     height: 78px;
