@@ -1,8 +1,12 @@
 ---
 layout: default
-title: OverCUE 简体中文指南
+title: OverCUE | 将 ACK05 变成 CUE 设置控制器
 lang: zh-Hans
-description: 使用XPPen ACK05轻松完成rekordbox CUE准备
+description: 将 XPPen ACK05 变成适用于 macOS 版 rekordbox 的单手 CUE 设置控制器。一款开源工具，让 CUE 设置更加轻松高效。
+locale: zh_CN
+canonical_url: https://albasimia.github.io/OverCUE/zh-hans/
+og_image: https://albasimia.github.io/OverCUE/assets/ogp/zh-CN.png
+og_image_alt: OverCUE 将XPPen ACK05变成rekordbox的CUE设置控制器
 ---
 
 <nav class="language-nav"><a href="../">日本語</a> ｜ <a href="../en/">English</a> ｜ 简体中文</nav>

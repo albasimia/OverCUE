@@ -1,8 +1,12 @@
 ---
 layout: default
-title: OverCUE English Guide
+title: OverCUE | Turn ACK05 into a CUE Prep Controller
 lang: en
-description: Cue preparation controls for rekordbox with XPPen ACK05
+description: Turn your XPPen ACK05 into a one-handed CUE prep controller for rekordbox on macOS.
+locale: en_US
+canonical_url: https://albasimia.github.io/OverCUE/en/
+og_image: https://albasimia.github.io/OverCUE/assets/ogp/en.png
+og_image_alt: OverCUE turns XPPen ACK05 into a CUE preparation controller for rekordbox
 ---
 
 <nav class="language-nav"><a href="../">日本語</a> ｜ English ｜ <a href="../zh-hans/">简体中文</a></nav>
