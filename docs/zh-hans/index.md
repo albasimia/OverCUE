@@ -5,7 +5,7 @@ lang: zh-Hans
 description: 将 XPPen ACK05 变成适用于 macOS 版 rekordbox 的单手 CUE 设置控制器。一款开源工具，让 CUE 设置更加轻松高效。
 locale: zh_CN
 canonical_url: https://albasimia.github.io/OverCUE/zh-hans/
-og_image: https://albasimia.github.io/OverCUE/assets/ogp/zh-CN.png?v=e082a3b
+og_image: https://albasimia.github.io/OverCUE/assets/ogp/zh-CN.png?v=20260713-2
 og_image_alt: OverCUE 将XPPen ACK05变成rekordbox的CUE设置控制器
 ---
 

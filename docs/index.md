@@ -5,7 +5,7 @@ lang: ja
 description: XPPen ACK05を、rekordboxのCUE仕込み用デバイスへ。片手だけで快適なCUE打ちを実現するmacOS向けオープンソースツール。
 locale: ja_JP
 canonical_url: https://albasimia.github.io/OverCUE/
-og_image: https://albasimia.github.io/OverCUE/assets/ogp/ja.png?v=e082a3b
+og_image: https://albasimia.github.io/OverCUE/assets/ogp/ja.png?v=20260713-2
 og_image_alt: OverCUEでXPPen ACK05をrekordboxのCUE仕込みデバイスとして使用
 ---
 
