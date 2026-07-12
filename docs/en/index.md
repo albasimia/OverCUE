@@ -14,6 +14,16 @@ OverCUE is a resident macOS app that turns the XPPen ACK05 dial and ten keys int
 
 ![OverCUE settings](../assets/images/overcue-en.png)
 
+## Support OverCUE
+
+<div class="support-card">
+  <p>If OverCUE makes cue preparation easier, you can support its continued development, maintenance, and translations.</p>
+  <div class="support-actions">
+    <a class="support-link sponsors" href="https://github.com/sponsors/albasimia/" target="_blank" rel="noopener noreferrer">♥ GitHub Sponsors</a>
+    <a class="support-link kofi" href="https://ko-fi.com/albasimia" target="_blank" rel="noopener noreferrer">☕ Ko-fi</a>
+  </div>
+</div>
+
 ## Requirements
 
 - macOS 13 Ventura or later

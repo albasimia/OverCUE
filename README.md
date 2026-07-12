@@ -28,6 +28,15 @@ This build is not signed with an Apple Developer ID or notarized. Follow the ins
 - [English](https://albasimia.github.io/OverCUE/en/)
 - [简体中文](https://albasimia.github.io/OverCUE/zh-hans/)
 
+## Support / 開発支援
+
+If OverCUE helps your workflow, you can support its continued development.
+
+OverCUEが役に立ったら、今後の開発を支援していただけると嬉しいです。
+
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub%20Sponsors-Sponsor-EA4AAA?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/albasimia/)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/albasimia)
+
 ## Build
 
 ```sh
