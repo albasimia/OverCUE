@@ -37,7 +37,7 @@ This build does not use the Apple Developer Program. It is not signed with a Dev
 Do not disable Gatekeeper or remove quarantine attributes with `xattr`. You can verify the archive with the `SHA256SUMS.txt` attached to the Release.
 
 ```sh
-shasum -a 256 OverCUE-v0.1.0-macos-universal.zip
+shasum -a 256 OverCUE-v0.1.1-macos-universal.zip
 ```
 
 ## First-time setup
@@ -69,6 +69,8 @@ Keyboard and mouse output is enabled only while rekordbox is frontmost. Closing 
 | 4 | EXPORT | Available for custom mappings |
 
 Each group remembers its last EXPORT or PERFORMANCE mode. Group and mode state stay synchronized between the GUI, ACK05, CLI bridge, and menu bar.
+
+The waveform position captured with `K8+K1` is also stored independently for each group. Switching groups activates the position last saved for that group.
 
 ## Default key map
 

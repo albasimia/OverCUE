@@ -327,6 +327,34 @@ check(
         .chordMap["K7+K5"] == ActionID.cycleGroupBackward.rawValue,
     "version 6 migration adds descending group cycle"
 )
+var previousVersion6Profile = version6Migration.configuration.profiles["default"]!
+previousVersion6Profile.waveformPosition = WaveformPosition(x: 12.5, y: 34.5)
+var previousVersion6Group2 = previousVersion6Profile.storedMapping(for: 2)
+previousVersion6Group2.waveformPosition = WaveformPosition(x: 56.5, y: 78.5)
+previousVersion6Profile.setMapping(previousVersion6Group2, for: 2)
+let version7Migration = ActionConfigurationMigrator.migrateToVersion7(
+    OverCUEConfiguration(version: 6, profiles: ["default": previousVersion6Profile])
+)
+check(version7Migration.configuration.version == 7, "migration updates configuration to version 7")
+check(
+    version7Migration.configuration.profiles["default"]?.waveformPosition == nil,
+    "version 7 migration removes the profile-wide waveform position"
+)
+check(
+    version7Migration.configuration.profiles["default"]?.storedMapping(for: 1).waveformPosition
+        == WaveformPosition(x: 12.5, y: 34.5),
+    "version 7 migration copies the shared waveform position to group 1"
+)
+check(
+    version7Migration.configuration.profiles["default"]?.storedMapping(for: 2).waveformPosition
+        == WaveformPosition(x: 56.5, y: 78.5),
+    "version 7 migration preserves an existing group waveform position"
+)
+check(
+    version7Migration.configuration.profiles["default"]?.storedMapping(for: 4).waveformPosition
+        == WaveformPosition(x: 12.5, y: 34.5),
+    "version 7 migration copies the shared waveform position to every group"
+)
 var globalGroupProfile = OverCUEProfile.defaultValue
 globalGroupProfile.chordMap["K7+K8+K1"] = ActionID.cycleGroup.rawValue
 check(
@@ -666,20 +694,29 @@ do {
 
 do {
     var configuration = OverCUEConfiguration.defaultValue
-    configuration.profiles["default"]?.waveformPosition = WaveformPosition(x: 640.5, y: 212.25)
     configuration.profiles["default"]?.keyMap["K1"] = "hot_cue_1"
     configuration.profiles["alternate"] = OverCUEProfile.defaultValue
     var group2 = configuration.profiles["default"]!.storedMapping(for: 2)
     group2.rekordboxMode = .performance
+    group2.waveformPosition = WaveformPosition(x: 840.5, y: 312.25)
     configuration.profiles["default"]!.setMapping(group2, for: 2)
+    var group1 = configuration.profiles["default"]!.storedMapping(for: 1)
+    group1.waveformPosition = WaveformPosition(x: 640.5, y: 212.25)
+    configuration.profiles["default"]!.setMapping(group1, for: 1)
     configuration.deviceProfiles["device-uuid"] = "alternate"
     let data = try JSONEncoder().encode(configuration)
     let decoded = try JSONDecoder().decode(OverCUEConfiguration.self, from: data)
     check(decoded == configuration, "round-trip external configuration")
-    check(decoded.version == 6, "persist profile configuration version")
+    check(decoded.version == 7, "persist profile configuration version")
     check(
-        decoded.profiles["default"]?.waveformPosition == WaveformPosition(x: 640.5, y: 212.25),
-        "persist profile waveform position"
+        decoded.profiles["default"]?.storedMapping(for: 1).waveformPosition
+            == WaveformPosition(x: 640.5, y: 212.25),
+        "persist group 1 waveform position"
+    )
+    check(
+        decoded.profiles["default"]?.storedMapping(for: 2).waveformPosition
+            == WaveformPosition(x: 840.5, y: 312.25),
+        "persist group 2 waveform position independently"
     )
     check(decoded.profiles["default"]?.keyMap["K1"] == "hot_cue_1", "persist profile Action ID")
     check(

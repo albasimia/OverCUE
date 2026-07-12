@@ -337,11 +337,17 @@ private final class ConfigurationStore {
         try save()
     }
 
-    func saveWaveformPosition(_ position: CGPoint, profileName: String) throws {
+    func waveformPosition(profileName: String, group: Int) throws -> WaveformPosition? {
+        try profile(named: profileName).storedMapping(for: group).waveformPosition
+    }
+
+    func saveWaveformPosition(_ position: CGPoint, profileName: String, group: Int) throws {
         guard var profile = configuration.profiles[profileName] else {
             throw BridgeError.configuration("Unknown profile '\(profileName)'.")
         }
-        profile.waveformPosition = WaveformPosition(x: position.x, y: position.y)
+        var mapping = profile.storedMapping(for: group)
+        mapping.waveformPosition = WaveformPosition(x: position.x, y: position.y)
+        profile.setMapping(mapping, for: group)
         configuration.profiles[profileName] = profile
         try save()
     }
@@ -831,7 +837,10 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         }
         mappings = defaultMappings
         releaseInterval = TimeInterval(releaseMilliseconds) / 1_000
-        if let position = try configurationStore.profile(named: activeProfileName).waveformPosition {
+        if let position = try configurationStore.waveformPosition(
+            profileName: activeProfileName,
+            group: initialGroup
+        ) {
             waveformAnchor = CGPoint(x: position.x, y: position.y)
         }
         super.init()
@@ -956,10 +965,16 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         publishRuntimeStatus(mode: activeRekordboxMode, group: activeGroup)
 
         do {
-            let savedPosition = try configurationStore.profile(named: profileName).waveformPosition
+            let savedPosition = try configurationStore.waveformPosition(
+                profileName: profileName,
+                group: nextGroup
+            )
             waveformAnchor = savedPosition.map { CGPoint(x: $0.x, y: $0.y) }
+            didWarnAboutMissingAnchor = false
             log("DEVICE \(deviceID) -> profile '\(profileName)'.")
         } catch {
+            waveformAnchor = nil
+            didWarnAboutMissingAnchor = false
             log("ERROR \(error)")
         }
     }
@@ -1037,6 +1052,17 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
             finishDrag(restorePointer: true)
             mappings = nextMappings
             activeGroup = nextGroup
+            do {
+                let savedPosition = try configurationStore.waveformPosition(
+                    profileName: activeProfileName,
+                    group: activeGroup
+                )
+                waveformAnchor = savedPosition.map { CGPoint(x: $0.x, y: $0.y) }
+                didWarnAboutMissingAnchor = false
+            } catch {
+                waveformAnchor = nil
+                log("ERROR \(error)")
+            }
         }
 
         let savedMode = preferredMode ?? configurationStore.rekordboxMode(
@@ -1147,10 +1173,15 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         waveformAnchor = location
         didWarnAboutMissingAnchor = false
         do {
-            try configurationStore.saveWaveformPosition(location, profileName: activeProfileName)
+            try configurationStore.saveWaveformPosition(
+                location,
+                profileName: activeProfileName,
+                group: activeGroup
+            )
             log(
                 String(
-                    format: "MOUSE waveform position captured and saved at x=%.1f y=%.1f.",
+                    format: "MOUSE waveform position for group %d captured and saved at x=%.1f y=%.1f.",
+                    activeGroup,
                     location.x,
                     location.y
                 )
@@ -1573,10 +1604,17 @@ do {
         log("Configuration: \(configurationStore.url.path)")
         log("Default profile: \(defaultProfileName)")
         log("Initial group: \(options.group)")
-        if let position = defaultProfile.waveformPosition {
-            log(String(format: "Saved waveform position: x=%.1f y=%.1f.", position.x, position.y))
+        if let position = defaultProfile.storedMapping(for: options.group).waveformPosition {
+            log(
+                String(
+                    format: "Saved waveform position for group %d: x=%.1f y=%.1f.",
+                    options.group,
+                    position.x,
+                    position.y
+                )
+            )
         } else {
-            log("Waveform position is not saved yet.")
+            log("Waveform position for group \(options.group) is not saved yet.")
         }
         log(String(format: "Waveform drag: %.2f to %.2f px/detent.", options.dragPixels, maximumPixels))
         log(options.accelerationEnabled ? "Rotation-speed acceleration is ON." : "Rotation-speed acceleration is OFF.")

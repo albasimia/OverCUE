@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="${0:A:h:h}"
-VERSION="${1:-0.1.0}"
+VERSION="${1:-0.1.1}"
 RELEASE_DIR="${ROOT_DIR}/release"
 ARCHIVE_NAME="OverCUE-v${VERSION}-macos-universal.zip"
 PLIST_VERSION="$(plutil -extract CFBundleShortVersionString raw "${ROOT_DIR}/Packaging/Info.plist")"
