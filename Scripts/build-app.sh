@@ -6,11 +6,12 @@ ROOT_DIR="${0:A:h:h}"
 OUTPUT_DIR="${1:-${ROOT_DIR}/dist}"
 APP_DIR="${OUTPUT_DIR}/OverCUE.app"
 SIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
+BUILD_ARGS=(-c release --arch arm64 --arch x86_64)
 
 cd "${ROOT_DIR}"
-swift build -c release --product OverCUE
-swift build -c release --product overcue-cli
-BIN_DIR="$(swift build -c release --show-bin-path)"
+swift build "${BUILD_ARGS[@]}" --product OverCUE
+swift build "${BUILD_ARGS[@]}" --product overcue-cli
+BIN_DIR="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
 
 rm -rf "${APP_DIR}"
 mkdir -p \
@@ -32,6 +33,17 @@ chmod 755 \
     "${APP_DIR}/Contents/MacOS/OverCUE" \
     "${APP_DIR}/Contents/Helpers/overcue-cli"
 
+for binary in \
+    "${APP_DIR}/Contents/MacOS/OverCUE" \
+    "${APP_DIR}/Contents/Helpers/overcue-cli"
+do
+    architectures="$(lipo -archs "${binary}")"
+    if [[ " ${architectures} " != *" arm64 "* || " ${architectures} " != *" x86_64 "* ]]; then
+        echo "Universal Binary verification failed: ${binary} (${architectures})" >&2
+        exit 1
+    fi
+done
+
 codesign --force --sign "${SIGN_IDENTITY}" \
     --identifier "jp.watari.OverCUE.helper" \
     "${APP_DIR}/Contents/Helpers/overcue-cli"
@@ -39,4 +51,4 @@ codesign --force --sign "${SIGN_IDENTITY}" \
     --identifier "jp.watari.OverCUE" \
     "${APP_DIR}"
 
-echo "Built ${APP_DIR}"
+echo "Built Universal Binary ${APP_DIR} (arm64 + x86_64)"

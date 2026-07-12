@@ -904,6 +904,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
 
         switch event {
         case let .dial(direction):
+            publishDialTurn(direction)
             if let chordEvent = actionResolver.dialEvent(for: direction, mapping: mappings) {
                 route(chordEvent)
                 return
@@ -964,6 +965,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     }
 
     private func handlePressedKeys(_ pressedKeys: Set<ACK05Key>) {
+        publishPressedKeys(pressedKeys)
         let released = actionResolver.pressedKeys.subtracting(pressedKeys)
         let events = actionResolver.handle(pressedKeys: pressedKeys, mapping: mappings)
         for event in events {
@@ -1331,6 +1333,7 @@ private final class ACK05HIDInput {
             log("ERROR ACK05 removal callback failed (\(formatStatus(result))).")
             return
         }
+        publishPressedKeys([])
         log("ACK05 disconnected: \(deviceIdentity(device)).")
     }
 
@@ -1457,6 +1460,30 @@ private func publishRuntimeStatus(mode: RekordboxMappingMode, group: Int) {
         userInfo: [
             OverCUERuntimeStatusNotification.modeKey: mode.rawValue,
             OverCUERuntimeStatusNotification.groupKey: group,
+        ],
+        deliverImmediately: true
+    )
+}
+
+private func publishPressedKeys(_ keys: Set<ACK05Key>) {
+    DistributedNotificationCenter.default().postNotificationName(
+        OverCUEInputStatusNotification.name,
+        object: nil,
+        userInfo: [
+            OverCUEInputStatusNotification.keysKey: keys
+                .map { $0.rawValue.uppercased() }
+                .sorted(),
+        ],
+        deliverImmediately: true
+    )
+}
+
+private func publishDialTurn(_ direction: DialDirection) {
+    DistributedNotificationCenter.default().postNotificationName(
+        OverCUEInputStatusNotification.name,
+        object: nil,
+        userInfo: [
+            OverCUEInputStatusNotification.dialDirectionKey: direction.rawValue,
         ],
         deliverImmediately: true
     )
