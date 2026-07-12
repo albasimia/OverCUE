@@ -1,0 +1,65 @@
+---
+---
+
+@import "jekyll-theme-cayman";
+
+.page-header {
+  background-color: #17191d;
+  background-image: linear-gradient(135deg, #111318, #2867c7);
+}
+
+.main-content {
+  max-width: 72rem;
+}
+
+.main-content img {
+  border-radius: 14px;
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.2);
+}
+
+.language-nav {
+  margin-bottom: 1.5rem;
+  font-weight: 600;
+}
+
+.notice {
+  margin: 1.25rem 0;
+  padding: 1rem 1.1rem;
+  border-left: 5px solid #d97706;
+  background: #fff8e7;
+  color: #4b3814;
+}
+
+.safe {
+  border-left-color: #218838;
+  background: #eef9f0;
+  color: #183d20;
+}
+
+.download-button {
+  display: inline-block;
+  margin: 0.4rem 0 1rem;
+  padding: 0.75rem 1.1rem;
+  border-radius: 8px;
+  background: #1769d2;
+  color: #fff !important;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+table {
+  display: table;
+  width: 100%;
+}
+
+@media (prefers-color-scheme: dark) {
+  body { background: #15171b; color: #e8eaf0; }
+  .main-content h1, .main-content h2, .main-content h3 { color: #7ab5ff; }
+  .main-content code { background: #252832; color: #f1f3f8; }
+  .main-content table th, .main-content table td { border-color: #3c414c; }
+  .main-content table tr { background: #191c22; }
+  .main-content table tr:nth-child(2n) { background: #20242b; }
+  .main-content a { color: #70adff; }
+  .notice { background: #3a2d13; color: #ffe6ae; }
+  .safe { background: #17351e; color: #c7f4d0; }
+}
