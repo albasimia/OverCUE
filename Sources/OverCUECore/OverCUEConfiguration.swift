@@ -11,6 +11,7 @@ public struct WaveformPosition: Codable, Equatable, Sendable {
 }
 
 public struct OverCUEGroupMapping: Codable, Equatable, Sendable {
+    public var waveformPosition: WaveformPosition?
     public var keyMap: [String: String]
     public var chordMap: [String: String]
     public var dialMap: [String: String]
@@ -18,12 +19,14 @@ public struct OverCUEGroupMapping: Codable, Equatable, Sendable {
     public var rekordboxMode: RekordboxMappingMode?
 
     public init(
+        waveformPosition: WaveformPosition? = nil,
         keyMap: [String: String] = [:],
         chordMap: [String: String] = [:],
         dialMap: [String: String] = [:],
         dialChordMap: [String: String] = [:],
         rekordboxMode: RekordboxMappingMode? = nil
     ) {
+        self.waveformPosition = waveformPosition
         self.keyMap = keyMap
         self.chordMap = chordMap
         self.dialMap = dialMap
@@ -32,11 +35,12 @@ public struct OverCUEGroupMapping: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case keyMap, chordMap, dialMap, dialChordMap, rekordboxMode
+        case waveformPosition, keyMap, chordMap, dialMap, dialChordMap, rekordboxMode
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        waveformPosition = try container.decodeIfPresent(WaveformPosition.self, forKey: .waveformPosition)
         keyMap = try container.decodeIfPresent([String: String].self, forKey: .keyMap) ?? [:]
         chordMap = try container.decodeIfPresent([String: String].self, forKey: .chordMap) ?? [:]
         dialMap = try container.decodeIfPresent([String: String].self, forKey: .dialMap) ?? [:]
@@ -46,6 +50,8 @@ public struct OverCUEGroupMapping: Codable, Equatable, Sendable {
 }
 
 public struct OverCUEProfile: Codable, Equatable, Sendable {
+    // Kept only so version 1–6 files can migrate their profile-wide position
+    // into every group. Version 7 configurations leave this value nil.
     public var waveformPosition: WaveformPosition?
     public var groupMappings: [String: OverCUEGroupMapping]
 
@@ -200,7 +206,7 @@ private struct DefaultKeyMappingResource: Decodable {
 }
 
 public struct OverCUEConfiguration: Codable, Equatable, Sendable {
-    public static let currentVersion = 6
+    public static let currentVersion = 7
 
     public var version: Int
     public var defaultProfile: String

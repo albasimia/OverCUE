@@ -16,7 +16,32 @@ public enum ActionConfigurationMigrator {
     public static func migrateToCurrentVersion(
         _ source: OverCUEConfiguration
     ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
-        migrateToVersion6(source)
+        migrateToVersion7(source)
+    }
+
+    public static func migrateToVersion7(
+        _ source: OverCUEConfiguration
+    ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
+        var result = source.version < 6
+            ? migrateToVersion6(source)
+            : (configuration: source, warnings: [])
+
+        for profileName in result.configuration.profiles.keys.sorted() {
+            guard var profile = result.configuration.profiles[profileName] else { continue }
+            if let sharedPosition = profile.waveformPosition {
+                for group in 1...4 {
+                    var mapping = profile.storedMapping(for: group)
+                    if mapping.waveformPosition == nil {
+                        mapping.waveformPosition = sharedPosition
+                    }
+                    profile.setMapping(mapping, for: group)
+                }
+            }
+            profile.waveformPosition = nil
+            result.configuration.profiles[profileName] = profile
+        }
+        result.configuration.version = 7
+        return result
     }
 
     public static func migrateToVersion6(
