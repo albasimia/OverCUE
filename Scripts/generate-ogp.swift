@@ -22,7 +22,7 @@ private let variants = [
     OGPVariant(
         outputName: "en.png",
         screenshotName: "overcue-en.png",
-        fontName: "Helvetica Neue Bold",
+        fontName: "Arial Bold",
         headline: "Turn ACK05 into a\nCUE Prep Controller",
         subheadline: "One-handed cue preparation for rekordbox."
     ),
@@ -186,6 +186,22 @@ private func generate(_ variant: OGPVariant, icon: NSImage) throws {
 
     context.flushGraphics()
     NSGraphicsContext.current = previousContext
+
+    if let pixels = bitmap.bitmapData {
+        let levels = 48
+        let maximumLevel = levels - 1
+        for y in 0 ..< bitmap.pixelsHigh {
+            let row = pixels.advanced(by: y * bitmap.bytesPerRow)
+            for x in 0 ..< bitmap.pixelsWide {
+                let pixel = row.advanced(by: x * bitmap.samplesPerPixel)
+                for channel in 0 ..< 3 {
+                    let value = Int(pixel[channel])
+                    let level = (value * maximumLevel + 127) / 255
+                    pixel[channel] = UInt8((level * 255 + maximumLevel / 2) / maximumLevel)
+                }
+            }
+        }
+    }
 
     guard let data = bitmap.representation(using: .png, properties: [:]) else {
         throw NSError(domain: "OverCUEOGP", code: 3, userInfo: [
