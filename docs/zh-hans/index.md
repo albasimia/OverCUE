@@ -2,17 +2,17 @@
 layout: default
 title: OverCUE 简体中文指南
 lang: zh-Hans
+description: 使用XPPen ACK05轻松完成rekordbox CUE准备
 ---
 
 <nav class="language-nav"><a href="../">日本語</a> ｜ <a href="../en/">English</a> ｜ 简体中文</nav>
 
-# OverCUE
+# OverCUE 使用方法
+{: #overcue }
 
 OverCUE 是一款常驻 macOS 应用，可将 XPPen ACK05 的旋钮和十个按键转换为 rekordbox 的 CUE 准备操作。它通过鼠标和键盘输出工作，可用于 rekordbox Free 方案。
 
 ![OverCUE 设置界面](../assets/images/overcue-zh-Hans.png)
-
-<a class="download-button" href="https://github.com/albasimia/OverCUE/releases/latest/download/OverCUE-v0.1.0-macos-universal.zip">下载 OverCUE v0.1.0</a>
 
 ## 系统要求
 

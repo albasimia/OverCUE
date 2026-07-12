@@ -2,17 +2,17 @@
 layout: default
 title: OverCUE English Guide
 lang: en
+description: Cue preparation controls for rekordbox with XPPen ACK05
 ---
 
 <nav class="language-nav"><a href="../">日本語</a> ｜ English ｜ <a href="../zh-hans/">简体中文</a></nav>
 
-# OverCUE
+# OverCUE User Guide
+{: #overcue }
 
 OverCUE is a resident macOS app that turns the XPPen ACK05 dial and ten keys into cue-preparation controls for rekordbox. It uses mouse and keyboard output that works with the rekordbox Free plan.
 
 ![OverCUE settings](../assets/images/overcue-en.png)
-
-<a class="download-button" href="https://github.com/albasimia/OverCUE/releases/latest/download/OverCUE-v0.1.0-macos-universal.zip">Download OverCUE v0.1.0</a>
 
 ## Requirements
 

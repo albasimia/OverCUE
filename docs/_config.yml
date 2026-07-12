@@ -7,6 +7,3 @@ github:
   repository_url: https://github.com/albasimia/OverCUE
   owner_url: https://github.com/albasimia
   owner_name: albasimia
-exclude:
-  - current-spec.md
-  - spec.md
