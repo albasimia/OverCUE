@@ -1,0 +1,44 @@
+name: Windows
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/windows.yml"
+      - "Shared/**"
+      - "Windows/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/windows.yml"
+      - "Shared/**"
+      - "Windows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-check:
+    runs-on: windows-2025
+    defaults:
+      run:
+        working-directory: Windows
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore OverCUE.Windows.sln
+
+      - name: Build
+        run: dotnet build OverCUE.Windows.sln --configuration Release --no-restore
+
+      - name: Run Core checks
+        run: dotnet run --project tests/OverCUE.Core.Checks/OverCUE.Core.Checks.csproj --configuration Release --no-build

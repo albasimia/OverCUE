@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OverCUE.Core", "src\OverCUE.Core\OverCUE.Core.csproj", "{E34D44B0-22C0-47B8-8E4D-753491DFBE91}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OverCUE.Probe", "src\OverCUE.Probe\OverCUE.Probe.csproj", "{AE1D4092-3222-4A30-A634-FCF72E47B374}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OverCUE.Core.Checks", "tests\OverCUE.Core.Checks\OverCUE.Core.Checks.csproj", "{0668FCA6-E781-4183-B5F4-4E8676CC1F12}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{E34D44B0-22C0-47B8-8E4D-753491DFBE91}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E34D44B0-22C0-47B8-8E4D-753491DFBE91}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E34D44B0-22C0-47B8-8E4D-753491DFBE91}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E34D44B0-22C0-47B8-8E4D-753491DFBE91}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AE1D4092-3222-4A30-A634-FCF72E47B374}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AE1D4092-3222-4A30-A634-FCF72E47B374}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AE1D4092-3222-4A30-A634-FCF72E47B374}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AE1D4092-3222-4A30-A634-FCF72E47B374}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0668FCA6-E781-4183-B5F4-4E8676CC1F12}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0668FCA6-E781-4183-B5F4-4E8676CC1F12}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0668FCA6-E781-4183-B5F4-4E8676CC1F12}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0668FCA6-E781-4183-B5F4-4E8676CC1F12}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

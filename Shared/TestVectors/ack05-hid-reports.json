@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "reportID": 6,
+  "reportLength": 8,
+  "eventCases": [
+    { "name": "dial-clockwise", "bytes": [6, 1, 87, 0, 0, 0, 0, 0], "expected": "dial:clockwise" },
+    { "name": "dial-counterclockwise", "bytes": [6, 1, 86, 0, 0, 0, 0, 0], "expected": "dial:counterclockwise" },
+    { "name": "k1", "bytes": [6, 1, 18, 0, 0, 0, 0, 0], "expected": "keyDown:K1" },
+    { "name": "k2", "bytes": [6, 1, 17, 0, 0, 0, 0, 0], "expected": "keyDown:K2" },
+    { "name": "k3", "bytes": [6, 0, 62, 0, 0, 0, 0, 0], "expected": "keyDown:K3" },
+    { "name": "k4", "bytes": [6, 2, 0, 0, 0, 0, 0, 0], "expected": "keyDown:K4" },
+    { "name": "k5", "bytes": [6, 1, 0, 0, 0, 0, 0, 0], "expected": "keyDown:K5" },
+    { "name": "k6", "bytes": [6, 4, 0, 0, 0, 0, 0, 0], "expected": "keyDown:K6" },
+    { "name": "k7", "bytes": [6, 1, 22, 0, 0, 0, 0, 0], "expected": "keyDown:K7" },
+    { "name": "k8", "bytes": [6, 1, 29, 0, 0, 0, 0, 0], "expected": "keyDown:K8" },
+    { "name": "k9", "bytes": [6, 0, 44, 0, 0, 0, 0, 0], "expected": "keyDown:K9" },
+    { "name": "k10", "bytes": [6, 3, 29, 0, 0, 0, 0, 0], "expected": "keyDown:K10" },
+    { "name": "released", "bytes": [6, 0, 0, 0, 0, 0, 0, 0], "expected": "allReleased" },
+    { "name": "unexpected-trailing-data", "bytes": [6, 1, 87, 1, 0, 0, 0, 0], "expected": null }
+  ],
+  "stateCases": [
+    { "name": "k8-k1", "bytes": [6, 1, 29, 18, 0, 0, 0, 0], "previous": [], "expected": ["K1", "K8"] },
+    { "name": "k7-k4", "bytes": [6, 3, 22, 0, 0, 0, 0, 0], "previous": [], "expected": ["K4", "K7"] },
+    { "name": "retain-k5", "bytes": [6, 1, 18, 0, 0, 0, 0, 0], "previous": ["K5"], "expected": ["K1", "K5"] },
+    { "name": "infer-k5", "bytes": [6, 1, 22, 0, 0, 0, 0, 0], "previous": ["K7"], "expected": ["K5", "K7"] },
+    { "name": "k8-k4-not-k10", "bytes": [6, 3, 29, 0, 0, 0, 0, 0], "previous": ["K8"], "expected": ["K4", "K8"] },
+    { "name": "combined-modifier-only", "bytes": [6, 5, 44, 0, 0, 0, 0, 0], "previous": ["K6"], "expected": ["K5", "K6", "K9"] },
+    { "name": "three-keys", "bytes": [6, 1, 22, 29, 18, 0, 0, 0], "previous": ["K7", "K8"], "expected": ["K1", "K7", "K8"] },
+    { "name": "released", "bytes": [6, 0, 0, 0, 0, 0, 0, 0], "previous": [], "expected": [] },
+    { "name": "dial-is-not-key-state", "bytes": [6, 1, 87, 0, 0, 0, 0, 0], "previous": [], "expected": null }
+  ]
+}
