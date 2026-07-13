@@ -25,16 +25,28 @@ public static class ActionMetadata
 
     public static string ConfigurationValue(this ActionID action) => action switch
     {
-        ActionID.HotCue1 => "hot_cue_1", ActionID.HotCue2 => "hot_cue_2", ActionID.HotCue3 => "hot_cue_3",
-        ActionID.DeleteHotCue1 => "delete_hot_cue_1", ActionID.DeleteHotCue2 => "delete_hot_cue_2",
-        ActionID.DeleteHotCue3 => "delete_hot_cue_3", ActionID.SetMemoryCue => "set_memory_cue",
-        ActionID.DeleteMemoryCue => "delete_memory_cue", ActionID.CallNextMemoryCue => "call_next_memory_cue",
-        ActionID.CallPreviousMemoryCue => "call_previous_memory_cue", ActionID.JumpForward => "jump_forward",
-        ActionID.JumpBackward => "jump_backward", ActionID.Quantize => "quantize", ActionID.Cue => "cue",
-        ActionID.PlayPause => "play_pause", ActionID.CaptureWaveformPosition => "capture_waveform_position",
-        ActionID.JogSearchLeft => "jog_search_left", ActionID.JogSearchRight => "jog_search_right",
-        ActionID.CycleGroup => "cycle_group", ActionID.CycleGroupBackward => "cycle_group_backward",
-        ActionID.ToggleRekordboxMode => "toggle_rekordbox_mode", _ => throw new ArgumentOutOfRangeException(nameof(action)),
+        ActionID.HotCue1 => "hot_cue_1",
+        ActionID.HotCue2 => "hot_cue_2",
+        ActionID.HotCue3 => "hot_cue_3",
+        ActionID.DeleteHotCue1 => "delete_hot_cue_1",
+        ActionID.DeleteHotCue2 => "delete_hot_cue_2",
+        ActionID.DeleteHotCue3 => "delete_hot_cue_3",
+        ActionID.SetMemoryCue => "set_memory_cue",
+        ActionID.DeleteMemoryCue => "delete_memory_cue",
+        ActionID.CallNextMemoryCue => "call_next_memory_cue",
+        ActionID.CallPreviousMemoryCue => "call_previous_memory_cue",
+        ActionID.JumpForward => "jump_forward",
+        ActionID.JumpBackward => "jump_backward",
+        ActionID.Quantize => "quantize",
+        ActionID.Cue => "cue",
+        ActionID.PlayPause => "play_pause",
+        ActionID.CaptureWaveformPosition => "capture_waveform_position",
+        ActionID.JogSearchLeft => "jog_search_left",
+        ActionID.JogSearchRight => "jog_search_right",
+        ActionID.CycleGroup => "cycle_group",
+        ActionID.CycleGroupBackward => "cycle_group_backward",
+        ActionID.ToggleRekordboxMode => "toggle_rekordbox_mode",
+        _ => throw new ArgumentOutOfRangeException(nameof(action)),
     };
 
     public static ActionID? ParseAction(string value) => Enum.GetValues<ActionID>()

@@ -1,81 +1,95 @@
-# OverCUE Windows版 開発方針
+# OverCUE Windows版 開発・配布方針
 
 更新日: 2026-07-13
 
 ## 1. 基本方針
 
-Windows版はC# / .NET 10 / WPFでWindowsネイティブ実装する。macOS版Swiftコードとのバイナリ共有は行わず、次の仕様とデータを共有する。
+Windows版はC# / .NET 10 / WPFでネイティブ実装する。macOS版Swiftコードとのバイナリ共有は行わず、次の仕様とデータを共有する。
 
 - Action IDとrekordbox commandId
-- 設定JSONの論理構造
-- ACK05 HIDレポートのデコード仕様
-- デフォルトキーマッピングと翻訳リソース
-- OS非依存ロジックのテストベクトル
+- 設定JSONの論理構造と設定バージョン
+- デフォルトキーマッピング
+- 日本語・英語・簡体字中国語の翻訳JSON
+- ACK05入力とAction解決のテストベクトル
 
-Windows版は設定画面、通知領域、入力監視、Action解決、rekordboxへの入力送信を単一プロセスにまとめる。診断用の`OverCUE.Probe`だけを別プロセスとする。
+Windows版は設定画面、通知領域、入力監視、Action解決、rekordboxへの`SendInput`を単一プロセスにまとめる。入力調査用の`OverCUE.Probe`だけを別プロセスとする。
 
 ## 2. 対象環境
 
 - Windows 10 22H2 / Windows 11
 - x64
-- .NET 10 LTS
+- 自己完結型.NET 10アプリケーション
 - XPPen ACK05（USB / Bluetooth Low Energy）
+- XPPen Tablet Driver 4.0.17でエクスポートした同梱プロファイル
 - rekordbox 7
 - 通常ユーザー権限
 
-ARM64、仮想MIDI、複数ACK05の完全同時操作、自動更新は初回リリースの対象外とする。
+ARM64、複数ACK05の同時操作、自動更新、Windowsログイン時の自動起動は初回リリースの対象外とする。
 
-## 3. Gate 0: 入力方式の実機検証
+## 3. ACK05入力方式
 
-GUI本実装より先に、`OverCUE.Probe`をWindows実機で実行して次を確認する。
+実機検証の結果、XPPenドライバー有効時はACK05のHIDレポートをOverCUEが直接取得できない。正式なWindows構成では、同梱するXPPenプロファイルでACK05を次の予約キーへ割り当てる。
 
-1. USB / BLEそれぞれのRaw Inputデバイスパス、VID/PID、Usage Page、Usage IDを記録する。
-2. キーとダイヤルのRaw InputレポートがmacOS版の8バイトReport ID 6と一致することを確認する。
-3. XPPenドライバー停止時と稼働時でレポートを比較する。
-4. XPPen設定で通常キー出力を無効化してもRaw Inputを取得できるか確認する。
-5. Notepadとrekordboxを前面にし、ACK05の元ショートカットが対象アプリへ漏れないか確認する。
-6. USB再接続、BLE再接続、BLE再ペアリング後のデバイスパスを比較する。
-7. Windows版rekordboxの設定ファイルと`KeyMappings`の保存場所、XML表現を採取する。
+- K1〜K10: F13〜F22
+- ダイヤル反時計回り／時計回り: F23／F24
 
-Raw Inputは入力を識別して受信するために使う。`RIDEV_NOLEGACY`を他プロセスへのグローバルな入力抑止手段として扱わない。
+OverCUEは低レベルキーボードフックでF13〜F24を取得してACK05入力へ戻し、他アプリへ渡さない。XPPenドライバーを使用しない既存環境との互換性のため、VID `28BD` / PID `0202`のキーボードRaw InputとACK05既定ショートカットのデコードも維持する。
 
-入力抑止方式は次の優先順で採用する。
-
-1. XPPen公式設定で通常出力を無効化し、Raw Inputだけを読む。
-2. ACK05を利用上無害なキーへ割り当て、Raw Inputを読む。
-3. 署名済みデバイス固有フィルタードライバーを別プロジェクトとして検討する。
-
-低レベルキーボードフックの時刻相関によるデバイス推測は製品実装に採用しない。
+`RIDEV_NOLEGACY`を他プロセスへのグローバルな入力抑止手段としては使用しない。デバイスを推測する時刻相関フックや、署名が必要なフィルタードライバーも現在の製品構成には採用しない。
 
 ## 4. コンポーネント境界
 
-`OverCUE.Core`はWin32型を公開しない。以下をCoreに置く。
+`OverCUE.Core`にはOS非依存ロジックを置く。
 
-- ACK05レポートDecoder
-- Action Layerと長押し状態機械
-- 設定モデル、移行、競合検査
-- ダイヤル加速とJump加速
-- rekordbox KeyMappings XMLの論理モデル
+- ACK05キーボード入力Decoder
+- Action Layer、Cue保持、同時押し、長押し状態機械
+- Jump加速とダイヤル加速
+- 設定モデルと移行
+- rekordbox commandIdアダプター
 
-`OverCUE.Windows`に以下のアダプターを置く。
+`OverCUE.Windows`にはWindows固有処理を置く。
 
-- Raw Inputとデバイス接続通知
+- Raw InputとF13〜F24予約キーフック
 - `SendInput`によるキーボード・マウス出力
 - rekordbox最前面プロセス判定
-- Per-Monitor DPI対応の波形座標処理
-- `%LocalAppData%\OverCUE`への保存
-- WPF設定画面と通知領域
+- 波形位置保存とドラッグ
+- `%LocalAppData%\OverCUE`への設定保存
+- WPF設定画面、言語切替、タスクトレイ
 
-## 5. MVP完了条件
+## 5. 現行機能
 
-- ACK05の元ショートカットがrekordboxへ漏れない。
-- 共通HIDテストベクトルからmacOS版と同じキー状態を復元する。
-- Cue保持、Jump加速、コード、キー＋ダイヤル、4グループが動作する。
-- rekordboxが前面にない場合は入力を送らない。
-- 未割り当てのrekordbox操作を推測送信しない。
-- Windows 10 / 11、USB / BLE、複数DPI・複数モニターで検証する。
-- 通常ユーザー権限で動作し、アンインストール後に常駐物を残さない。
+- EXPORT / PERFORMANCEモードと4グループ
+- Deck 1 / Deck 2の初期マッピング
+- Cue保持、Play/Pause、Memory Cue、Hot Cue、Quantize
+- Jump長押し加速、Hot Cue削除、Memory Cue移動
+- キー／任意数の同時押し／ダイヤル／キー保持＋ダイヤルの再割り当て
+- rekordboxの割り当て済みショートカット一覧、検索、カテゴリ折りたたみ
+- デバイス図と一覧の双方向選択、青い選択表示、緑の実入力表示
+- デバイス図の90度回転と向き保存
+- 日本語・英語・簡体字中国語の即時切替と選択保存
+- タスクトレイ常駐
 
-## 6. リリース
+rekordboxのキーボード・マウス出力はrekordboxが最前面のときだけ行う。対象commandIdにショートカットがない場合は推測せず、未割り当てとして表示する。
 
-開発ビルドは自己完結型x64で生成する。一般配布は署名済みMSIXとし、Microsoft Storeまたは信頼されたコード署名サービスを使用する。自己署名は実機開発だけに使用する。
+## 6. 設定とrekordbox連携
+
+OverCUE設定は`%LocalAppData%\OverCUE\config.json`、UI状態と言語選択は同じ`OverCUE`ディレクトリへ保存する。
+
+rekordboxは`%AppData%\Pioneer\rekordbox6`の設定と`KeyMappings`を読み取る。選択中のマッピングが存在しない、または割り当てが空の場合は、次のrekordbox既定マッピングへフォールバックする。
+
+- PERFORMANCE: `Performance 1 (Preset)` / ID `0000000000000`
+- EXPORT: `Export (Preset)` / ID `0000000000030`
+
+## 7. リリース
+
+Windows版はMicrosoft Storeを使用せず、自己完結型`win-x64` ZIPをGitHub Releasesから直接配布する。ZIPには次を同梱する。
+
+- OverCUEアプリ本体と.NET 10ランタイム
+- XPPen ACK05プロファイルと導入手順
+- rekordboxキーボードマッピングと導入手順
+- 日本語・英語・簡体字中国語の翻訳JSON
+- MIT License
+
+正式なZIP名は`OverCUE-vX.Y.Z-windows-x64.zip`とし、Releaseに`SHA256SUMS.txt`を添付する。現在は未署名のためSmartScreen警告が表示される場合がある。自己署名証明書は一般配布に使用しない。将来の公開署名は、条件を満たす場合にSignPath Foundationを第一候補とする。
+
+`develop`更新とPull RequestでWindows/macOSのビルドとチェックを実行し、`main`上の`vX.Y.Z`タグからReleaseを作成する。詳細は[`branch-and-release-policy.md`](branch-and-release-policy.md)を参照する。

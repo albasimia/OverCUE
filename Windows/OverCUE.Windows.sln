@@ -10,6 +10,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OverCUE.Core.Checks", "test
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OverCUE.Windows", "src\OverCUE.Windows\OverCUE.Windows.csproj", "{A1A831D3-8F6C-4CF2-8BF3-6A28191E87DE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OverCUE.Windows.Checks", "tests\OverCUE.Windows.Checks\OverCUE.Windows.Checks.csproj", "{7BFA2C8E-BA0B-4584-9D58-A84F02C17112}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -32,5 +34,9 @@ Global
 		{A1A831D3-8F6C-4CF2-8BF3-6A28191E87DE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A1A831D3-8F6C-4CF2-8BF3-6A28191E87DE}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A1A831D3-8F6C-4CF2-8BF3-6A28191E87DE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7BFA2C8E-BA0B-4584-9D58-A84F02C17112}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7BFA2C8E-BA0B-4584-9D58-A84F02C17112}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7BFA2C8E-BA0B-4584-9D58-A84F02C17112}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7BFA2C8E-BA0B-4584-9D58-A84F02C17112}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

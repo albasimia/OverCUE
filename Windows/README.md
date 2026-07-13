@@ -1,6 +1,7 @@
 # OverCUE for Windows
 
-Windows版の開発領域です。設計判断とGate 0の手順は[`docs/windows-development-policy.md`](../docs/windows-development-policy.md)を参照してください。
+Windows版の開発領域です。入力方式、実装済み機能、設定保存、配布方式は
+[`docs/windows-development-policy.md`](../docs/windows-development-policy.md)を参照してください。
 
 ## Requirements
 
@@ -16,7 +17,24 @@ dotnet run --project .\src\OverCUE.Probe\OverCUE.Probe.csproj
 dotnet run --project .\tests\OverCUE.Core.Checks\OverCUE.Core.Checks.csproj
 ```
 
-同じBuildとCore checksは`.github/workflows/windows.yml`でWindows runner上でも実行します。
+Build、Core checks、Windows UI checksは`.github/workflows/ci.yml`でWindows runner上でも実行します。
+
+## Distribution
+
+Windows版はMicrosoft Storeを経由せず、自己完結型の`win-x64`アプリをGitHub Releasesで直接配布します。
+配布ZIPにはアプリ本体に加えて、次の初期設定ファイルを同梱します。
+
+画面、タスクトレイ、状態メッセージはmacOS版と同じ日本語・英語・簡体字中国語に対応し、
+ヘッダーの表示言語メニューから切り替えます。翻訳JSONはmacOS版とWindows版で共有します。
+
+- `Setup/XPPen/PenTablet_Config_2026-07-13.pcfg`
+- `Setup/XPPen/README.md`
+- `Setup/rekordbox/OverCUE-Performance.mappings`
+- `Setup/rekordbox/README.md`
+
+XPPen設定のインポートは現在のドライバー設定を置き換えるため、利用者には先にバックアップを
+エクスポートしてもらいます。CIとReleaseは`Scripts/package-windows-release.ps1`を共用し、
+同じファイル構成を生成します。
 
 `OverCUE.Probe`はACK05のRaw InputをJSON Linesで記録します。終了は`Ctrl+C`です。
 

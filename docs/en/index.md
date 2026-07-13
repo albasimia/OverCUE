@@ -1,161 +1,67 @@
 ---
 layout: default
-title: OverCUE | Turn ACK05 into a CUE Prep Controller
+title: OverCUE | Turn ACK05 into a rekordbox controller
 lang: en
-description: Turn your XPPen ACK05 into a one-handed CUE prep controller for rekordbox on macOS.
+description: An open-source macOS and Windows app that turns the XPPen ACK05 into a dedicated CUE controller for rekordbox.
 locale: en_US
 canonical_url: https://albasimia.github.io/OverCUE/en/
-og_image: https://albasimia.github.io/OverCUE/assets/ogp/en.png?v=20260713-2
-og_image_alt: OverCUE turns XPPen ACK05 into a CUE preparation controller for rekordbox
+og_image: https://albasimia.github.io/OverCUE/assets/ogp/en.png?v=20260713-3
+og_image_alt: Use XPPen ACK05 as a rekordbox CUE controller with OverCUE
 ---
 
-<nav class="language-nav"><a href="../">日本語</a> ｜ English ｜ <a href="../zh-hans/">简体中文</a></nav>
+<nav class="language-nav"><a href="../">日本語</a> ・ English ・ <a href="../zh-hans/">简体中文</a></nav>
 
-# OverCUE User Guide
-{: #overcue }
+# Turn ACK05 into a rekordbox controller
 
-OverCUE is a resident macOS app that turns the XPPen ACK05 dial and ten keys into cue-preparation controls for rekordbox. It uses mouse and keyboard output that works with the rekordbox Free plan.
+<p class="hero-lede">OverCUE is a resident app that maps the XPPen ACK05 dial and ten keys to rekordbox CUE controls. It supports macOS and Windows and works with the rekordbox Free plan.</p>
 
-![OverCUE settings](../assets/images/overcue-en.png)
+<div class="feature-grid">
+  <section class="feature-card">
+    <h3>10 keys + dial</h3>
+    <p>Keep Cue, Hot Cue, Jump, Quantize, and waveform controls under one hand.</p>
+  </section>
+  <section class="feature-card">
+    <h3>Four groups</h3>
+    <p>Switch and save configurations for Deck 1, Deck 2, EXPORT, and more.</p>
+  </section>
+  <section class="feature-card">
+    <h3>Editable key maps</h3>
+    <p>Search assigned rekordbox shortcuts and map them directly to the ACK05.</p>
+  </section>
+</div>
+
+## Choose your platform
+
+<div class="platform-grid">
+  <section class="platform-card">
+    <span class="platform-badge">macOS 13+</span>
+    <h3>OverCUE for macOS</h3>
+    <p>For Apple Silicon and Intel. Learn about permissions, first launch, and XPPen driver behavior.</p>
+    <a class="platform-link" href="./macos/">macOS setup guide →</a>
+  </section>
+  <section class="platform-card">
+    <span class="platform-badge">Windows 10 / 11</span>
+    <h3>OverCUE for Windows</h3>
+    <p>For x64 PCs. Set up the included XPPen profile and rekordbox mapping file.</p>
+    <a class="platform-link" href="./windows/">Windows setup guide →</a>
+  </section>
+</div>
+
+<div class="download-panel">
+  <h2>Download</h2>
+  <p>The download button at the top detects your operating system and resolves to the latest macOS or Windows ZIP. Visit <a href="https://github.com/albasimia/OverCUE/releases/latest">GitHub Releases</a> for another platform or the checksum file.</p>
+</div>
 
 ## Support OverCUE
 
 <div class="support-card">
-  <p>If OverCUE makes cue preparation easier, you can support its continued development, maintenance, and translations.</p>
+  <p>Your support helps with development, maintenance, and localization.</p>
   <div class="support-actions">
     <a class="support-link sponsors" href="https://github.com/sponsors/albasimia/" target="_blank" rel="noopener noreferrer">♥ GitHub Sponsors</a>
     <a class="support-link kofi" href="https://ko-fi.com/albasimia" target="_blank" rel="noopener noreferrer">☕ Ko-fi</a>
   </div>
 </div>
 
-## Requirements
+## Open source
 
-- macOS 13 Ventura or later
-- Apple silicon or Intel Mac
-- XPPen ACK05 Wireless Shortcut Remote
-- rekordbox 7
-
-## Installation
-
-<div class="notice">
-This build does not use the Apple Developer Program. It is not signed with a Developer ID or notarized by Apple, so macOS displays a warning on first launch.
-</div>
-
-1. Extract the ZIP archive.
-2. Move `OverCUE.app` to Applications.
-3. Try to open OverCUE once so that macOS displays its warning.
-4. Open System Settings → Privacy & Security.
-5. In Security, click Open Anyway for OverCUE.
-6. Confirm by clicking Open.
-
-Do not disable Gatekeeper or remove quarantine attributes with `xattr`. You can verify the archive with the `SHA256SUMS.txt` attached to the Release.
-
-```sh
-shasum -a 256 OverCUE-v0.1.1-macos-universal.zip
-```
-
-## First-time setup
-
-OverCUE uses these macOS permissions:
-
-- Input Monitoring: receives ACK05 key and dial input
-- Accessibility: sends keyboard and mouse input to rekordbox
-
-Follow the first-launch guide to grant both permissions to OverCUE, then quit and reopen the app. If XPPenPenTablet consumes ACK05 input, quit it. Reconnecting the ACK05 before restarting OverCUE may also help.
-
-## Basic use
-
-1. Start rekordbox.
-2. Connect the ACK05 and launch OverCUE.
-3. Select an OverCUE group and EXPORT or PERFORMANCE mode.
-4. To use waveform control, place the pointer over the enlarged waveform and press `K8+K1` to save its location.
-5. Bring rekordbox to the front and operate the ACK05.
-
-Keyboard and mouse output is enabled only while rekordbox is frontmost. Closing the window leaves OverCUE running from the 👻 menu-bar icon.
-
-## Groups and modes
-
-| Group | Default mode | Target |
-| --- | --- | --- |
-| 1 | PERFORMANCE | Deck 1 |
-| 2 | PERFORMANCE | Deck 2 |
-| 3 | EXPORT | Deck 1 |
-| 4 | EXPORT | Available for custom mappings |
-
-Each group remembers its last EXPORT or PERFORMANCE mode. Group and mode state stay synchronized between the GUI, ACK05, CLI bridge, and menu bar.
-
-The waveform position captured with `K8+K1` is also stored independently for each group. Switching groups activates the position last saved for that group.
-
-## Default key map
-
-| Input | Action |
-| --- | --- |
-| K1 | Hot Cue C |
-| K2 | Delete Memory Cue |
-| K3 | Jump backward (accelerating hold repeat) |
-| K4 | Hot Cue B |
-| K5 | Set Memory Cue |
-| K6 | Jump forward (accelerating hold repeat) |
-| K7 | Quantize ON/OFF |
-| K8 | Hot Cue A |
-| K9 | Cue (plays while held) |
-| K10 | Play/Pause |
-| Dial left/right | Jog Search left/right |
-| K8+K1 | Capture waveform position |
-| K7+K8/K4/K1 | Delete Hot Cue A/B/C |
-| K7+K3/K6 | Next/previous Memory Cue |
-| K7+K2 | Cycle groups forward |
-| K7+K5 | Cycle groups backward |
-| K7+dial left/right | Pitch Bend −/＋ |
-
-## Editing mappings
-
-Click the edit button in the shortcut list, then operate an ACK05 key, any-size key chord, dial direction, or held-key plus dial input.
-
-- OverCUE asks before replacing an occupied input.
-- It rejects chords that conflict with hold actions and explains the conflict.
-- Clicking a key or dial side in the device diagram selects and scrolls to its shortcut.
-- List or device selection is blue; live hardware input is green.
-- rekordbox function names use the language stored in its key-mapping file.
-
-Settings are stored at:
-
-```text
-~/Library/Application Support/OverCUE/config.json
-```
-
-## Troubleshooting
-
-### OverCUE cannot open the ACK05
-
-- Quit XPPenPenTablet.
-- Disconnect and reconnect the ACK05.
-- Check Input Monitoring permission for OverCUE.
-- Quit and reopen OverCUE.
-
-### rekordbox does not respond
-
-- Bring rekordbox to the front.
-- Check Accessibility permission for OverCUE.
-- Confirm that rekordbox has a shortcut assigned to the target function.
-- Check the current EXPORT/PERFORMANCE mode and group.
-
-### It stopped working after an update
-
-Because the app is ad-hoc signed, replacing it may require granting Input Monitoring and Accessibility again. Remove the old OverCUE entry in System Settings and add the new app.
-
-## Privacy and security
-
-<div class="safe">
-OverCUE has no telemetry, advertising, account system, or automatic upload. Configuration stays on your Mac.
-</div>
-
-The distributed ZIP has not been notarized or scanned by Apple. Verify its checksum and inspect the public source before use.
-
-## License and trademarks
-
-OverCUE is available under the [MIT License](https://github.com/albasimia/OverCUE/blob/main/LICENSE).
-
-OverCUE is an independent, unofficial project. It is not affiliated with or endorsed by XPPen, AlphaTheta, or rekordbox. Product names and trademarks belong to their respective owners.
-
-See the [GitHub repository](https://github.com/albasimia/OverCUE) for implementation details.
+OverCUE is available under the [MIT License](https://github.com/albasimia/OverCUE/blob/main/LICENSE). It contains no telemetry, advertising, account features, or automatic uploads. This independent project is not affiliated with or endorsed by XPPen, AlphaTheta, or rekordbox.

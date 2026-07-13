@@ -8,7 +8,7 @@ using OverCUE.Core;
 namespace OverCUE.Windows;
 
 internal sealed record WindowsShortcut(ushort VirtualKey, KeyModifiers Modifiers);
-[Flags] internal enum KeyModifiers { None=0, Shift=1, Control=2, Alt=4 }
+[Flags] internal enum KeyModifiers { None = 0, Shift = 1, Control = 2, Alt = 4 }
 
 internal enum RekordboxShortcutCategory
 {
@@ -25,7 +25,7 @@ internal sealed record RekordboxShortcutEntry(
 internal sealed class RekordboxShortcutCatalog
 {
     private readonly Dictionary<string, WindowsShortcut> shortcuts = new(StringComparer.OrdinalIgnoreCase);
-    public string MappingName { get; private set; } = "未検出";
+    public string MappingName { get; private set; } = AppLocalization.Current.Text("mapping.notDetected");
 
     public string MappingPath { get; private set; } = string.Empty;
     public IReadOnlyList<RekordboxShortcutEntry> Entries { get; private set; } = [];
@@ -124,17 +124,27 @@ internal sealed class RekordboxShortcutCatalog
         var parts = raw.Split('+', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         var modifiers = KeyModifiers.None;
         foreach (var part in parts.Take(parts.Length - 1)) modifiers |= part.ToLowerInvariant() switch
-        { "shift" => KeyModifiers.Shift, "ctrl" or "control" or "command" => KeyModifiers.Control,
-          "alt" or "option" => KeyModifiers.Alt, _ => KeyModifiers.None };
+        {
+            "shift" => KeyModifiers.Shift,
+            "ctrl" or "control" or "command" => KeyModifiers.Control,
+            "alt" or "option" => KeyModifiers.Alt,
+            _ => KeyModifiers.None
+        };
         var key = parts.LastOrDefault()?.Trim().ToUpperInvariant();
         ushort vk = key switch
         {
-            "SPACE" or "SPACEBAR" => 0x20, "LEFT" or "CURSOR LEFT" => 0x25, "UP" or "CURSOR UP" => 0x26,
-            "RIGHT" or "CURSOR RIGHT" => 0x27, "DOWN" or "CURSOR DOWN" => 0x28,
-            "BACKSPACE" or "DELETE" => 0x08, "ENTER" or "RETURN" => 0x0D, "ESC" or "ESCAPE" => 0x1B,
+            "SPACE" or "SPACEBAR" => 0x20,
+            "LEFT" or "CURSOR LEFT" => 0x25,
+            "UP" or "CURSOR UP" => 0x26,
+            "RIGHT" or "CURSOR RIGHT" => 0x27,
+            "DOWN" or "CURSOR DOWN" => 0x28,
+            "BACKSPACE" or "DELETE" => 0x08,
+            "ENTER" or "RETURN" => 0x0D,
+            "ESC" or "ESCAPE" => 0x1B,
             _ when key?.Length == 1 => key[0],
             _ when key is not null && key.StartsWith('F') && int.TryParse(key[1..], out var number) && number is >= 1 and <= 24
-                => (ushort)(0x70 + number - 1), _ => 0,
+                => (ushort)(0x70 + number - 1),
+            _ => 0,
         };
         return vk == 0 ? null : new(vk, modifiers);
     }
@@ -262,16 +272,15 @@ internal sealed class WindowsActionRuntime : IDisposable
         var shortcut = command is null ? null : shortcuts.Find(command);
         if (shortcut is null)
         {
-            StatusChanged?.Invoke($"未割り当て: {command ?? value.Target.Action?.ConfigurationValue()}（{shortcuts.MappingName}）");
+            StatusChanged?.Invoke(AppLocalization.Current.Text(
+                "common.unassigned") + $": {command ?? value.Target.Action?.ConfigurationValue()} ({shortcuts.MappingName})");
             return;
         }
         if (!IsRekordboxFrontmost())
         {
-            StatusChanged?.Invoke("rekordboxが最前面ではありません");
+            StatusChanged?.Invoke(AppLocalization.Current.Text("message.rekordboxNotFrontmost"));
             return;
         }
-        if (shortcut is null) { StatusChanged?.Invoke($"未割り当て: {command ?? value.Target.Action?.ConfigurationValue()}"); return; }
-        if (!IsRekordboxFrontmost()) { StatusChanged?.Invoke("rekordboxが最前面ではありません"); return; }
         var cueHandoff = ExportHeldCueForPlay(value, command!);
         if (cueHandoff is not null)
             QueueCuePlayHandoff(cueHandoff, shortcut, command!);
@@ -284,9 +293,8 @@ internal sealed class WindowsActionRuntime : IDisposable
         else if (value.Phase == ActionPhase.Released)
             QueueShortcut(shortcut, false, false, command!);
         else return;
-        StatusChanged?.Invoke(true
-            ? $"送信: commandId={command}, VK={shortcut.VirtualKey:X2}"
-            : $"SendInput失敗: commandId={command}, Win32={Marshal.GetLastWin32Error()}");
+        StatusChanged?.Invoke(AppLocalization.Current.Text(
+            "message.send", command!, shortcut.VirtualKey.ToString("X2")));
     }
 
     private void StartRepeat(ACK05Key key)
@@ -300,41 +308,41 @@ internal sealed class WindowsActionRuntime : IDisposable
         Route(value); var held = Stopwatch.GetElapsedTime(repeatStarted).TotalMilliseconds;
         repeatTimer?.Change((int)repeatProfile.RepeatInterval(held), Timeout.Infinite);
     }
-    private void StopRepeat() { repeatTimer?.Dispose(); repeatTimer=null; repeatingKey=null; }
+    private void StopRepeat() { repeatTimer?.Dispose(); repeatTimer = null; repeatingKey = null; }
 
     private void CaptureWaveform()
     {
         if (!GetCursorPos(out var point)) return;
         CurrentGroup().WaveformPosition = new(point.X, point.Y); configuration.Save(configPath);
-        StatusChanged?.Invoke($"波形位置を保存: {point.X}, {point.Y}");
+        StatusChanged?.Invoke(AppLocalization.Current.Text("message.waveformSaved", point.X, point.Y));
     }
     private void Drag(DialDirection direction)
     {
         if (!IsRekordboxFrontmost() || CurrentGroup().WaveformPosition is not { } anchor) { FinishDrag(true); return; }
         if (dragPosition is null)
         {
-            GetCursorPos(out var original); originalPointer=original; dragPosition=new((int)anchor.X,(int)anchor.Y);
+            GetCursorPos(out var original); originalPointer = original; dragPosition = new((int)anchor.X, (int)anchor.Y);
             SetCursorPos(dragPosition.Value.X, dragPosition.Value.Y); MouseEvent(0x0002);
         }
-        var now=Stopwatch.GetTimestamp(); double? raw=lastDialTimestamp==0?null:Stopwatch.GetElapsedTime(lastDialTimestamp,now).TotalMilliseconds;
-        var effective=lastDirection==direction&&raw is not null ? dragProfile.SmoothedInterval(smoothedInterval,raw.Value) : (double?)null;
-        smoothedInterval=effective; lastDirection=direction; lastDialTimestamp=now;
-        var position=dragPosition.Value; position.X+=(int)Math.Round(dragProfile.HorizontalDelta(direction,effective)); dragPosition=position;
-        SetCursorPos(position.X,position.Y); MouseEvent(0x0001);
-        dragReleaseTimer?.Dispose(); dragReleaseTimer=new(_=>FinishDrag(true),null,150,Timeout.Infinite);
+        var now = Stopwatch.GetTimestamp(); double? raw = lastDialTimestamp == 0 ? null : Stopwatch.GetElapsedTime(lastDialTimestamp, now).TotalMilliseconds;
+        var effective = lastDirection == direction && raw is not null ? dragProfile.SmoothedInterval(smoothedInterval, raw.Value) : (double?)null;
+        smoothedInterval = effective; lastDirection = direction; lastDialTimestamp = now;
+        var position = dragPosition.Value; position.X += (int)Math.Round(dragProfile.HorizontalDelta(direction, effective)); dragPosition = position;
+        SetCursorPos(position.X, position.Y); MouseEvent(0x0001);
+        dragReleaseTimer?.Dispose(); dragReleaseTimer = new(_ => FinishDrag(true), null, 150, Timeout.Infinite);
     }
     private void FinishDrag(bool restore)
     {
-        dragReleaseTimer?.Dispose(); dragReleaseTimer=null;
+        dragReleaseTimer?.Dispose(); dragReleaseTimer = null;
         if (dragPosition is not null) MouseEvent(0x0004);
-        if (restore && originalPointer is { } original) SetCursorPos(original.X,original.Y);
-        originalPointer=null; dragPosition=null; lastDialTimestamp=0; lastDirection=null; smoothedInterval=null;
+        if (restore && originalPointer is { } original) SetCursorPos(original.X, original.Y);
+        originalPointer = null; dragPosition = null; lastDialTimestamp = 0; lastDirection = null; smoothedInterval = null;
     }
 
     private static bool IsRekordboxFrontmost()
     {
-        var window=GetForegroundWindow(); GetWindowThreadProcessId(window,out var pid);
-        try { return Process.GetProcessById((int)pid).ProcessName.Contains("rekordbox",StringComparison.OrdinalIgnoreCase); }
+        var window = GetForegroundWindow(); GetWindowThreadProcessId(window, out var pid);
+        try { return Process.GetProcessById((int)pid).ProcessName.Contains("rekordbox", StringComparison.OrdinalIgnoreCase); }
         catch { return false; }
     }
     private void QueueShortcut(WindowsShortcut shortcut, bool down, bool tap, string command)
@@ -367,15 +375,17 @@ internal sealed class WindowsActionRuntime : IDisposable
                 ? SendCuePlayHandoff(cue, request.Shortcut)
                 : SendShortcut(request.Shortcut, request.Down, request.Tap);
             StatusChanged?.Invoke(sent
-                ? $"送信: commandId={request.Command}, VK={request.Shortcut.VirtualKey:X2}"
-                : $"SendInput失敗: commandId={request.Command}, Win32={Marshal.GetLastWin32Error()}");
+                ? AppLocalization.Current.Text(
+                    "message.send", request.Command, request.Shortcut.VirtualKey.ToString("X2"))
+                : AppLocalization.Current.Text(
+                    "message.sendFailed", request.Command, Marshal.GetLastWin32Error()));
         }
         ReleaseHeldShortcutState();
     }
 
     private bool SendShortcut(WindowsShortcut shortcut, bool down, bool tap)
     {
-        var mods=new[]{(KeyModifiers.Control,(ushort)0x11),(KeyModifiers.Shift,(ushort)0x10),(KeyModifiers.Alt,(ushort)0x12)};
+        var mods = new[] { (KeyModifiers.Control, (ushort)0x11), (KeyModifiers.Shift, (ushort)0x10), (KeyModifiers.Alt, (ushort)0x12) };
         var inputs = new List<INPUT>();
         if (down)
             foreach (var (flag, key) in mods)
@@ -404,7 +414,7 @@ internal sealed class WindowsActionRuntime : IDisposable
     {
         if (!heldShortcutKeys.Contains(cue.VirtualKey)) return SendShortcut(play, true, true);
 
-        var mods=new[]{(KeyModifiers.Control,(ushort)0x11),(KeyModifiers.Shift,(ushort)0x10),(KeyModifiers.Alt,(ushort)0x12)};
+        var mods = new[] { (KeyModifiers.Control, (ushort)0x11), (KeyModifiers.Shift, (ushort)0x10), (KeyModifiers.Alt, (ushort)0x12) };
         var inputs = new List<INPUT>();
         foreach (var (flag, key) in mods)
             if (play.Modifiers.HasFlag(flag)) AcquireModifier(key, inputs);
@@ -459,11 +469,14 @@ internal sealed class WindowsActionRuntime : IDisposable
     private static INPUT KeyboardInput(ushort key, bool up) => new()
     {
         Type = 1,
-        Union = new INPUTUNION { Keyboard = new KEYBDINPUT
+        Union = new INPUTUNION
         {
-            Scan = (ushort)MapVirtualKey(key, 0),
-            Flags = 0x0008U | (up ? 0x0002U : 0U) | (IsExtendedKey(key) ? 0x0001U : 0U),
-        } },
+            Keyboard = new KEYBDINPUT
+            {
+                Scan = (ushort)MapVirtualKey(key, 0),
+                Flags = 0x0008U | (up ? 0x0002U : 0U) | (IsExtendedKey(key) ? 0x0001U : 0U),
+            }
+        },
     };
     private static bool IsExtendedKey(ushort key) => key is >= 0x21 and <= 0x2E && key is not 0x20;
     private static void MouseEvent(uint flags) => SendNativeInput([new INPUT
@@ -476,29 +489,32 @@ internal sealed class WindowsActionRuntime : IDisposable
 
     private sealed record ShortcutRequest(
         WindowsShortcut Shortcut, bool Down, bool Tap, string Command, WindowsShortcut? CueHandoff = null);
-    [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X,Y; public POINT(int x,int y){X=x;Y=y;} }
+    [StructLayout(LayoutKind.Sequential)] private struct POINT { public int X, Y; public POINT(int x, int y) { X = x; Y = y; } }
     [StructLayout(LayoutKind.Sequential)] private struct INPUT { public uint Type; public INPUTUNION Union; }
-    [StructLayout(LayoutKind.Explicit)] private struct INPUTUNION
+    [StructLayout(LayoutKind.Explicit)]
+    private struct INPUTUNION
     {
         [FieldOffset(0)] public MOUSEINPUT Mouse;
         [FieldOffset(0)] public KEYBDINPUT Keyboard;
     }
-    [StructLayout(LayoutKind.Sequential)] private struct KEYBDINPUT
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KEYBDINPUT
     {
         public ushort VirtualKey, Scan;
         public uint Flags, Time;
         public UIntPtr ExtraInfo;
     }
-    [StructLayout(LayoutKind.Sequential)] private struct MOUSEINPUT
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MOUSEINPUT
     {
         public int Dx, Dy;
         public uint MouseData, Flags, Time;
         public UIntPtr ExtraInfo;
     }
     [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
-    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint window,out uint processId);
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint window, out uint processId);
     [DllImport("user32.dll", EntryPoint = "MapVirtualKeyW")] private static extern uint MapVirtualKey(uint code, uint mapType);
     [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint inputCount, INPUT[] inputs, int size);
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT point);
-    [DllImport("user32.dll")] private static extern bool SetCursorPos(int x,int y);
+    [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
 }

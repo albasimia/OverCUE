@@ -123,12 +123,15 @@ internal sealed class RawInputService : IDisposable
 
     [StructLayout(LayoutKind.Sequential)] private readonly record struct RAWINPUTDEVICE(ushort UsagePage, ushort Usage, uint Flags, nint Target);
     [StructLayout(LayoutKind.Sequential)] private struct RAWINPUTHEADER { public uint Type, Size; public nint Device, WParam; }
-    [StructLayout(LayoutKind.Sequential)] private struct RAWKEYBOARD
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RAWKEYBOARD
     { public ushort MakeCode, Flags, Reserved, VirtualKey; public uint Message, ExtraInformation; }
 
-    [DllImport("user32.dll", SetLastError = true)] private static extern bool RegisterRawInputDevices(
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool RegisterRawInputDevices(
         [In] RAWINPUTDEVICE[] devices, uint count, uint size);
-    [DllImport("user32.dll", SetLastError = true)] private static extern uint GetRawInputData(
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint GetRawInputData(
         nint input, uint command, nint data, ref uint size, uint headerSize);
     [DllImport("user32.dll", EntryPoint = "GetRawInputDeviceInfoW", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern uint GetRawInputDeviceInfo(nint device, uint command, nint data, ref uint size);

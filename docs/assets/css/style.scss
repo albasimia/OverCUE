@@ -52,6 +52,18 @@
   margin: 0;
 }
 
+.header-actions .btn-primary {
+  border-color: rgba(255, 255, 255, 0.85);
+  background: #fff;
+  color: #111;
+  font-weight: 700;
+}
+
+.header-actions .btn-primary:hover {
+  background: rgba(255, 255, 255, 0.9);
+  color: #111;
+}
+
 .main-content {
   max-width: 72rem;
 }
@@ -64,6 +76,94 @@
 .language-nav {
   margin-bottom: 1.5rem;
   font-weight: 600;
+}
+
+.platform-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: -0.65rem 0 2rem;
+  color: #64748b;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.hero-lede {
+  max-width: 48rem;
+  margin-bottom: 2rem;
+  color: #475569;
+  font-size: 1.15rem;
+  line-height: 1.8;
+}
+
+.feature-grid,
+.platform-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1.25rem 0 2rem;
+}
+
+.platform-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.feature-card,
+.platform-card {
+  padding: 1.25rem;
+  border: 1px solid #d9e2ee;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.feature-card h3,
+.platform-card h3 {
+  margin-top: 0;
+}
+
+.feature-card p,
+.platform-card p {
+  margin-bottom: 0;
+}
+
+.platform-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.platform-card .platform-link {
+  align-self: flex-start;
+  margin-top: auto;
+  padding-top: 1rem;
+  font-weight: 700;
+}
+
+.platform-badge {
+  display: inline-block;
+  align-self: flex-start;
+  margin-bottom: 0.75rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.download-panel {
+  margin: 2rem 0;
+  padding: 1.4rem;
+  border-radius: 14px;
+  background: #eef5ff;
+}
+
+.download-panel h2 {
+  margin-top: 0;
+}
+
+.download-panel p:last-child {
+  margin-bottom: 0;
 }
 
 .notice {
@@ -144,6 +244,11 @@ table {
   .support-link {
     text-align: center;
   }
+
+  .feature-grid,
+  .platform-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -157,4 +262,8 @@ table {
   .notice { background: #3a2d13; color: #ffe6ae; }
   .safe { background: #17351e; color: #c7f4d0; }
   .support-card { background: #20242b; border-color: #3c4654; }
+  .hero-lede { color: #cbd5e1; }
+  .feature-card, .platform-card { background: #20242b; border-color: #3c4654; }
+  .platform-badge { background: #343a46; color: #dbe5f2; }
+  .download-panel { background: #1d2b3f; }
 }

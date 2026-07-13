@@ -257,7 +257,7 @@
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <TextBlock Text="未割り当て" Foreground="#696969" FontSize="11"
+            <TextBlock Text="{DynamicResource L10n.common.unassigned}" Foreground="#696969" FontSize="11"
                        VerticalAlignment="Center">
               <TextBlock.Style>
                 <Style TargetType="TextBlock">
@@ -273,10 +273,10 @@
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
               <Button Style="{StaticResource RowActionButton}" Content="&#xE70F;"
                       Tag="{Binding}" Click="EditMappingClick"
-                      ToolTip="ACK05から入力してキーマップを変更"/>
+                      ToolTip="{DynamicResource L10n.shortcuts.edit.help}"/>
               <Button Style="{StaticResource RowActionButton}" Content="&#xE74D;"
                       Tag="{Binding}" Click="DeleteMappingClick" IsEnabled="{Binding IsConfigured}"
-                      Foreground="#E06C75" ToolTip="ACK05キーマップから削除"/>
+                      Foreground="#E06C75" ToolTip="{DynamicResource L10n.shortcuts.remove.help}"/>
             </StackPanel>
           </Grid>
         </Grid>
@@ -291,10 +291,10 @@
             <ColumnDefinition Width="150"/>
             <ColumnDefinition Width="220"/>
           </Grid.ColumnDefinitions>
-          <TextBlock Text="機能 / commandId" VerticalAlignment="Center" Style="{StaticResource ColumnHeaderText}"/>
-          <TextBlock Grid.Column="1" Text="rekordboxショートカット" VerticalAlignment="Center"
+          <TextBlock Text="{DynamicResource L10n.shortcuts.column.function}" VerticalAlignment="Center" Style="{StaticResource ColumnHeaderText}"/>
+          <TextBlock Grid.Column="1" Text="{DynamicResource L10n.shortcuts.column.rekordbox}" VerticalAlignment="Center"
                      Style="{StaticResource ColumnHeaderText}"/>
-          <TextBlock Grid.Column="2" Text="ACK05" VerticalAlignment="Center"
+          <TextBlock Grid.Column="2" Text="{DynamicResource L10n.shortcuts.column.ack05}" VerticalAlignment="Center"
                      Style="{StaticResource ColumnHeaderText}"/>
         </Grid>
       </Border>
@@ -326,8 +326,14 @@
                      Margin="13,0,0,0" VerticalAlignment="Center"/>
         </StackPanel>
         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+          <TextBlock Text="{DynamicResource L10n.settings.language}" Foreground="#A0A0A0"
+                     VerticalAlignment="Center" Margin="0,0,8,0"/>
+          <ComboBox x:Name="LanguageBox" Width="112" Margin="0,0,20,0"
+                    Foreground="#222222" Background="#F2F2F2"
+                    DisplayMemberPath="NativeName" SelectedValuePath="Code"
+                    SelectionChanged="LanguageSelectionChanged"/>
           <Ellipse x:Name="StatusDot" Width="9" Height="9" Fill="#34D26F"/>
-          <TextBlock x:Name="StatusText" Text="ACK05入力待機中" Foreground="#B4B4B4"
+          <TextBlock x:Name="StatusText" Text="{DynamicResource L10n.app.status.running}" Foreground="#B4B4B4"
                      FontWeight="SemiBold" Margin="9,0,0,0"/>
         </StackPanel>
       </Grid>
@@ -349,10 +355,10 @@
         </Grid.RowDefinitions>
         <StackPanel>
           <TextBlock Text="ACK05" FontSize="21" FontWeight="Bold"/>
-          <TextBlock Text="デバイスマップ" Foreground="#909090"/>
+          <TextBlock Text="{DynamicResource L10n.device.map}" Foreground="#909090"/>
         </StackPanel>
         <DockPanel Grid.Row="1" Margin="0,22,0,12">
-          <TextBlock Text="グループ" FontWeight="SemiBold" VerticalAlignment="Center"/>
+          <TextBlock Text="{DynamicResource L10n.device.group}" FontWeight="SemiBold" VerticalAlignment="Center"/>
           <UniformGrid Columns="4" Width="170" HorizontalAlignment="Right">
             <RadioButton x:Name="Group1" GroupName="Groups" Tag="1" Content="1" IsChecked="True"
                          Style="{StaticResource GroupSegment}" Click="GroupButtonClick"/>
@@ -431,10 +437,10 @@
                   HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,2,0"
                   Panel.ZIndex="5" FontSize="17" FontWeight="SemiBold"
                   Background="#343434" Foreground="White" BorderBrush="#555555"
-                  BorderThickness="1" ToolTip="デバイスの向きを90度回転"
+                  BorderThickness="1" ToolTip="{DynamicResource L10n.device.rotate}"
                   Click="RotateDeviceClick"/>
         </Grid>
-        <TextBlock Grid.Row="3" x:Name="InputText" Text="ボタンまたはダイヤルを操作してください"
+        <TextBlock Grid.Row="3" x:Name="InputText" Text="{DynamicResource L10n.device.prompt}"
                    Foreground="#949494"/>
       </Grid>
 
@@ -451,9 +457,9 @@
         </Grid.RowDefinitions>
 
         <Grid>
-          <TextBlock Text="ショートカット設定" FontSize="29" FontWeight="Bold"/>
+          <TextBlock Text="{DynamicResource L10n.shortcuts.title}" FontSize="29" FontWeight="Bold"/>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <TextBlock Text="モード" Foreground="#A0A0A0" VerticalAlignment="Center" Margin="0,0,9,0"/>
+            <TextBlock Text="{DynamicResource L10n.shortcuts.mode}" Foreground="#A0A0A0" VerticalAlignment="Center" Margin="0,0,9,0"/>
             <Border Background="#343434" CornerRadius="7">
               <UniformGrid Columns="2">
                 <RadioButton x:Name="ExportMode" GroupName="Modes" Content="EXPORT" Tag="export"
@@ -462,7 +468,7 @@
                              Style="{StaticResource GroupSegment}" Click="ModeButtonClick"/>
               </UniformGrid>
             </Border>
-            <Button Content="↻  再読み込み" Margin="12,0,0,0" Padding="15,6"
+            <Button Content="{DynamicResource L10n.shortcuts.reload}" Margin="12,0,0,0" Padding="15,6"
                     Background="#393939" Foreground="White" BorderThickness="0" Click="ReloadClick"/>
           </StackPanel>
         </Grid>
@@ -472,7 +478,7 @@
           <Grid>
             <TextBox x:Name="SearchBox" Background="Transparent" BorderThickness="0"
                      Foreground="#DDDDDD" TextChanged="SearchTextChanged"/>
-            <TextBlock x:Name="SearchPlaceholder" Text="⌕  機能、キー、commandIdを検索"
+            <TextBlock x:Name="SearchPlaceholder" Text="{DynamicResource L10n.shortcuts.search}"
                        Foreground="#858585" IsHitTestVisible="False" VerticalAlignment="Center"/>
           </Grid>
         </Border>
@@ -489,7 +495,7 @@
                        Foreground="#F0A44B" VerticalAlignment="Center" Margin="0,0,10,0"/>
             <TextBlock x:Name="CaptureStatusText" Grid.Column="1" VerticalAlignment="Center"
                        TextWrapping="Wrap" FontWeight="SemiBold"/>
-            <Button Grid.Column="2" Content="キャンセル" Margin="12,0,0,0" Padding="12,5"
+            <Button Grid.Column="2" Content="{DynamicResource L10n.common.cancel}" Margin="12,0,0,0" Padding="12,5"
                     Background="#424242" Foreground="White" BorderThickness="0"
                     Click="CancelCaptureClick"/>
           </Grid>
@@ -498,8 +504,8 @@
         <Grid Grid.Row="3" Margin="0,0,0,12">
           <StackPanel Orientation="Horizontal">
             <Ellipse Width="9" Height="9" Fill="#34D26F"/>
-            <TextBlock x:Name="PresetText" Text="読み込み中" FontWeight="SemiBold" Margin="9,0"/>
-            <TextBlock x:Name="MappingCountText" Text="0件" Foreground="#999999"/>
+            <TextBlock x:Name="PresetText" Text="{DynamicResource L10n.message.loading}" FontWeight="SemiBold" Margin="9,0"/>
+            <TextBlock x:Name="MappingCountText" Text="0" Foreground="#999999"/>
           </StackPanel>
           <TextBlock x:Name="MappingFileText" HorizontalAlignment="Right" Foreground="#676767"
                      FontSize="11" FontFamily="Consolas"/>
@@ -516,7 +522,7 @@
                     <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <StackPanel Orientation="Horizontal" Margin="8,0,0,0" VerticalAlignment="Center">
                       <TextBlock Text="⚙" FontSize="16" Margin="0,0,9,0"/>
-                      <TextBlock Text="OverCUE設定" FontSize="15" FontWeight="SemiBold"/>
+                      <TextBlock Text="{DynamicResource L10n.shortcuts.overcue}" FontSize="15" FontWeight="SemiBold"/>
                     </StackPanel>
                     <TextBlock Grid.Column="1" x:Name="OverCUECountText" Text="10"
                                Foreground="#8E8E8E" FontFamily="Consolas"

@@ -3,10 +3,16 @@
 set -euo pipefail
 
 ROOT_DIR="${0:A:h:h}"
-VERSION="${1:-0.1.1}"
+VERSION_FILE="${ROOT_DIR}/VERSION"
+VERSION="${1:-$(tr -d '\r\n' < "${VERSION_FILE}")}"
 RELEASE_DIR="${ROOT_DIR}/release"
 ARCHIVE_NAME="OverCUE-v${VERSION}-macos-universal.zip"
 PLIST_VERSION="$(plutil -extract CFBundleShortVersionString raw "${ROOT_DIR}/Packaging/Info.plist")"
+
+if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Invalid release version: ${VERSION}" >&2
+    exit 1
+fi
 
 if [[ "${VERSION}" != "${PLIST_VERSION}" ]]; then
     echo "Version mismatch: requested ${VERSION}, Info.plist is ${PLIST_VERSION}" >&2

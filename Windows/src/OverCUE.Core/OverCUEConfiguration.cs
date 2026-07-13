@@ -137,15 +137,32 @@ public sealed class OverCUEConfiguration
         var group = new OverCUEGroupMapping
         {
             RekordboxMode = mode,
-            KeyMap = new() { ["K1"]="hot_cue_3", ["K2"]="delete_memory_cue", ["K3"]="jump_forward",
-                ["K4"]="hot_cue_2", ["K5"]="set_memory_cue", ["K6"]="jump_backward", ["K7"]="quantize",
-                ["K8"]="hot_cue_1", ["K9"]="cue", ["K10"]="play_pause" },
-            ChordMap = new() { ["K8+K1"]="capture_waveform_position", ["K7+K8"]="delete_hot_cue_1",
-                ["K7+K4"]="delete_hot_cue_2", ["K7+K1"]="delete_hot_cue_3", ["K7+K3"]="call_next_memory_cue",
-                ["K7+K6"]="call_previous_memory_cue", ["K7+K2"]="cycle_group",
-                ["K7+K5"]="cycle_group_backward" },
-            DialMap = new() { ["counterclockwise"]="jog_search_left", ["clockwise"]="jog_search_right" },
-            DialChordMap = new() { ["K7+DIAL_LEFT"]="rekordbox:3050", ["K7+DIAL_RIGHT"]="rekordbox:304f" },
+            KeyMap = new()
+            {
+                ["K1"] = "hot_cue_3",
+                ["K2"] = "delete_memory_cue",
+                ["K3"] = "jump_forward",
+                ["K4"] = "hot_cue_2",
+                ["K5"] = "set_memory_cue",
+                ["K6"] = "jump_backward",
+                ["K7"] = "quantize",
+                ["K8"] = "hot_cue_1",
+                ["K9"] = "cue",
+                ["K10"] = "play_pause"
+            },
+            ChordMap = new()
+            {
+                ["K8+K1"] = "capture_waveform_position",
+                ["K7+K8"] = "delete_hot_cue_1",
+                ["K7+K4"] = "delete_hot_cue_2",
+                ["K7+K1"] = "delete_hot_cue_3",
+                ["K7+K3"] = "call_next_memory_cue",
+                ["K7+K6"] = "call_previous_memory_cue",
+                ["K7+K2"] = "cycle_group",
+                ["K7+K5"] = "cycle_group_backward"
+            },
+            DialMap = new() { ["counterclockwise"] = "jog_search_left", ["clockwise"] = "jog_search_right" },
+            DialChordMap = new() { ["K7+DIAL_LEFT"] = "rekordbox:3050", ["K7+DIAL_RIGHT"] = "rekordbox:304f" },
         };
         return group;
     }
@@ -153,15 +170,30 @@ public sealed class OverCUEConfiguration
     private static OverCUEGroupMapping DeckTwoGroup() => new()
     {
         RekordboxMode = "performance",
-        KeyMap = new() { ["K1"]="rekordbox:3120", ["K2"]="rekordbox:313b", ["K3"]="rekordbox:3108",
-            ["K4"]="rekordbox:311f", ["K5"]="rekordbox:3124", ["K6"]="rekordbox:3109",
-            ["K7"]="rekordbox:311c", ["K8"]="rekordbox:311e", ["K9"]="rekordbox:3107",
-            ["K10"]="rekordbox:3106" },
-        ChordMap = new() { ["K8+K1"]="capture_waveform_position", ["K7+K8"]="rekordbox:3121",
-            ["K7+K4"]="rekordbox:3122", ["K7+K1"]="rekordbox:3123", ["K7+K3"]="rekordbox:3139",
-            ["K7+K6"]="rekordbox:313a" },
-        DialMap = new() { ["counterclockwise"]="jog_search_left", ["clockwise"]="jog_search_right" },
-        DialChordMap = new() { ["K7+DIAL_LEFT"]="rekordbox:3150", ["K7+DIAL_RIGHT"]="rekordbox:314f" },
+        KeyMap = new()
+        {
+            ["K1"] = "rekordbox:3120",
+            ["K2"] = "rekordbox:313b",
+            ["K3"] = "rekordbox:3108",
+            ["K4"] = "rekordbox:311f",
+            ["K5"] = "rekordbox:3124",
+            ["K6"] = "rekordbox:3109",
+            ["K7"] = "rekordbox:311c",
+            ["K8"] = "rekordbox:311e",
+            ["K9"] = "rekordbox:3107",
+            ["K10"] = "rekordbox:3106"
+        },
+        ChordMap = new()
+        {
+            ["K8+K1"] = "capture_waveform_position",
+            ["K7+K8"] = "rekordbox:3121",
+            ["K7+K4"] = "rekordbox:3122",
+            ["K7+K1"] = "rekordbox:3123",
+            ["K7+K3"] = "rekordbox:3139",
+            ["K7+K6"] = "rekordbox:313a"
+        },
+        DialMap = new() { ["counterclockwise"] = "jog_search_left", ["clockwise"] = "jog_search_right" },
+        DialChordMap = new() { ["K7+DIAL_LEFT"] = "rekordbox:3150", ["K7+DIAL_RIGHT"] = "rekordbox:314f" },
     };
 }
 
@@ -169,10 +201,21 @@ public static class RekordboxActionAdapter
 {
     public static string? CommandID(ActionTarget target) => target.RekordboxCommandID ?? target.Action switch
     {
-        ActionID.HotCue1 => "301e", ActionID.HotCue2 => "301f", ActionID.HotCue3 => "3020",
-        ActionID.DeleteHotCue1 => "3021", ActionID.DeleteHotCue2 => "3022", ActionID.DeleteHotCue3 => "3023",
-        ActionID.SetMemoryCue => "3024", ActionID.DeleteMemoryCue => "303b", ActionID.CallNextMemoryCue => "3039",
-        ActionID.CallPreviousMemoryCue => "303a", ActionID.JumpForward => "3008", ActionID.JumpBackward => "3009",
-        ActionID.Quantize => "301c", ActionID.Cue => "3007", ActionID.PlayPause => "3006", _ => null,
+        ActionID.HotCue1 => "301e",
+        ActionID.HotCue2 => "301f",
+        ActionID.HotCue3 => "3020",
+        ActionID.DeleteHotCue1 => "3021",
+        ActionID.DeleteHotCue2 => "3022",
+        ActionID.DeleteHotCue3 => "3023",
+        ActionID.SetMemoryCue => "3024",
+        ActionID.DeleteMemoryCue => "303b",
+        ActionID.CallNextMemoryCue => "3039",
+        ActionID.CallPreviousMemoryCue => "303a",
+        ActionID.JumpForward => "3008",
+        ActionID.JumpBackward => "3009",
+        ActionID.Quantize => "301c",
+        ActionID.Cue => "3007",
+        ActionID.PlayPause => "3006",
+        _ => null,
     };
 }

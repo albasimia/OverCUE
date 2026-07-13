@@ -14,6 +14,9 @@ public partial class App : System.Windows.Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        AppLocalization.Current.Initialize();
+        AppLocalization.Current.ApplyResources(Resources);
+        AppLocalization.Current.LanguageChanged += LocalizationChanged;
         mainWindow = new MainWindow();
         mainWindow.Closing += (_, args) =>
         {
@@ -29,8 +32,7 @@ public partial class App : System.Windows.Application
             Visible = true,
             ContextMenuStrip = new Forms.ContextMenuStrip(),
         };
-        trayIcon.ContextMenuStrip.Items.Add("OverCUEを開く", null, (_, _) => ShowMainWindow());
-        trayIcon.ContextMenuStrip.Items.Add("終了", null, (_, _) => ExitApplication());
+        BuildTrayMenu();
         trayIcon.DoubleClick += (_, _) => ShowMainWindow();
         ShowMainWindow();
     }
@@ -39,6 +41,20 @@ public partial class App : System.Windows.Application
     {
         mainWindow?.Show();
         mainWindow?.Activate();
+    }
+
+    private void LocalizationChanged()
+    {
+        AppLocalization.Current.ApplyResources(Resources);
+        BuildTrayMenu();
+    }
+
+    private void BuildTrayMenu()
+    {
+        if (trayIcon?.ContextMenuStrip is not { } menu) return;
+        menu.Items.Clear();
+        menu.Items.Add(AppLocalization.Current.Text("app.show"), null, (_, _) => ShowMainWindow());
+        menu.Items.Add(AppLocalization.Current.Text("app.quit"), null, (_, _) => ExitApplication());
     }
 
     private static Drawing.Icon? LoadApplicationIcon()
@@ -52,6 +68,7 @@ public partial class App : System.Windows.Application
     private void ExitApplication()
     {
         exiting = true;
+        AppLocalization.Current.LanguageChanged -= LocalizationChanged;
         trayIcon?.Dispose();
         trayIcon = null;
         appIcon?.Dispose();

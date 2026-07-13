@@ -36,6 +36,7 @@ public partial class MainWindow : Window
     private readonly string uiStatePath = Environment.GetEnvironmentVariable("OVERCUE_UI_STATE_PATH")
         ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OverCUE", "ui-state.json");
+    private readonly AppLocalization localization = AppLocalization.Current;
     private readonly OverCUEConfiguration configuration;
     private readonly RawInputService inputService = new();
     private readonly ReservedFunctionKeyService functionKeyService = new();
@@ -51,16 +52,22 @@ public partial class MainWindow : Window
     private bool ready;
     private MappingRow? editingRow;
     private string? selectedConfigurationValue;
+    private bool? ack05Connected;
 
     public MainWindow()
     {
+        localization.Initialize();
         InitializeComponent();
+        localization.ApplyResources(Resources);
+        LanguageBox.ItemsSource = AppLocalization.Languages;
+        LanguageBox.SelectedValue = localization.LanguageCode;
         rotationQuarterTurns = LoadDeviceRotation();
         ApplyDeviceRotation();
         configuration = OverCUEConfiguration.Load(configPath);
         runtime = new WindowsActionRuntime(configuration, configPath);
         ready = true;
         ConfigPathText.Text = configPath;
+        localization.LanguageChanged += LocalizationChanged;
         ShowGroup(1);
         SourceInitialized += (_, _) =>
         {
@@ -72,9 +79,13 @@ public partial class MainWindow : Window
             inputService.Dispose();
             functionKeyService.Dispose();
             runtime.Dispose();
+            localization.LanguageChanged -= LocalizationChanged;
         };
         inputService.ConnectionChanged += connected => Dispatcher.Invoke(() =>
-            StatusText.Text = connected ? "ACK05入力待機中" : "ACK05未接続");
+        {
+            ack05Connected = connected;
+            StatusText.Text = localization.Text(connected ? "app.status.running" : "app.status.disconnected");
+        });
         inputService.InputDecoded += value => Dispatcher.Invoke(() => ProcessDecodedInput(value));
         inputService.PressedKeysChanged += keys => Dispatcher.Invoke(() => ProcessPressedKeys(keys));
         functionKeyService.InputDecoded += value => Dispatcher.Invoke(() => ProcessDecodedInput(value));
@@ -83,6 +94,25 @@ public partial class MainWindow : Window
         PreviewKeyUp += (_, args) => ProcessForegroundFunctionKey(args, false);
         runtime.StatusChanged += text => Dispatcher.BeginInvoke(() => InputText.Text = text);
         runtime.RuntimeChanged += (group, _) => Dispatcher.Invoke(() => ShowGroup(group));
+    }
+
+    private void LanguageSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ready && LanguageBox.SelectedValue is string code) localization.SetLanguage(code);
+    }
+
+    private void LocalizationChanged()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            localization.ApplyResources(Resources);
+            LanguageBox.SelectedValue = localization.LanguageCode;
+            StatusText.Text = ack05Connected == false
+                ? localization.Text("app.status.disconnected")
+                : localization.Text("app.status.running");
+            InputText.Text = localization.Text("device.prompt");
+            RefreshMappings();
+        });
     }
 
     private void ProcessForegroundFunctionKey(System.Windows.Input.KeyEventArgs args, bool isDown)
@@ -133,7 +163,7 @@ public partial class MainWindow : Window
         }
         catch (Exception error)
         {
-            InputText.Text = $"デバイスの向きを保存できませんでした: {error.Message}";
+            InputText.Text = localization.Text("message.rotationSaveFailed", error.Message);
         }
     }
 
@@ -187,11 +217,11 @@ public partial class MainWindow : Window
             configuration.DeviceProfiles = loaded.DeviceProfiles;
             runtime.SetGroup(currentGroup);
             ShowGroup(currentGroup);
-            InputText.Text = "設定を再読み込みしました";
+            InputText.Text = localization.Text("message.configReloadSuccess");
         }
         catch (Exception error)
         {
-            InputText.Text = $"設定の再読み込みに失敗: {error.Message}";
+            InputText.Text = localization.Text("message.configReloadFailed", error.Message);
         }
     }
 
@@ -205,12 +235,12 @@ public partial class MainWindow : Window
 
         var internalActions = new (ActionID Action, string Description)[]
         {
-            (ActionID.CaptureWaveformPosition, "ポインター位置設定"),
-            (ActionID.JogSearchLeft, "Jog Search 左"),
-            (ActionID.JogSearchRight, "Jog Search 右"),
-            (ActionID.CycleGroup, "グループ切り替え（昇順 1→4）"),
-            (ActionID.CycleGroupBackward, "グループ切り替え（降順 4→1）"),
-            (ActionID.ToggleRekordboxMode, "EXPORT / PERFORMANCE 切り替え"),
+            (ActionID.CaptureWaveformPosition, localization.Text("internal.capture")),
+            (ActionID.JogSearchLeft, localization.Text("internal.jogSearchLeft")),
+            (ActionID.JogSearchRight, localization.Text("internal.jogSearchRight")),
+            (ActionID.CycleGroup, localization.Text("internal.cycleAscending")),
+            (ActionID.CycleGroupBackward, localization.Text("internal.cycleDescending")),
+            (ActionID.ToggleRekordboxMode, localization.Text("internal.toggleMode")),
         };
         var overCUERows = internalActions
             .Select(item =>
@@ -255,10 +285,10 @@ public partial class MainWindow : Window
         if (query.Length > 0) OverCUEExpander.IsExpanded = true;
         PresetText.Text = catalog.MappingName;
         MappingCountText.Text = query.Length == 0
-            ? $"{allRekordboxRows.Length}件"
-            : $"{filteredRekordboxRows.Length} / {allRekordboxRows.Length}件";
+            ? localization.Text("shortcuts.count", allRekordboxRows.Length)
+            : localization.Text("shortcuts.filteredCount", filteredRekordboxRows.Length, allRekordboxRows.Length);
         MappingFileText.Text = string.IsNullOrEmpty(catalog.MappingPath)
-            ? "割り当て済みキーマッピングが見つかりません"
+            ? localization.Text("message.mappingMissing")
             : Path.GetFileName(catalog.MappingPath);
         UpdateDeviceMap(mapping, catalog);
         UpdateSelectedDeviceInputs(mapping);
@@ -311,10 +341,10 @@ public partial class MainWindow : Window
             button.Content = new DeviceKeyLabel(
                 keyName,
                 configurationValue == "unassigned"
-                    ? "未割り当て"
+                    ? localization.Text("common.unassigned")
                     : ActionName(configurationValue, catalog));
             button.ToolTip = configurationValue == "unassigned"
-                ? $"{keyName}: 未割り当て"
+                ? $"{keyName}: {localization.Text("common.unassigned")}"
                 : $"{keyName}: {ActionName(configurationValue, catalog)}";
         }
 
@@ -399,35 +429,35 @@ public partial class MainWindow : Window
         Opacity = 0.55,
     };
 
-    private static string ActionName(string configurationValue, RekordboxShortcutCatalog catalog)
+    private string ActionName(string configurationValue, RekordboxShortcutCatalog catalog)
     {
-        if (configurationValue == "unassigned") return "未割り当て";
-        var internalName = configurationValue switch
+        if (configurationValue == "unassigned") return localization.Text("common.unassigned");
+        var localizationKey = configurationValue switch
         {
-            "hot_cue_1" => "ホットキューAをセット",
-            "hot_cue_2" => "ホットキューBをセット",
-            "hot_cue_3" => "ホットキューCをセット",
-            "delete_hot_cue_1" => "ホットキューAを削除",
-            "delete_hot_cue_2" => "ホットキューBを削除",
-            "delete_hot_cue_3" => "ホットキューCを削除",
-            "set_memory_cue" => "メモリーキュー",
-            "delete_memory_cue" => "メモリーキューを削除",
-            "call_next_memory_cue" => "次メモリーキュー",
-            "call_previous_memory_cue" => "前メモリーキュー",
-            "jump_forward" => "前方にジャンプ",
-            "jump_backward" => "後方にジャンプ",
-            "quantize" => "クオンタイズ",
-            "cue" => "キュー",
-            "play_pause" => "プレイ/ポーズ",
-            "capture_waveform_position" => "ポインター位置設定",
-            "jog_search_left" => "Jog Search 左",
-            "jog_search_right" => "Jog Search 右",
-            "cycle_group" => "グループ切替 +",
-            "cycle_group_backward" => "グループ切替 −",
-            "toggle_rekordbox_mode" => "モード切替",
+            "hot_cue_1" => "action.hotCueSetA",
+            "hot_cue_2" => "action.hotCueSetB",
+            "hot_cue_3" => "action.hotCueSetC",
+            "delete_hot_cue_1" => "action.hotCueDeleteA",
+            "delete_hot_cue_2" => "action.hotCueDeleteB",
+            "delete_hot_cue_3" => "action.hotCueDeleteC",
+            "set_memory_cue" => "action.memoryCueSet",
+            "delete_memory_cue" => "action.memoryCueDelete",
+            "call_next_memory_cue" => "action.memoryCueNext",
+            "call_previous_memory_cue" => "action.memoryCuePrevious",
+            "jump_forward" => "action.jumpForward",
+            "jump_backward" => "action.jumpBackward",
+            "quantize" => "action.quantize",
+            "cue" => "action.cue",
+            "play_pause" => "action.playPause",
+            "capture_waveform_position" => "internal.capture",
+            "jog_search_left" => "internal.jogSearchLeft",
+            "jog_search_right" => "internal.jogSearchRight",
+            "cycle_group" => "action.cycleGroupShort",
+            "cycle_group_backward" => "action.cycleGroupBackwardShort",
+            "toggle_rekordbox_mode" => "action.toggleModeShort",
             _ => null,
         };
-        if (internalName is not null) return internalName;
+        if (localizationKey is not null) return localization.Text(localizationKey);
         var target = ActionTarget.Parse(configurationValue);
         var commandID = target is null ? null : RekordboxActionAdapter.CommandID(target);
         if (commandID is null) return ToTitle(configurationValue);
@@ -447,19 +477,19 @@ public partial class MainWindow : Window
         || row.Shortcut.Contains(query, StringComparison.OrdinalIgnoreCase)
         || row.BindingLabels.Any(label => label.Contains(query, StringComparison.OrdinalIgnoreCase));
 
-    private static string CategoryName(RekordboxShortcutCategory category) => category switch
+    private string CategoryName(RekordboxShortcutCategory category) => localization.Text(category switch
     {
-        RekordboxShortcutCategory.Browse => "ブラウズ",
-        RekordboxShortcutCategory.Deck1 => "デッキ1",
-        RekordboxShortcutCategory.Deck2 => "デッキ2",
-        RekordboxShortcutCategory.AllDecks => "全デッキ",
-        RekordboxShortcutCategory.Sampler => "サンプラー",
-        RekordboxShortcutCategory.Recordings => "録音",
-        RekordboxShortcutCategory.General => "一般",
-        RekordboxShortcutCategory.View => "表示",
-        RekordboxShortcutCategory.Playlist => "プレイリスト",
-        _ => "その他",
-    };
+        RekordboxShortcutCategory.Browse => "category.browse",
+        RekordboxShortcutCategory.Deck1 => "category.deck1",
+        RekordboxShortcutCategory.Deck2 => "category.deck2",
+        RekordboxShortcutCategory.AllDecks => "category.allDecks",
+        RekordboxShortcutCategory.Sampler => "category.sampler",
+        RekordboxShortcutCategory.Recordings => "category.recordings",
+        RekordboxShortcutCategory.General => "category.general",
+        RekordboxShortcutCategory.View => "category.view",
+        RekordboxShortcutCategory.Playlist => "category.playlist",
+        _ => "category.other",
+    });
 
     private void DeviceKeyClick(object sender, RoutedEventArgs e)
     {
@@ -602,7 +632,7 @@ public partial class MainWindow : Window
         configuration.Save(configPath);
         runtime.SetGroup(currentGroup);
         CancelCapture();
-        InputText.Text = $"{row.Action} のACK05割り当てを削除しました";
+        InputText.Text = localization.Text("message.bindingRemoved", row.Action);
         RefreshMappings();
         e.Handled = true;
     }
@@ -610,7 +640,7 @@ public partial class MainWindow : Window
     private void CancelCaptureClick(object sender, RoutedEventArgs e)
     {
         CancelCapture();
-        InputText.Text = "キーマップ編集をキャンセルしました";
+        InputText.Text = localization.Text("message.editCancelled");
     }
 
     private void BeginCapture(MappingRow row)
@@ -619,9 +649,9 @@ public partial class MainWindow : Window
         previousCaptureKeys.Clear();
         capturedKeyOrder.Clear();
         runtime.ProcessPressedKeys(new HashSet<ACK05Key>());
-        CaptureStatusText.Text = $"{row.Action}: ボタン／同時押しを入力するか、ボタンを保持してダイヤルを回してください。";
+        CaptureStatusText.Text = $"{row.Action}: {localization.Text("message.capturePrompt")}";
         CaptureStatusPanel.Visibility = Visibility.Visible;
-        InputText.Text = $"編集: {row.Action}";
+        InputText.Text = localization.Text("message.editing", row.Action);
     }
 
     private void CancelCapture()
@@ -655,7 +685,9 @@ public partial class MainWindow : Window
         previousCaptureKeys.Clear();
         previousCaptureKeys.UnionWith(keys);
         if (capturedKeyOrder.Count > 0)
-            CaptureStatusText.Text = $"入力: {string.Join(" + ", capturedKeyOrder.Select(KeyLabel))} — 離すと保存します";
+            CaptureStatusText.Text = localization.Text(
+                "message.captureShort",
+                string.Join(" + ", capturedKeyOrder.Select(KeyLabel)));
         if (keys.Count == 0 && capturedKeyOrder.Count > 0) CommitKeyCapture(capturedKeyOrder);
     }
 
@@ -706,14 +738,14 @@ public partial class MainWindow : Window
             || existing.Equals(row.ConfigurationValue, StringComparison.OrdinalIgnoreCase)) return true;
         var answer = System.Windows.MessageBox.Show(
             this,
-            $"{input} は別の機能に割り当て済みです。\n{row.Action} で上書きしますか？",
-            "ACK05キーマップの上書き",
+            localization.Text("message.overwriteQuestion", input, row.Action),
+            localization.Text("alert.overwrite.title"),
             System.Windows.MessageBoxButton.YesNo,
             System.Windows.MessageBoxImage.Warning);
         if (answer == System.Windows.MessageBoxResult.Yes) return true;
         previousCaptureKeys.Clear();
         capturedKeyOrder.Clear();
-        CaptureStatusText.Text = $"{row.Action}: 別の入力を操作してください。";
+        CaptureStatusText.Text = localization.Text("message.tryAnotherInput", row.Action);
         return false;
     }
 
@@ -754,11 +786,13 @@ public partial class MainWindow : Window
         switch (value)
         {
             case ACK05Event.KeyDown key:
-                InputText.Text = $"入力: {key.Key}";
+                InputText.Text = localization.Text("message.inputSimple", key.Key);
                 _ = HighlightKey(key.Key);
                 break;
             case ACK05Event.Dial dial:
-                InputText.Text = dial.Direction == DialDirection.Clockwise ? "入力: DIAL →" : "入力: DIAL ←";
+                InputText.Text = localization.Text(
+                    "message.inputSimple",
+                    dial.Direction == DialDirection.Clockwise ? "DIAL →" : "DIAL ←");
                 _ = HighlightDial(dial.Direction);
                 break;
         }

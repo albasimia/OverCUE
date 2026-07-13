@@ -16,4 +16,11 @@
     <Resource Include="Assets\OverCUEIcon.png" />
     <Resource Include="Assets\OverCUEIcon.ico" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\..\..\Sources\OverCUEApp\Resources\Localization\*.json"
+             Link="Localization\%(Filename)%(Extension)">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
 </Project>

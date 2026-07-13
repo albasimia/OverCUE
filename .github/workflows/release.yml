@@ -1,0 +1,179 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vX.Y.Z tag on main
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Validate tag and VERSION
+        id: version
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n' < VERSION)"
+          expected_tag="v${version}"
+          if [[ "${REQUESTED_TAG}" != "${expected_tag}" ]]; then
+            echo "Tag ${REQUESTED_TAG} does not match VERSION ${version}." >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${expected_tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Require a commit from main
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor HEAD origin/main
+
+  macos:
+    name: Package macOS release
+    needs: validate
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+
+      - name: Run macOS checks
+        run: swift run --configuration release overcue-checks
+
+      - name: Package macOS app
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: Scripts/package-release.sh "${RELEASE_VERSION}"
+
+      - name: Upload macOS release package
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-macos
+          path: release/OverCUE-v*-macos-universal.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    name: Package Windows release
+    needs: validate
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: Windows
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: Windows/global.json
+
+      - name: Restore
+        run: dotnet restore OverCUE.Windows.sln
+
+      - name: Run Windows checks
+        run: |
+          dotnet build OverCUE.Windows.sln --configuration Release --no-restore
+          dotnet run --project tests/OverCUE.Core.Checks/OverCUE.Core.Checks.csproj --configuration Release --no-build
+          dotnet run --project tests/OverCUE.Windows.Checks/OverCUE.Windows.Checks.csproj --configuration Release --no-build
+
+      - name: Restore Windows release runtime
+        run: dotnet restore src/OverCUE.Windows/OverCUE.Windows.csproj --runtime win-x64
+
+      - name: Create self-contained Windows app
+        run: >-
+          dotnet publish src/OverCUE.Windows/OverCUE.Windows.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained true
+          --no-restore
+          --output artifacts/publish
+
+      - name: Prepare Windows distribution
+        shell: pwsh
+        run: >-
+          ../Scripts/package-windows-release.ps1
+          -PublishDirectory artifacts/publish
+          -PackageDirectory artifacts/OverCUE-Windows
+
+      - name: Create Windows release archive
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          Compress-Archive `
+            -Path artifacts/OverCUE-Windows/* `
+            -DestinationPath "artifacts/OverCUE-v$env:RELEASE_VERSION-windows-x64.zip"
+
+      - name: Upload Windows release package
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-windows
+          path: Windows/artifacts/OverCUE-v*-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs:
+      - validate
+      - macos
+      - windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release packages
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+
+      - name: Create checksums
+        working-directory: release
+        run: sha256sum *.zip > SHA256SUMS.txt
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: >-
+          gh release create "${RELEASE_TAG}"
+          release/*.zip
+          release/SHA256SUMS.txt
+          --repo "${GITHUB_REPOSITORY}"
+          --verify-tag
+          --generate-notes
+          --title "OverCUE ${RELEASE_TAG}"

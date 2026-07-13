@@ -1,5 +1,7 @@
 <Project>
   <PropertyGroup>
+    <OverCUEVersionFile>$(MSBuildThisFileDirectory)..\VERSION</OverCUEVersionFile>
+    <Version>$([System.IO.File]::ReadAllText('$(OverCUEVersionFile)').Trim())</Version>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>

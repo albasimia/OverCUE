@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - develop
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actionlint:
+    name: GitHub Actions / actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+
+      - name: Check workflow files
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+  macos:
+    name: macOS / Swift 6
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Check Swift formatting
+        run: swift format lint --strict --parallel --recursive Package.swift Sources Scripts
+
+      - name: Check release version
+        run: |
+          expected="$(tr -d '\r\n' < VERSION)"
+          actual="$(plutil -extract CFBundleShortVersionString raw Packaging/Info.plist)"
+          test "${actual}" = "${expected}"
+
+      - name: Build Swift package
+        run: swift build --configuration release
+
+      - name: Run macOS checks
+        run: swift run --configuration release overcue-checks
+
+      - name: Validate app metadata
+        run: plutil -lint Packaging/Info.plist
+
+      - name: Build Universal macOS app
+        run: Scripts/build-app.sh
+
+      - name: Verify app signature
+        run: codesign --verify --deep --strict dist/OverCUE.app
+
+      - name: Package CI artifact
+        run: |
+          mkdir -p artifacts
+          ditto -c -k --sequesterRsrc --keepParent \
+            dist/OverCUE.app artifacts/OverCUE-macos-universal.zip
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: OverCUE-macOS
+          path: artifacts/OverCUE-macos-universal.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    name: Windows / .NET 10
+    runs-on: windows-2025
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: Windows
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: Windows/global.json
+
+      - name: Restore
+        run: dotnet restore OverCUE.Windows.sln
+
+      - name: Check .NET formatting
+        run: dotnet format OverCUE.Windows.sln --verify-no-changes --no-restore
+
+      - name: Check release version
+        shell: pwsh
+        run: |
+          $expected = (Get-Content ../VERSION -Raw).Trim()
+          $actual = (dotnet msbuild src/OverCUE.Windows/OverCUE.Windows.csproj -getProperty:Version).Trim()
+          if ($actual -ne $expected) {
+            throw "Windows version $actual does not match VERSION $expected."
+          }
+
+      - name: Build
+        run: dotnet build OverCUE.Windows.sln --configuration Release --no-restore
+
+      - name: Run Core checks
+        run: dotnet run --project tests/OverCUE.Core.Checks/OverCUE.Core.Checks.csproj --configuration Release --no-build
+
+      - name: Run Windows UI checks
+        run: dotnet run --project tests/OverCUE.Windows.Checks/OverCUE.Windows.Checks.csproj --configuration Release --no-build
+
+      - name: Restore Windows release runtime
+        run: dotnet restore src/OverCUE.Windows/OverCUE.Windows.csproj --runtime win-x64
+
+      - name: Publish self-contained Windows app
+        run: >-
+          dotnet publish src/OverCUE.Windows/OverCUE.Windows.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained true
+          --no-restore
+          --output artifacts/publish
+
+      - name: Prepare Windows distribution
+        shell: pwsh
+        run: >-
+          ../Scripts/package-windows-release.ps1
+          -PublishDirectory artifacts/publish
+          -PackageDirectory artifacts/OverCUE-Windows
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: OverCUE-Windows
+          path: Windows/artifacts/OverCUE-Windows
+          if-no-files-found: error
+          retention-days: 7
