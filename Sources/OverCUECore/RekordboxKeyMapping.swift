@@ -136,22 +136,11 @@ public struct RekordboxKeyMappingLoader: Sendable {
         let mappings = try availableMappings()
         let settings = try loadSettingsIfPresent()
         let selectedID = settings?.keyMappingID(for: mode)
-        let selected: MappingFile?
-
-        if let selectedID {
-            selected = mappings.first { $0.id == selectedID }
-        } else if mode == .export {
-            selected = mappings
-                .filter { $0.mapping.name.localizedCaseInsensitiveContains("export") }
-                .sorted { lhs, rhs in
-                    let lhsPreset = lhs.mapping.name.localizedCaseInsensitiveCompare("Export (Preset)") == .orderedSame
-                    let rhsPreset = rhs.mapping.name.localizedCaseInsensitiveCompare("Export (Preset)") == .orderedSame
-                    if lhsPreset != rhsPreset { return lhsPreset }
-                    return lhs.url.lastPathComponent.localizedStandardCompare(rhs.url.lastPathComponent) == .orderedAscending
-                }
-                .first
+        let configured = selectedID.flatMap { id in mappings.first { $0.id == id } }
+        let selected = if let configured, !configured.mapping.entries.isEmpty {
+            configured
         } else {
-            throw RekordboxKeyMappingLoaderError.selectedPerformanceMappingNotFound
+            Self.originalMapping(for: mode, in: mappings) ?? configured
         }
 
         guard let selected else {
@@ -185,6 +174,7 @@ public struct RekordboxKeyMappingLoader: Sendable {
 
     private func availableMappings() throws -> [MappingFile] {
         let mappingsURL = baseURL.appendingPathComponent("KeyMappings")
+        guard FileManager.default.fileExists(atPath: mappingsURL.path) else { return [] }
         let urls = try FileManager.default.contentsOfDirectory(
             at: mappingsURL,
             includingPropertiesForKeys: [.isRegularFileKey],
@@ -203,6 +193,34 @@ public struct RekordboxKeyMappingLoader: Sendable {
                     mapping: try RekordboxKeyMapping.parse(data: Data(contentsOf: url))
                 )
             }
+    }
+
+    private static func originalMapping(
+        for mode: RekordboxMappingMode,
+        in mappings: [MappingFile]
+    ) -> MappingFile? {
+        let originalID: String
+        let originalName: String
+        switch mode {
+        case .performance:
+            originalID = "0000000000000"
+            originalName = "Performance 1 (Preset)"
+        case .export:
+            originalID = "0000000000030"
+            originalName = "Export (Preset)"
+        }
+
+        return mappings.first { $0.id == originalID }
+            ?? mappings.first {
+                $0.mapping.name.localizedCaseInsensitiveCompare(originalName) == .orderedSame
+            }
+            ?? mappings
+                .filter { $0.mapping.name.localizedCaseInsensitiveContains(mode.rawValue) }
+                .sorted {
+                    $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent)
+                        == .orderedAscending
+                }
+                .first
     }
 
     private static func mappingID(from url: URL) -> String {

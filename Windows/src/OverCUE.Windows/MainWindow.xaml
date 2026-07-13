@@ -1,0 +1,586 @@
+<Window x:Class="OverCUE.Windows.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="OverCUE" Icon="Assets/OverCUEIcon.ico"
+        Width="1440" Height="900" MinWidth="1120" MinHeight="720"
+        WindowStartupLocation="CenterScreen"
+        Background="#1C1C1C" Foreground="#E8E8E8" FontFamily="Segoe UI">
+  <Window.Resources>
+    <Style x:Key="KeyButton" TargetType="Button">
+      <Setter Property="Background" Value="#121212"/>
+      <Setter Property="Foreground" Value="#EEEEEE"/>
+      <Setter Property="BorderBrush" Value="#454545"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Margin" Value="7"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="FontSize" Value="15"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+      <Setter Property="ContentTemplate" Value="{DynamicResource DeviceKeyLabelTemplate}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="B" Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="10">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="B" Property="BorderBrush" Value="#0A84FF"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <DataTemplate x:Key="DeviceKeyLabelTemplate">
+      <Grid Margin="4" RenderTransformOrigin="0.5,0.5">
+        <Grid.RenderTransform>
+          <RotateTransform Angle="{Binding DeviceContentRotationAngle,
+              RelativeSource={RelativeSource AncestorType={x:Type Window}}}"/>
+        </Grid.RenderTransform>
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Text="{Binding Key}" FontSize="15" FontWeight="SemiBold"
+                     HorizontalAlignment="Center"/>
+          <TextBlock Text="{Binding Action}" Margin="1,2,1,0" FontSize="9.5"
+                     FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap"
+                     MaxHeight="27" TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+      </Grid>
+    </DataTemplate>
+
+    <Style x:Key="RowActionButton" TargetType="Button">
+      <Setter Property="Width" Value="28"/>
+      <Setter Property="Height" Value="28"/>
+      <Setter Property="Margin" Value="2,0"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Foreground" Value="#0A84FF"/>
+      <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+      <Setter Property="FontSize" Value="14"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="ActionBackground" Background="{TemplateBinding Background}"
+                    CornerRadius="6">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="ActionBackground" Property="Background" Value="#343434"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="#555555"/>
+                <Setter Property="Opacity" Value="0.32"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style TargetType="ComboBox">
+      <Setter Property="Background" Value="#363636"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="Padding" Value="10,5"/>
+    </Style>
+
+    <Style x:Key="GroupSegment" TargetType="RadioButton">
+      <Setter Property="Foreground" Value="#DDDDDD"/>
+      <Setter Property="Background" Value="#343434"/>
+      <Setter Property="Padding" Value="14,7"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RadioButton">
+            <Border x:Name="S" Background="{TemplateBinding Background}"
+                    Padding="{TemplateBinding Padding}" CornerRadius="7">
+              <ContentPresenter HorizontalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="S" Property="Background" Value="#565656"/>
+                <Setter Property="Foreground" Value="White"/>
+              </Trigger>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="S" Property="Background" Value="#494949"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="SectionExpander" TargetType="Expander">
+      <Setter Property="Foreground" Value="#EEEEEE"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="BorderBrush" Value="#343434"/>
+      <Setter Property="BorderThickness" Value="0,0,0,1"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Expander">
+            <Border BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}">
+              <DockPanel>
+                <ToggleButton x:Name="HeaderButton" DockPanel.Dock="Top"
+                              IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                              Content="{TemplateBinding Header}" ContentTemplate="{TemplateBinding HeaderTemplate}"
+                              Foreground="{TemplateBinding Foreground}" Background="#272727"
+                              BorderThickness="0" HorizontalContentAlignment="Stretch">
+                  <ToggleButton.Template>
+                    <ControlTemplate TargetType="ToggleButton">
+                      <Border x:Name="HeaderBackground" Background="{TemplateBinding Background}">
+                        <Grid>
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="32"/>
+                            <ColumnDefinition Width="*"/>
+                          </Grid.ColumnDefinitions>
+                          <TextBlock x:Name="Arrow" Text="›" FontSize="22" FontWeight="SemiBold"
+                                     Foreground="#CFCFCF" HorizontalAlignment="Center"
+                                     VerticalAlignment="Center" Margin="0,-2,0,0"/>
+                          <ContentPresenter Grid.Column="1" Content="{TemplateBinding Content}"
+                                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                                            HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+                        </Grid>
+                      </Border>
+                      <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                          <Setter TargetName="Arrow" Property="Text" Value="⌄"/>
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                          <Setter TargetName="HeaderBackground" Property="Background" Value="#303030"/>
+                        </Trigger>
+                      </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                  </ToggleButton.Template>
+                </ToggleButton>
+                <ContentPresenter x:Name="ExpandSite" Visibility="Collapsed"
+                                  ContentSource="Content" HorizontalAlignment="Stretch"/>
+              </DockPanel>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsExpanded" Value="True">
+                <Setter TargetName="ExpandSite" Property="Visibility" Value="Visible"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="ColumnHeaderText" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="#8E8E8E"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+
+    <DataTemplate x:Key="ShortcutRowTemplate">
+      <Border Padding="18,9" BorderBrush="#303030" BorderThickness="0,0,0,1"
+              MinHeight="52" Cursor="Hand" MouseLeftButtonUp="ShortcutRowClick">
+        <Border.Style>
+          <Style TargetType="Border">
+            <Setter Property="Background" Value="Transparent"/>
+            <Style.Triggers>
+              <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                <Setter Property="Background" Value="#173A5F"/>
+                <Setter Property="BorderBrush" Value="#0A84FF"/>
+              </DataTrigger>
+            </Style.Triggers>
+          </Style>
+        </Border.Style>
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="150"/>
+            <ColumnDefinition Width="220"/>
+          </Grid.ColumnDefinitions>
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="24"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid Width="16" Height="16" VerticalAlignment="Center" HorizontalAlignment="Left">
+              <Ellipse Stroke="#555555" StrokeThickness="1"/>
+              <Ellipse Fill="#0A84FF">
+                <Ellipse.Style>
+                  <Style TargetType="Ellipse">
+                    <Setter Property="Visibility" Value="Visible"/>
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding IsConfigured}" Value="False">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </Ellipse.Style>
+              </Ellipse>
+              <TextBlock Text="&#xE73E;" FontFamily="Segoe MDL2 Assets" FontSize="9"
+                         Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock.Style>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="Visibility" Value="Visible"/>
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding IsConfigured}" Value="False">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </TextBlock.Style>
+              </TextBlock>
+            </Grid>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+              <TextBlock Text="{Binding Action}" FontSize="14" TextTrimming="CharacterEllipsis"/>
+              <TextBlock Text="{Binding CommandID}" Margin="0,2,0,0"
+                         Foreground="#727272" FontSize="10" FontFamily="Consolas"/>
+            </StackPanel>
+          </Grid>
+          <TextBlock Grid.Column="1" Text="{Binding Shortcut}" VerticalAlignment="Center"
+                     Foreground="#C8C8C8" FontFamily="Consolas" TextTrimming="CharacterEllipsis"/>
+          <Grid Grid.Column="2">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <ItemsControl ItemsSource="{Binding BindingLabels}" VerticalAlignment="Center">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel Orientation="Horizontal"/></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Background="#173A5F" BorderBrush="#0A84FF" BorderThickness="1"
+                          CornerRadius="12" Padding="8,4" Margin="0,2,5,2">
+                    <TextBlock Text="{Binding}" Foreground="#A8D2FF" FontFamily="Consolas"
+                               FontSize="10.5"/>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="未割り当て" Foreground="#696969" FontSize="11"
+                       VerticalAlignment="Center">
+              <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                  <Setter Property="Visibility" Value="Collapsed"/>
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsConfigured}" Value="False">
+                      <Setter Property="Visibility" Value="Visible"/>
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </TextBlock.Style>
+            </TextBlock>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+              <Button Style="{StaticResource RowActionButton}" Content="&#xE70F;"
+                      Tag="{Binding}" Click="EditMappingClick"
+                      ToolTip="ACK05から入力してキーマップを変更"/>
+              <Button Style="{StaticResource RowActionButton}" Content="&#xE74D;"
+                      Tag="{Binding}" Click="DeleteMappingClick" IsEnabled="{Binding IsConfigured}"
+                      Foreground="#E06C75" ToolTip="ACK05キーマップから削除"/>
+            </StackPanel>
+          </Grid>
+        </Grid>
+      </Border>
+    </DataTemplate>
+
+    <DataTemplate x:Key="ColumnHeaderTemplate">
+      <Border Background="#252525" Padding="18,0" Height="31">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="150"/>
+            <ColumnDefinition Width="220"/>
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="機能 / commandId" VerticalAlignment="Center" Style="{StaticResource ColumnHeaderText}"/>
+          <TextBlock Grid.Column="1" Text="rekordboxショートカット" VerticalAlignment="Center"
+                     Style="{StaticResource ColumnHeaderText}"/>
+          <TextBlock Grid.Column="2" Text="ACK05" VerticalAlignment="Center"
+                     Style="{StaticResource ColumnHeaderText}"/>
+        </Grid>
+      </Border>
+    </DataTemplate>
+  </Window.Resources>
+
+  <Grid Background="#1C1C1C">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="72"/>
+      <RowDefinition Height="*"/>
+    </Grid.RowDefinitions>
+
+    <Border Background="#242424" BorderBrush="#353535" BorderThickness="0,0,0,1">
+      <Grid Margin="24,0">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+          <Border Width="44" Height="44" CornerRadius="10" Background="#F4F4F4">
+            <Image Source="Assets/OverCUEIcon.png" Stretch="UniformToFill"
+                   RenderOptions.BitmapScalingMode="HighQuality">
+              <Image.Clip>
+                <RectangleGeometry Rect="0,0,44,44" RadiusX="10" RadiusY="10"/>
+              </Image.Clip>
+            </Image>
+          </Border>
+          <TextBlock Text="OverCUE" FontSize="27" FontWeight="Bold"
+                     Margin="13,0,0,0" VerticalAlignment="Center"/>
+        </StackPanel>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+          <Ellipse x:Name="StatusDot" Width="9" Height="9" Fill="#34D26F"/>
+          <TextBlock x:Name="StatusText" Text="ACK05入力待機中" Foreground="#B4B4B4"
+                     FontWeight="SemiBold" Margin="9,0,0,0"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="1">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="430"/>
+        <ColumnDefinition Width="1"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
+
+      <Grid Margin="26,24">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+          <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <StackPanel>
+          <TextBlock Text="ACK05" FontSize="21" FontWeight="Bold"/>
+          <TextBlock Text="デバイスマップ" Foreground="#909090"/>
+        </StackPanel>
+        <DockPanel Grid.Row="1" Margin="0,22,0,12">
+          <TextBlock Text="グループ" FontWeight="SemiBold" VerticalAlignment="Center"/>
+          <UniformGrid Columns="4" Width="170" HorizontalAlignment="Right">
+            <RadioButton x:Name="Group1" GroupName="Groups" Tag="1" Content="1" IsChecked="True"
+                         Style="{StaticResource GroupSegment}" Click="GroupButtonClick"/>
+            <RadioButton x:Name="Group2" GroupName="Groups" Tag="2" Content="2"
+                         Style="{StaticResource GroupSegment}" Click="GroupButtonClick"/>
+            <RadioButton x:Name="Group3" GroupName="Groups" Tag="3" Content="3"
+                         Style="{StaticResource GroupSegment}" Click="GroupButtonClick"/>
+            <RadioButton x:Name="Group4" GroupName="Groups" Tag="4" Content="4"
+                         Style="{StaticResource GroupSegment}" Click="GroupButtonClick"/>
+          </UniformGrid>
+        </DockPanel>
+
+        <Grid Grid.Row="2">
+          <Viewbox x:Name="DeviceMapViewbox" Stretch="Uniform">
+            <Grid x:Name="DeviceMapCanvas" Width="350" Height="540">
+          <Path Data="M 128,80 A 112,112 0 0 1 326,184 L 326,498 Q 326,520 304,520 L 42,520 Q 20,520 20,498 L 20,102 Q 20,80 42,80 Z"
+                Fill="#242424" Stroke="#5B5B5B" StrokeThickness="2"/>
+          <Ellipse Width="220" Height="220" Fill="#0B0B0B" Stroke="#555555" StrokeThickness="3"
+                   VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,18,14,0"/>
+          <Ellipse Width="76" Height="76" Fill="#616161" VerticalAlignment="Top"
+                   HorizontalAlignment="Right" Margin="0,90,86,0"/>
+          <Border x:Name="DialLeftIndicator" Width="64" Height="60" CornerRadius="10"
+                  VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,98,160,0"
+                  Tag="counterclockwise" Cursor="Hand" MouseLeftButtonUp="DialIndicatorClick"
+                  RenderTransformOrigin="0.5,0.5">
+            <Border.RenderTransform>
+              <RotateTransform Angle="{Binding DeviceContentRotationAngle,
+                  RelativeSource={RelativeSource AncestorType={x:Type Window}}}"/>
+            </Border.RenderTransform>
+            <StackPanel VerticalAlignment="Center">
+              <TextBlock Text="←" FontWeight="Bold" HorizontalAlignment="Center"/>
+              <TextBlock x:Name="DialLeftText" Text="Jog Left" FontSize="9"
+                         TextAlignment="Center" TextWrapping="Wrap" MaxWidth="58"
+                         HorizontalAlignment="Center"/>
+            </StackPanel>
+          </Border>
+          <Border x:Name="DialRightIndicator" Width="64" Height="60" CornerRadius="10"
+                  VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,98,22,0"
+                  Tag="clockwise" Cursor="Hand" MouseLeftButtonUp="DialIndicatorClick"
+                  RenderTransformOrigin="0.5,0.5">
+            <Border.RenderTransform>
+              <RotateTransform Angle="{Binding DeviceContentRotationAngle,
+                  RelativeSource={RelativeSource AncestorType={x:Type Window}}}"/>
+            </Border.RenderTransform>
+            <StackPanel VerticalAlignment="Center">
+              <TextBlock Text="→" FontWeight="Bold" HorizontalAlignment="Center"/>
+              <TextBlock x:Name="DialRightText" Text="Jog Right" FontSize="9"
+                         TextAlignment="Center" TextWrapping="Wrap" MaxWidth="58"
+                         HorizontalAlignment="Center"/>
+            </StackPanel>
+          </Border>
+          <Border x:Name="PhysicalTopButton" Width="28" Height="5" CornerRadius="2.5" Background="#666666"
+                  HorizontalAlignment="Left" VerticalAlignment="Top" Margin="66,73,0,0"/>
+          <Grid Margin="44,232,44,24">
+            <Grid.RowDefinitions>
+              <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition/><ColumnDefinition/><ColumnDefinition/>
+            </Grid.ColumnDefinitions>
+            <Button x:Name="KeyK8" Tag="K8" Click="DeviceKeyClick" Style="{StaticResource KeyButton}"/>
+            <Button x:Name="KeyK4" Tag="K4" Click="DeviceKeyClick" Grid.Column="1" Style="{StaticResource KeyButton}"/>
+            <Button x:Name="KeyK1" Tag="K1" Click="DeviceKeyClick" Grid.Column="2" Style="{StaticResource KeyButton}"/>
+            <Button x:Name="KeyK9" Tag="K9" Click="DeviceKeyClick" Grid.Row="1" Grid.RowSpan="2" Style="{StaticResource KeyButton}"/>
+            <Button x:Name="KeyK5" Tag="K5" Click="DeviceKeyClick" Grid.Row="1" Grid.Column="1" Style="{StaticResource KeyButton}"/>
+            <Button x:Name="KeyK2" Tag="K2" Click="DeviceKeyClick" Grid.Row="1" Grid.Column="2" Style="{StaticResource KeyButton}"/>
+            <Button x:Name="KeyK6" Tag="K6" Click="DeviceKeyClick" Grid.Row="2" Grid.Column="1" Style="{StaticResource KeyButton}"/>
+            <Button x:Name="KeyK3" Tag="K3" Click="DeviceKeyClick" Grid.Row="2" Grid.Column="2" Style="{StaticResource KeyButton}"/>
+            <Button x:Name="KeyK10" Tag="K10" Click="DeviceKeyClick" Grid.Row="3" Style="{StaticResource KeyButton}"/>
+            <Button x:Name="KeyK7" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2"
+                    Tag="K7" Click="DeviceKeyClick" Style="{StaticResource KeyButton}"/>
+          </Grid>
+            </Grid>
+          </Viewbox>
+          <Button x:Name="RotateDeviceButton" Content="↻" Width="34" Height="34"
+                  HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,2,0"
+                  Panel.ZIndex="5" FontSize="17" FontWeight="SemiBold"
+                  Background="#343434" Foreground="White" BorderBrush="#555555"
+                  BorderThickness="1" ToolTip="デバイスの向きを90度回転"
+                  Click="RotateDeviceClick"/>
+        </Grid>
+        <TextBlock Grid.Row="3" x:Name="InputText" Text="ボタンまたはダイヤルを操作してください"
+                   Foreground="#949494"/>
+      </Grid>
+
+      <Border Grid.Column="1" Background="#353535"/>
+
+      <Grid Grid.Column="2" Margin="30,24,30,18">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+          <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Grid>
+          <TextBlock Text="ショートカット設定" FontSize="29" FontWeight="Bold"/>
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <TextBlock Text="モード" Foreground="#A0A0A0" VerticalAlignment="Center" Margin="0,0,9,0"/>
+            <Border Background="#343434" CornerRadius="7">
+              <UniformGrid Columns="2">
+                <RadioButton x:Name="ExportMode" GroupName="Modes" Content="EXPORT" Tag="export"
+                             Style="{StaticResource GroupSegment}" Click="ModeButtonClick"/>
+                <RadioButton x:Name="PerformanceMode" GroupName="Modes" Content="PERFORMANCE" Tag="performance"
+                             Style="{StaticResource GroupSegment}" Click="ModeButtonClick"/>
+              </UniformGrid>
+            </Border>
+            <Button Content="↻  再読み込み" Margin="12,0,0,0" Padding="15,6"
+                    Background="#393939" Foreground="White" BorderThickness="0" Click="ReloadClick"/>
+          </StackPanel>
+        </Grid>
+
+        <Border Grid.Row="1" BorderBrush="#484848" BorderThickness="1" CornerRadius="10"
+                Margin="0,18,0,13" Padding="13,9">
+          <Grid>
+            <TextBox x:Name="SearchBox" Background="Transparent" BorderThickness="0"
+                     Foreground="#DDDDDD" TextChanged="SearchTextChanged"/>
+            <TextBlock x:Name="SearchPlaceholder" Text="⌕  機能、キー、commandIdを検索"
+                       Foreground="#858585" IsHitTestVisible="False" VerticalAlignment="Center"/>
+          </Grid>
+        </Border>
+
+        <Border x:Name="CaptureStatusPanel" Grid.Row="2" Visibility="Collapsed"
+                Background="#303030" CornerRadius="9" Margin="0,0,0,12" Padding="13,9">
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="&#xE765;" FontFamily="Segoe MDL2 Assets" FontSize="16"
+                       Foreground="#F0A44B" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <TextBlock x:Name="CaptureStatusText" Grid.Column="1" VerticalAlignment="Center"
+                       TextWrapping="Wrap" FontWeight="SemiBold"/>
+            <Button Grid.Column="2" Content="キャンセル" Margin="12,0,0,0" Padding="12,5"
+                    Background="#424242" Foreground="White" BorderThickness="0"
+                    Click="CancelCaptureClick"/>
+          </Grid>
+        </Border>
+
+        <Grid Grid.Row="3" Margin="0,0,0,12">
+          <StackPanel Orientation="Horizontal">
+            <Ellipse Width="9" Height="9" Fill="#34D26F"/>
+            <TextBlock x:Name="PresetText" Text="読み込み中" FontWeight="SemiBold" Margin="9,0"/>
+            <TextBlock x:Name="MappingCountText" Text="0件" Foreground="#999999"/>
+          </StackPanel>
+          <TextBlock x:Name="MappingFileText" HorizontalAlignment="Right" Foreground="#676767"
+                     FontSize="11" FontFamily="Consolas"/>
+        </Grid>
+
+        <Border Grid.Row="4" BorderBrush="#404040" BorderThickness="1" CornerRadius="11"
+                Background="#202020" ClipToBounds="True">
+          <ScrollViewer x:Name="ShortcutScrollViewer" VerticalScrollBarVisibility="Auto"
+                        HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+              <Expander x:Name="OverCUEExpander" IsExpanded="True" Style="{StaticResource SectionExpander}">
+                <Expander.Header>
+                  <Grid Height="44" Background="#292929">
+                    <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" Margin="8,0,0,0" VerticalAlignment="Center">
+                      <TextBlock Text="⚙" FontSize="16" Margin="0,0,9,0"/>
+                      <TextBlock Text="OverCUE設定" FontSize="15" FontWeight="SemiBold"/>
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" x:Name="OverCUECountText" Text="10"
+                               Foreground="#8E8E8E" FontFamily="Consolas"
+                               Margin="10,0,14,0" VerticalAlignment="Center"/>
+                  </Grid>
+                </Expander.Header>
+                <StackPanel>
+                  <ContentControl ContentTemplate="{StaticResource ColumnHeaderTemplate}"/>
+                  <ListView x:Name="MappingList" ItemsSource="{Binding}" Background="Transparent"
+                            BorderThickness="0" Foreground="White"
+                            ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                            MouseDoubleClick="MappingDoubleClick"
+                            ItemTemplate="{StaticResource ShortcutRowTemplate}">
+                    <ListView.ItemContainerStyle>
+                      <Style TargetType="ListViewItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="Padding" Value="0"/>
+                        <Style.Triggers>
+                          <Trigger Property="IsSelected" Value="True">
+                            <Setter Property="Background" Value="#173A5F"/>
+                          </Trigger>
+                        </Style.Triggers>
+                      </Style>
+                    </ListView.ItemContainerStyle>
+                  </ListView>
+                </StackPanel>
+              </Expander>
+
+              <ItemsControl x:Name="RekordboxSections">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Expander IsExpanded="{Binding IsExpanded, Mode=OneTime}"
+                              Style="{StaticResource SectionExpander}">
+                      <Expander.Header>
+                        <Grid Height="44" Background="#262626">
+                          <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                          <TextBlock Text="{Binding Name}" Margin="9,0,0,0" VerticalAlignment="Center"
+                                     FontSize="15" FontWeight="SemiBold"/>
+                          <TextBlock Grid.Column="1" Text="{Binding Count}" Margin="10,0,14,0"
+                                     VerticalAlignment="Center" Foreground="#8E8E8E" FontFamily="Consolas"/>
+                        </Grid>
+                      </Expander.Header>
+                      <StackPanel>
+                        <ContentControl ContentTemplate="{StaticResource ColumnHeaderTemplate}"/>
+                        <ItemsControl ItemsSource="{Binding Rows}" ItemTemplate="{StaticResource ShortcutRowTemplate}">
+                          <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="ContentPresenter">
+                              <Setter Property="HorizontalAlignment" Value="Stretch"/>
+                            </Style>
+                          </ItemsControl.ItemContainerStyle>
+                        </ItemsControl>
+                      </StackPanel>
+                    </Expander>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </ScrollViewer>
+        </Border>
+
+        <TextBlock Grid.Row="5" x:Name="ConfigPathText" Foreground="#5F5F5F" Margin="0,10,0,0"
+                   FontSize="10" FontFamily="Consolas"/>
+      </Grid>
+    </Grid>
+  </Grid>
+</Window>

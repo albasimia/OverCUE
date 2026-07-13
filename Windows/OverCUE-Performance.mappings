@@ -1,0 +1,245 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<PROPERTIES>
+  <VALUE name="keyMappingName" val="OverCUE Performance"/>
+  <VALUE name="keyMappingXml">
+    <KEYMAPPINGS basedOnDefaults="0">
+      <MAPPING commandId="3003" description="Volume " key="ctrl + F12"/>
+      <MAPPING commandId="3004" description="&#38899;&#37327; &#23567;" key="ctrl + F11"/>
+      <MAPPING commandId="3005" description="&#12511;&#12517;&#12540;&#12488;"
+               key="ctrl + F10"/>
+      <MAPPING commandId="7000" description="&#12467;&#12524;&#12463;&#12471;&#12519;&#12531;&#12434;&#26908;&#32034;"
+               key="alt + F"/>
+      <MAPPING commandId="7001" description="&#12503;&#12524;&#12499;&#12517;&#12540;&#65306;&#20877;&#29983;/&#20572;&#27490;"
+               key="ctrl + P"/>
+      <MAPPING commandId="7002" description="&#12503;&#12524;&#12499;&#12517;&#12540;&#65306;&#12473;&#12461;&#12483;&#12503;"
+               key="ctrl + ["/>
+      <MAPPING commandId="7003" description="Search in the current list" key="ctrl + F"/>
+      <MAPPING commandId="2000" description="&#27005;&#26354;&#12434;&#12452;&#12531;&#12509;&#12540;&#12488;"
+               key="ctrl + O"/>
+      <MAPPING commandId="200a" description="&#29872;&#22659;&#35373;&#23450;"
+               key="ctrl + ,"/>
+      <MAPPING commandId="b04e" description="&#20840;&#30011;&#38754;&#34920;&#31034;"
+               key="ctrl + shift + F"/>
+      <MAPPING commandId="b040" description="1 &#12503;&#12524;&#12540;&#12516;&#12540;"
+               key="ctrl + 7"/>
+      <MAPPING commandId="b043" description="2 &#12503;&#12524;&#12540;&#12516;&#12540; "
+               key="ctrl + 8"/>
+      <MAPPING commandId="b041" description="&#12471;&#12531;&#12503;&#12523;&#12503;&#12524;&#12540;&#12516;&#12540;"
+               key="ctrl + 9"/>
+      <MAPPING commandId="b042" description="&#12501;&#12523;&#12502;&#12521;&#12454;&#12470;"
+               key="ctrl + 0"/>
+      <MAPPING commandId="b103" description="&#26354;&#24773;&#22577;" key="ctrl + I"/>
+      <MAPPING commandId="3006" description="&#12503;&#12524;&#12452;/&#12509;&#12540;&#12474;"
+               key="spacebar"/>
+      <MAPPING commandId="3106" description="&#12503;&#12524;&#12452;/&#12509;&#12540;&#12474;"
+               key="shift + spacebar"/>
+      <MAPPING commandId="b137" description="&#12525;&#12540;&#12489;&#12434;&#20803;&#12395;&#25147;&#12377;"
+               key="ctrl + Z"/>
+      <MAPPING commandId="b139" description="&#12487;&#12483;&#12461;&#12395;&#12525;&#12540;&#12489;&#12373;&#12428;&#12390;&#12356;&#12427;&#27005;&#26354;&#12395;&#12501;&#12457;&#12540;&#12459;&#12473;&#12434;&#31227;&#21205;"
+               key="ctrl + L"/>
+      <MAPPING commandId="b138" description="&#22826;&#23383;&#12391;&#34920;&#31034;&#12377;&#12427;"
+               key="ctrl + B"/>
+      <MAPPING commandId="1001" description="rekordbox&#12434;&#32066;&#20102;&#12375;&#12414;&#12377;&#12363;&#65311;"
+               key="alt + F4"/>
+      <MAPPING commandId="301c" description="&#12463;&#12458;&#12531;&#12479;&#12452;&#12474;"
+               key="Q"/>
+      <MAPPING commandId="301d" description="&#26178;&#38291;&#34920;&#31034;&#24418;&#24335;"
+               key="T"/>
+      <MAPPING commandId="3007" description="&#12461;&#12517;&#12540;" key="C"/>
+      <MAPPING commandId="301a" description="&#27425;&#12398;&#26354;" key="ctrl + cursor down"/>
+      <MAPPING commandId="301b" description="&#21069;&#12398;&#26354;" key="ctrl + cursor up"/>
+      <MAPPING commandId="3024" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;"
+               key="M"/>
+      <MAPPING commandId="300a" description="&#12523;&#12540;&#12503;&#12452;&#12531;"
+               key="I"/>
+      <MAPPING commandId="300b" description="&#12523;&#12540;&#12503;&#12450;&#12454;&#12488;"
+               key="O"/>
+      <MAPPING commandId="300c" description="&#12452;&#12464;&#12472;&#12483;&#12488;/&#12522;&#12523;&#12540;&#12503;"
+               key="R"/>
+      <MAPPING commandId="3012" description="1&#12499;&#12540;&#12488;&#12523;&#12540;&#12503;"
+               key="4"/>
+      <MAPPING commandId="3013" description="2&#12499;&#12540;&#12488;&#12523;&#12540;&#12503;"
+               key="5"/>
+      <MAPPING commandId="3014" description="4&#12499;&#12540;&#12488;&#12523;&#12540;&#12503;"
+               key="6"/>
+      <MAPPING commandId="3015" description="8&#12499;&#12540;&#12488;&#12523;&#12540;&#12503;"
+               key="7"/>
+      <MAPPING commandId="3016" description="16&#12499;&#12540;&#12488;&#12523;&#12540;&#12503;"
+               key="8"/>
+      <MAPPING commandId="3017" description="32&#12499;&#12540;&#12488;&#12523;&#12540;&#12503;"
+               key="9"/>
+      <MAPPING commandId="3018" description="Loop /2" key="/"/>
+      <MAPPING commandId="3019" description="Loop x2" key="\"/>
+      <MAPPING commandId="301e" description="&#12507;&#12483;&#12488;&#12461;&#12517;&#12540;A&#12434;&#12475;&#12483;&#12488;"
+               key="1"/>
+      <MAPPING commandId="301f" description="&#12507;&#12483;&#12488;&#12461;&#12517;&#12540;B&#12434;&#12475;&#12483;&#12488;"
+               key="2"/>
+      <MAPPING commandId="3020" description="&#12507;&#12483;&#12488;&#12461;&#12517;&#12540;C&#12434;&#12475;&#12483;&#12488;"
+               key="3"/>
+      <MAPPING commandId="3021" description="&#12507;&#12483;&#12488;&#12461;&#12517;&#12540;A&#12434;&#12463;&#12522;&#12450;"
+               key="ctrl + 1"/>
+      <MAPPING commandId="3022" description="&#12507;&#12483;&#12488;&#12461;&#12517;&#12540;B&#12434;&#12463;&#12522;&#12450;"
+               key="ctrl + 2"/>
+      <MAPPING commandId="3023" description="&#12507;&#12483;&#12488;&#12461;&#12517;&#12540;C&#12434;&#12463;&#12522;&#12450;"
+               key="ctrl + 3"/>
+      <MAPPING commandId="3039" description="&#27425;&#12398;&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;&#12434;&#21628;&#12403;&#20986;&#12377;"
+               key="N"/>
+      <MAPPING commandId="303a" description="&#25163;&#21069;&#12398;&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;&#12434;&#21628;&#12403;&#20986;&#12377;"
+               key="B"/>
+      <MAPPING commandId="303b" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;&#12434;&#21066;&#38500;"
+               key="X"/>
+      <MAPPING commandId="3008" description="&#21069;&#26041;&#12395;&#12472;&#12515;&#12531;&#12503;"
+               key="cursor right"/>
+      <MAPPING commandId="3009" description="&#24460;&#26041;&#12395;&#12472;&#12515;&#12531;&#12503;"
+               key="cursor left"/>
+      <MAPPING commandId="303c" description="Loop/Cue" key="ctrl + C"/>
+      <MAPPING commandId="303e" description="BPM&#20516;/&#25293;&#20301;&#32622;&#12434;&#35519;&#25972;&#12377;&#12427;"
+               key="ctrl + G"/>
+      <MAPPING commandId="3025" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;1"
+               key="A"/>
+      <MAPPING commandId="3026" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;2"
+               key="S"/>
+      <MAPPING commandId="3027" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;3"
+               key="D"/>
+      <MAPPING commandId="3028" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;4"
+               key="F"/>
+      <MAPPING commandId="3029" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;5"
+               key="G"/>
+      <MAPPING commandId="302a" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;6"
+               key="H"/>
+      <MAPPING commandId="302b" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;7"
+               key="J"/>
+      <MAPPING commandId="302c" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;8"
+               key="K"/>
+      <MAPPING commandId="302d" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;9"
+               key="L"/>
+      <MAPPING commandId="302e" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;10"
+               key=";"/>
+      <MAPPING commandId="303f" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;&#12434;&#34920;&#31034;"
+               key="F10"/>
+      <MAPPING commandId="3040" description="&#12507;&#12483;&#12488;&#12461;&#12517;&#12540;&#12434;&#34920;&#31034;"
+               key="F11"/>
+      <MAPPING commandId="3041" description="&#24773;&#22577;&#12434;&#34920;&#31034;&#12377;&#12427;"
+               key="F12"/>
+      <MAPPING commandId="3042" description="Change Metronome sound" key="F9"/>
+      <MAPPING commandId="3043" description="&#25293;&#20301;&#32622;&#12434;&#21491;&#26041;&#21521;&#12395;&#12378;&#12425;&#12377;"
+               key="ctrl + cursor right"/>
+      <MAPPING commandId="3044" description="&#25293;&#20301;&#32622;&#12434;&#24038;&#26041;&#21521;&#12395;&#12378;&#12425;&#12377;"
+               key="ctrl + cursor left"/>
+      <MAPPING commandId="3045" description="&#25293;&#20301;&#32622;&#12434;&#12475;&#12531;&#12479;&#12540;&#12395;&#21512;&#12431;&#12379;&#12427;"
+               key="ctrl + \"/>
+      <MAPPING commandId="3046" description="&#25293;&#12398;&#38291;&#38548;&#12434;&#24195;&#12370;&#12427;"
+               key="shift + &gt;"/>
+      <MAPPING commandId="3047" description="&#25293;&#12398;&#38291;&#38548;&#12434;&#29421;&#12417;&#12427;"
+               key="shift + &lt;"/>
+      <MAPPING commandId="304b" description="&#12471;&#12531;&#12463;" key="F1"/>
+      <MAPPING commandId="304d" description="&#12510;&#12473;&#12479;&#12540;&#12486;&#12531;&#12509;"
+               key="F2"/>
+      <MAPPING commandId="304e" description="&#12486;&#12531;&#12509;&#12522;&#12475;&#12483;&#12488;"
+               key="F3"/>
+      <MAPPING commandId="304f" description="&#12500;&#12483;&#12481;&#12505;&#12531;&#12489; +"
+               key="F5"/>
+      <MAPPING commandId="3050" description="&#12500;&#12483;&#12481;&#12505;&#12531;&#12489; -"
+               key="F4"/>
+      <MAPPING commandId="3051" description="BPM +" key="F7"/>
+      <MAPPING commandId="3052" description="BPM -" key="F6"/>
+      <MAPPING commandId="311c" description="&#12463;&#12458;&#12531;&#12479;&#12452;&#12474;"
+               key="shift + Q"/>
+      <MAPPING commandId="311d" description="&#26178;&#38291;&#34920;&#31034;&#24418;&#24335;"
+               key="shift + T"/>
+      <MAPPING commandId="3107" description="&#12461;&#12517;&#12540;" key="shift + C"/>
+      <MAPPING commandId="3124" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;"
+               key="shift + M"/>
+      <MAPPING commandId="310a" description="&#12523;&#12540;&#12503;&#12452;&#12531;"
+               key="shift + I"/>
+      <MAPPING commandId="310b" description="&#12523;&#12540;&#12503;&#12450;&#12454;&#12488;"
+               key="shift + O"/>
+      <MAPPING commandId="310c" description="&#12452;&#12464;&#12472;&#12483;&#12488;/&#12522;&#12523;&#12540;&#12503;"
+               key="shift + R"/>
+      <MAPPING commandId="3112" description="1&#12499;&#12540;&#12488;&#12523;&#12540;&#12503;"
+               key="shift + 4"/>
+      <MAPPING commandId="3113" description="2&#12499;&#12540;&#12488;&#12523;&#12540;&#12503;"
+               key="shift + 5"/>
+      <MAPPING commandId="3114" description="4&#12499;&#12540;&#12488;&#12523;&#12540;&#12503;"
+               key="shift + 6"/>
+      <MAPPING commandId="3115" description="8&#12499;&#12540;&#12488;&#12523;&#12540;&#12503;"
+               key="shift + 7"/>
+      <MAPPING commandId="3116" description="16&#12499;&#12540;&#12488;&#12523;&#12540;&#12503;"
+               key="shift + 8"/>
+      <MAPPING commandId="3117" description="32&#12499;&#12540;&#12488;&#12523;&#12540;&#12503;"
+               key="shift + 9"/>
+      <MAPPING commandId="3118" description="Loop /2" key="shift + /"/>
+      <MAPPING commandId="3119" description="Loop x2" key="shift + \"/>
+      <MAPPING commandId="311e" description="&#12507;&#12483;&#12488;&#12461;&#12517;&#12540;A&#12434;&#12475;&#12483;&#12488;"
+               key="shift + 1"/>
+      <MAPPING commandId="311f" description="&#12507;&#12483;&#12488;&#12461;&#12517;&#12540;B&#12434;&#12475;&#12483;&#12488;"
+               key="shift + 2"/>
+      <MAPPING commandId="3120" description="&#12507;&#12483;&#12488;&#12461;&#12517;&#12540;C&#12434;&#12475;&#12483;&#12488;"
+               key="shift + 3"/>
+      <MAPPING commandId="3121" description="Clear Hot Cue A (Deck 2)"
+               key="ctrl + shift + 1"/>
+      <MAPPING commandId="3122" description="Clear Hot Cue B (Deck 2)"
+               key="ctrl + shift + 2"/>
+      <MAPPING commandId="3123" description="Clear Hot Cue C (Deck 2)"
+               key="ctrl + shift + 3"/>
+      <MAPPING commandId="3139" description="&#27425;&#12398;&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;&#12434;&#21628;&#12403;&#20986;&#12377;"
+               key="shift + N"/>
+      <MAPPING commandId="313a" description="&#25163;&#21069;&#12398;&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;&#12434;&#21628;&#12403;&#20986;&#12377;"
+               key="shift + B"/>
+      <MAPPING commandId="313b" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;&#12434;&#21066;&#38500;"
+               key="shift + X"/>
+      <MAPPING commandId="3108" description="&#21069;&#26041;&#12395;&#12472;&#12515;&#12531;&#12503;"
+               key="shift + cursor right"/>
+      <MAPPING commandId="3109" description="&#24460;&#26041;&#12395;&#12472;&#12515;&#12531;&#12503;"
+               key="shift + cursor left"/>
+      <MAPPING commandId="3125" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;1"
+               key="shift + A"/>
+      <MAPPING commandId="3126" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;2"
+               key="shift + S"/>
+      <MAPPING commandId="3127" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;3"
+               key="shift + D"/>
+      <MAPPING commandId="3128" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;4"
+               key="shift + F"/>
+      <MAPPING commandId="3129" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;5"
+               key="shift + G"/>
+      <MAPPING commandId="312a" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;6"
+               key="shift + H"/>
+      <MAPPING commandId="312b" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;7"
+               key="shift + J"/>
+      <MAPPING commandId="312c" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;8"
+               key="shift + K"/>
+      <MAPPING commandId="312d" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;9"
+               key="shift + L"/>
+      <MAPPING commandId="312e" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;10"
+               key="shift + ;"/>
+      <MAPPING commandId="313f" description="&#12513;&#12514;&#12522;&#12540;&#12461;&#12517;&#12540;&#12434;&#34920;&#31034;"
+               key="shift + F10"/>
+      <MAPPING commandId="3140" description="&#12507;&#12483;&#12488;&#12461;&#12517;&#12540;&#12434;&#34920;&#31034;"
+               key="shift + F11"/>
+      <MAPPING commandId="3141" description="&#24773;&#22577;&#12434;&#34920;&#31034;&#12377;&#12427;"
+               key="shift + F12"/>
+      <MAPPING commandId="3143" description="&#25293;&#20301;&#32622;&#12434;&#21491;&#26041;&#21521;&#12395;&#12378;&#12425;&#12377;"
+               key="ctrl + shift + cursor right"/>
+      <MAPPING commandId="3144" description="&#25293;&#20301;&#32622;&#12434;&#24038;&#26041;&#21521;&#12395;&#12378;&#12425;&#12377;"
+               key="ctrl + shift + cursor left"/>
+      <MAPPING commandId="3145" description="&#25293;&#20301;&#32622;&#12434;&#12475;&#12531;&#12479;&#12540;&#12395;&#21512;&#12431;&#12379;&#12427;"
+               key="ctrl + shift + \"/>
+      <MAPPING commandId="314b" description="&#12471;&#12531;&#12463;" key="shift + F1"/>
+      <MAPPING commandId="314d" description="&#12510;&#12473;&#12479;&#12540;&#12486;&#12531;&#12509;"
+               key="shift + F2"/>
+      <MAPPING commandId="314e" description="&#12486;&#12531;&#12509;&#12522;&#12475;&#12483;&#12488;"
+               key="shift + F3"/>
+      <MAPPING commandId="314f" description="&#12500;&#12483;&#12481;&#12505;&#12531;&#12489; +"
+               key="shift + F5"/>
+      <MAPPING commandId="3150" description="&#12500;&#12483;&#12481;&#12505;&#12531;&#12489; -"
+               key="shift + F4"/>
+      <MAPPING commandId="3151" description="BPM +" key="shift + F7"/>
+      <MAPPING commandId="3152" description="BPM -" key="shift + F6"/>
+      <MAPPING commandId="6000" description="&#12503;&#12524;&#12540;&#12516;&#12540;1&#12395;&#26354;&#12434;&#12525;&#12540;&#12489;"
+               key="alt + cursor left"/>
+      <MAPPING commandId="6001" description="&#12503;&#12524;&#12540;&#12516;&#12540;2&#12395;&#26354;&#12434;&#12525;&#12540;&#12489;"
+               key="alt + cursor right"/>
+    </KEYMAPPINGS>
+  </VALUE>
+</PROPERTIES>

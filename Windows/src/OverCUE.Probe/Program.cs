@@ -43,6 +43,7 @@ internal sealed class RawInputProbe : IDisposable
     private const uint WM_CLOSE = 0x0010;
     private const uint WM_DESTROY = 0x0002;
     private const uint GIDC_ARRIVAL = 1;
+    private const uint RIM_TYPEKEYBOARD = 1;
     private const uint RIM_TYPEHID = 2;
     private const uint RID_INPUT = 0x10000003;
     private const uint RIDI_DEVICENAME = 0x20000007;
@@ -56,7 +57,10 @@ internal sealed class RawInputProbe : IDisposable
 
     private readonly ProbeOptions options;
     private readonly ACK05ReportDecoder decoder = new();
+    private readonly ACK05KeyboardDecoder keyboardDecoder = new();
+    private readonly object keyboardDecoderLock = new();
     private readonly Dictionary<nint, DeviceDescriptor> devices = [];
+    private Timer? keyboardDecoderTimer;
     private nint window;
     private bool disposed;
 
@@ -71,6 +75,7 @@ internal sealed class RawInputProbe : IDisposable
         CreateMessageWindow();
         RegisterRawInput();
         EnumerateDevices();
+        keyboardDecoderTimer = new Timer(_ => FlushKeyboardDecoder(), null, 10, 10);
 
         Console.CancelKeyPress += Cancel;
         try
@@ -83,6 +88,8 @@ internal sealed class RawInputProbe : IDisposable
         }
         finally
         {
+            keyboardDecoderTimer?.Dispose();
+            keyboardDecoderTimer = null;
             Console.CancelKeyPress -= Cancel;
         }
     }
@@ -95,6 +102,8 @@ internal sealed class RawInputProbe : IDisposable
         }
 
         disposed = true;
+        keyboardDecoderTimer?.Dispose();
+        keyboardDecoderTimer = null;
         if (window != nint.Zero)
         {
             NativeMethods.DestroyWindow(window);
@@ -156,6 +165,7 @@ internal sealed class RawInputProbe : IDisposable
         {
             new NativeMethods.RAWINPUTDEVICE(0x01, 0, flags, window),
             new NativeMethods.RAWINPUTDEVICE(0x0C, 0, flags, window),
+            new NativeMethods.RAWINPUTDEVICE(0x0D, 0, flags, window),
         };
 
         if (!NativeMethods.RegisterRawInputDevices(
@@ -182,7 +192,7 @@ internal sealed class RawInputProbe : IDisposable
             throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not enumerate Raw Input devices.");
         }
 
-        foreach (var item in list.Take((int)count).Where(item => item.Type == RIM_TYPEHID))
+        foreach (var item in list.Take((int)count).Where(item => item.Type is RIM_TYPEKEYBOARD or RIM_TYPEHID))
         {
             var descriptor = Describe(item.Device);
             devices[item.Device] = descriptor;
@@ -255,6 +265,19 @@ internal sealed class RawInputProbe : IDisposable
             }
 
             var header = Marshal.PtrToStructure<NativeMethods.RAWINPUTHEADER>(buffer);
+            if (header.Type == RIM_TYPEKEYBOARD)
+            {
+                var keyboardDescriptor = devices.GetValueOrDefault(header.Device) ?? Describe(header.Device);
+                devices[header.Device] = keyboardDescriptor;
+                if (options.AllHid || ShouldPrint(keyboardDescriptor))
+                {
+                    var keyboard = Marshal.PtrToStructure<NativeMethods.RAWKEYBOARD>(buffer + checked((int)headerSize));
+                    WriteKeyboard(keyboardDescriptor, keyboard);
+                }
+
+                return;
+            }
+
             if (header.Type != RIM_TYPEHID)
             {
                 return;
@@ -308,6 +331,11 @@ internal sealed class RawInputProbe : IDisposable
             }
 
             nativeInfo = Marshal.PtrToStructure<NativeMethods.RID_DEVICE_INFO>(pointer);
+            if (nativeInfo.Type != RIM_TYPEHID)
+            {
+                return new DeviceDescriptor(device, name, 0, 0, 0, 0);
+            }
+
             return new DeviceDescriptor(
                 device,
                 name,
@@ -351,7 +379,9 @@ internal sealed class RawInputProbe : IDisposable
         options.AllHid
         || (descriptor.VendorID == VendorID && descriptor.ProductID == ProductID)
         || (descriptor.Name.Contains("VID_28BD", StringComparison.OrdinalIgnoreCase)
-            && descriptor.Name.Contains("PID_0202", StringComparison.OrdinalIgnoreCase));
+            && descriptor.Name.Contains("PID_0202", StringComparison.OrdinalIgnoreCase))
+        || (descriptor.Name.Contains("28BD", StringComparison.OrdinalIgnoreCase)
+            && descriptor.Name.Contains("0202", StringComparison.OrdinalIgnoreCase));
 
     private void WriteDevice(string state, DeviceDescriptor descriptor)
     {
@@ -374,6 +404,71 @@ internal sealed class RawInputProbe : IDisposable
         Console.WriteLine(
             $"device {state}: VID={descriptor.VendorID:X4} PID={descriptor.ProductID:X4} "
             + $"usage={descriptor.UsagePage:X4}/{descriptor.Usage:X4} path={descriptor.Name}");
+    }
+
+    private void WriteKeyboard(DeviceDescriptor descriptor, NativeMethods.RAWKEYBOARD keyboard)
+    {
+        var timestamp = DateTimeOffset.UtcNow;
+        string?[] decoded;
+        lock (keyboardDecoderLock)
+        {
+            decoded = keyboardDecoder.Process(new RawKeyboardEvent(
+                    timestamp,
+                    keyboard.VirtualKey,
+                    keyboard.MakeCode,
+                    keyboard.Message is 0x0100 or 0x0104))
+                .Select(Format)
+                .Where(value => value is not null)
+                .ToArray();
+        }
+
+        if (options.JsonLines)
+        {
+            WriteJson(new
+            {
+                type = "keyboard",
+                timestamp,
+                descriptor.Name,
+                makeCode = $"{keyboard.MakeCode:X4}",
+                flags = $"{keyboard.Flags:X4}",
+                virtualKey = $"{keyboard.VirtualKey:X4}",
+                message = $"{keyboard.Message:X8}",
+                decoded,
+            });
+            return;
+        }
+
+        Console.WriteLine(
+            $"keyboard scan={keyboard.MakeCode:X4} flags={keyboard.Flags:X4} "
+            + $"vk={keyboard.VirtualKey:X4} message={keyboard.Message:X8}"
+            + (decoded.Length == 0 ? string.Empty : $" decoded=[{string.Join(",", decoded)}]")
+            + $" path={descriptor.Name}");
+    }
+
+    private void FlushKeyboardDecoder()
+    {
+        string?[] decoded;
+        var timestamp = DateTimeOffset.UtcNow;
+        lock (keyboardDecoderLock)
+        {
+            decoded = keyboardDecoder.Flush(timestamp)
+                .Select(Format)
+                .Where(value => value is not null)
+                .ToArray();
+        }
+
+        if (decoded.Length == 0)
+        {
+            return;
+        }
+
+        if (options.JsonLines)
+        {
+            WriteJson(new { type = "decoded", timestamp, decoded });
+            return;
+        }
+
+        Console.WriteLine($"decoded [{string.Join(",", decoded)}]");
     }
 
     private void WriteReport(DeviceDescriptor descriptor, byte[] report, uint index, uint count)
@@ -489,6 +584,17 @@ internal static partial class NativeMethods
         internal uint Size;
         internal nint Device;
         internal nint WParam;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct RAWKEYBOARD
+    {
+        internal ushort MakeCode;
+        internal ushort Flags;
+        internal ushort Reserved;
+        internal ushort VirtualKey;
+        internal uint Message;
+        internal uint ExtraInformation;
     }
 
     [StructLayout(LayoutKind.Sequential)]

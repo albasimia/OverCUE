@@ -693,6 +693,60 @@ do {
 }
 
 do {
+    let temporaryHome = FileManager.default.temporaryDirectory
+        .appendingPathComponent("overcue-loader-fallback-\(UUID().uuidString)")
+    let baseURL = temporaryHome
+        .appendingPathComponent("Library/Application Support/Pioneer/rekordbox7")
+    let mappingsURL = baseURL.appendingPathComponent("KeyMappings")
+    try FileManager.default.createDirectory(at: mappingsURL, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: temporaryHome) }
+
+    let settingsXML = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <PROPERTIES>
+      <VALUE name="performaceKeyMapping" val="missing-performance"/>
+      <VALUE name="exportKeyMapping" val="missing-export"/>
+    </PROPERTIES>
+    """
+    let performancePresetXML = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <PROPERTIES>
+      <VALUE name="keyMappingName" val="Performance 1 (Preset)"/>
+      <VALUE name="keyMappingXml"><KEYMAPPINGS>
+        <MAPPING commandId="3006" description="Play/Pause" key="spacebar"/>
+      </KEYMAPPINGS></VALUE>
+    </PROPERTIES>
+    """
+    let exportPresetXML = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <PROPERTIES>
+      <VALUE name="keyMappingName" val="Export (Preset)"/>
+      <VALUE name="keyMappingXml"><KEYMAPPINGS>
+        <MAPPING commandId="3007" description="Cue" key="C"/>
+      </KEYMAPPINGS></VALUE>
+    </PROPERTIES>
+    """
+    try Data(settingsXML.utf8).write(to: baseURL.appendingPathComponent("rekordbox3.settings"))
+    try Data(performancePresetXML.utf8).write(
+        to: mappingsURL.appendingPathComponent("rekordbox_0000000000000.mappings")
+    )
+    try Data(exportPresetXML.utf8).write(
+        to: mappingsURL.appendingPathComponent("rekordbox_0000000000030.mappings")
+    )
+
+    let loader = RekordboxKeyMappingLoader(homeDirectory: temporaryHome)
+    let performance = try loader.load(mode: .performance)
+    check(performance.mappingID == "0000000000000", "fall back to original Performance mapping")
+    check(performance.mapping.shortcut(for: "3006") == "spacebar", "read original Performance shortcut")
+    let export = try loader.load(mode: .export)
+    check(export.mappingID == "0000000000030", "fall back to original Export mapping")
+    check(export.mapping.shortcut(for: "3007") == "C", "read original Export shortcut")
+} catch {
+    failureCount += 1
+    fputs("FAIL: unexpected original rekordbox mapping fallback error: \(error)\n", stderr)
+}
+
+do {
     var configuration = OverCUEConfiguration.defaultValue
     configuration.profiles["default"]?.keyMap["K1"] = "hot_cue_1"
     configuration.profiles["alternate"] = OverCUEProfile.defaultValue

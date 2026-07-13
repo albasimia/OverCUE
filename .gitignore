@@ -5,3 +5,6 @@ dist/
 release/
 Windows/**/bin/
 Windows/**/obj/
+Windows/artifacts/
+Windows/backups/
+Windows/ack05-keyboard.jsonl
