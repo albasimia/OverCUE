@@ -560,8 +560,14 @@ final class ShortcutSettingsModel: ObservableObject {
         } catch {
             editingEntryID = nil
             captureMessage = nil
-            captureError = error.localizedDescription
-            showToast(error.localizedDescription, style: .error)
+            if let inputError = error as? ACK05InputMonitorError {
+                let localized = L10n.text("input.openFailed", inputError.errorCode)
+                captureError = localized
+                showToast(localized, style: .error)
+            } else {
+                captureError = error.localizedDescription
+                showToast(error.localizedDescription, style: .error)
+            }
             startRuntimeIfEnabled()
         }
     }

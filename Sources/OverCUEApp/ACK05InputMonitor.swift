@@ -10,11 +10,17 @@ private enum ACK05HardwareIdentity {
 enum ACK05InputMonitorError: LocalizedError {
     case openFailed(IOReturn)
 
-    @MainActor var errorDescription: String? {
+    var errorCode: String {
         switch self {
         case let .openFailed(status):
-            let code = String(format: "0x%08X", UInt32(bitPattern: status))
-            return L10n.text("input.openFailed", code)
+            return String(format: "0x%08X", UInt32(bitPattern: status))
+        }
+    }
+
+    var errorDescription: String? {
+        switch self {
+        case .openFailed:
+            return "ACK05 open failed (\(errorCode))"
         }
     }
 }
