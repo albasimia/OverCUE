@@ -7,7 +7,7 @@ private enum ACK05HardwareIdentity {
     static let productID = 0x0202
 }
 
-enum ACK05InputMonitorError: @preconcurrency LocalizedError {
+enum ACK05InputMonitorError: LocalizedError {
     case openFailed(IOReturn)
 
     @MainActor var errorDescription: String? {

@@ -36,6 +36,8 @@ internal static class Program
 
         var uiStatePath = Path.Combine(Path.GetTempPath(), $"overcue-ui-check-{Guid.NewGuid():N}.json");
         Environment.SetEnvironmentVariable("OVERCUE_UI_STATE_PATH", uiStatePath);
+        var rekordboxBaseDirectory = CreateRekordboxFixture();
+        Environment.SetEnvironmentVariable("OVERCUE_REKORDBOX_BASE_DIRECTORY", rekordboxBaseDirectory);
         if (localizedScreenshotDirectory is not null)
             RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
         var window = new MainWindow { Width = 1440, Height = 900 };
@@ -128,9 +130,43 @@ internal static class Program
             Render(content, output);
 
         window.Close();
+        Environment.SetEnvironmentVariable("OVERCUE_REKORDBOX_BASE_DIRECTORY", null);
+        Directory.Delete(rekordboxBaseDirectory, recursive: true);
         if (File.Exists(uiStatePath)) File.Delete(uiStatePath);
         if (File.Exists(languagePath)) File.Delete(languagePath);
         Console.WriteLine("OverCUE.Windows checks passed: localization, bidirectional selection, and device marker");
+    }
+
+    private static string CreateRekordboxFixture()
+    {
+        var baseDirectory = Path.Combine(Path.GetTempPath(), $"overcue-rekordbox-ui-{Guid.NewGuid():N}");
+        var mappingsDirectory = Path.Combine(baseDirectory, "KeyMappings");
+        Directory.CreateDirectory(mappingsDirectory);
+        File.WriteAllText(Path.Combine(baseDirectory, "rekordbox3.settings"), """
+            <PROPERTIES>
+              <VALUE name="performanceKeyMapping" val="ui-check"/>
+            </PROPERTIES>
+            """);
+        File.WriteAllText(Path.Combine(mappingsDirectory, "rekordbox_ui-check.mappings"), """
+            <PROPERTIES>
+              <VALUE name="keyMappingName" val="OverCUE UI Check"/>
+              <VALUE name="keyMappingXml">
+                <KEYMAPPINGS>
+                  <MAPPING commandId="300a" description="Fixture 1" key="F1"/>
+                  <MAPPING commandId="300b" description="Fixture 2" key="F2"/>
+                  <MAPPING commandId="300c" description="Fixture 3" key="F3"/>
+                  <MAPPING commandId="300d" description="Fixture 4" key="F4"/>
+                  <MAPPING commandId="300e" description="Fixture 5" key="F5"/>
+                  <MAPPING commandId="300f" description="Fixture 6" key="F6"/>
+                  <MAPPING commandId="3010" description="Fixture 7" key="F7"/>
+                  <MAPPING commandId="3011" description="Fixture 8" key="F8"/>
+                  <MAPPING commandId="3007" description="Cue" key="C"/>
+                  <MAPPING commandId="301c" description="Quantize" key="Q"/>
+                </KEYMAPPINGS>
+              </VALUE>
+            </PROPERTIES>
+            """);
+        return baseDirectory;
     }
 
     private static void RenderLocalizedScreenshots(string outputDirectory)

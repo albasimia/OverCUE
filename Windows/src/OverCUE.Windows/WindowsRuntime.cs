@@ -32,8 +32,11 @@ internal sealed class RekordboxShortcutCatalog
 
     public static RekordboxShortcutCatalog Load(string mode)
     {
-        var baseDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Pioneer", "rekordbox6");
+        var configuredDirectory = Environment.GetEnvironmentVariable("OVERCUE_REKORDBOX_BASE_DIRECTORY");
+        var baseDirectory = string.IsNullOrWhiteSpace(configuredDirectory)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "Pioneer", "rekordbox6")
+            : configuredDirectory;
         return Load(mode, baseDirectory);
     }
 

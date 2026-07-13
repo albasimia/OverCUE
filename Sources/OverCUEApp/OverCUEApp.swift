@@ -278,6 +278,7 @@ private struct ToastView: View {
     }
 }
 
+@MainActor
 private enum MenuBarGhostIcon {
     static let image: NSImage = {
         let output = NSImage(size: NSSize(width: 18, height: 18))
@@ -362,6 +363,7 @@ private enum MenuBarGhostIcon {
     }()
 }
 
+@MainActor
 private enum MenuBarStatusIcon {
     static func image(mode: String, group: Int) -> NSImage {
         let output = NSImage(size: NSSize(width: 48, height: 18))
