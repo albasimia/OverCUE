@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "OverCUE",
     platforms: [
-        .macOS(.v13),
+        .macOS(.v13)
     ],
     products: [
         .library(name: "OverCUECore", targets: ["OverCUECore"]),
@@ -18,7 +18,7 @@ let package = Package(
         .target(
             name: "OverCUECore",
             resources: [
-                .process("Resources"),
+                .process("Resources")
             ]
         ),
         .executableTarget(
@@ -34,7 +34,7 @@ let package = Package(
         .executableTarget(
             name: "OverCUEProbe",
             linkerSettings: [
-                .linkedFramework("IOKit"),
+                .linkedFramework("IOKit")
             ]
         ),
         .executableTarget(
@@ -45,7 +45,7 @@ let package = Package(
             name: "OverCUEApp",
             dependencies: ["OverCUECore"],
             resources: [
-                .process("Resources"),
+                .process("Resources")
             ],
             linkerSettings: [
                 .linkedFramework("ApplicationServices"),

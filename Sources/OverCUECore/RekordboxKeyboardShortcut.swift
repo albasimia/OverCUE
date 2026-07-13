@@ -20,12 +20,13 @@ public struct RekordboxKeyboardShortcut: Equatable, Sendable {
 
     public init(rawValue: String) throws {
         self.rawValue = rawValue
-        let components = rawValue
+        let components =
+            rawValue
             .split(separator: "+", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
         guard let keyName = components.last,
-              !keyName.isEmpty,
-              let keyCode = Self.keyCodes[keyName]
+            !keyName.isEmpty,
+            let keyCode = Self.keyCodes[keyName]
         else {
             throw RekordboxKeyboardShortcutError.unsupportedShortcut(rawValue)
         }

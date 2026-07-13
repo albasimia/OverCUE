@@ -37,9 +37,9 @@ public struct ACK05ReportDecoder: Sendable {
 
     public func decode(reportID: UInt32, bytes: [UInt8]) -> ACK05Event? {
         guard reportID == Self.reportID,
-              bytes.count == Self.reportLength,
-              bytes[0] == UInt8(Self.reportID),
-              bytes.dropFirst(3).allSatisfy({ $0 == 0 })
+            bytes.count == Self.reportLength,
+            bytes[0] == UInt8(Self.reportID),
+            bytes.dropFirst(3).allSatisfy({ $0 == 0 })
         else {
             return nil
         }
@@ -81,8 +81,8 @@ public struct ACK05ReportDecoder: Sendable {
 
     public func pressedKeys(reportID: UInt32, bytes: [UInt8]) -> Set<ACK05Key>? {
         guard reportID == Self.reportID,
-              bytes.count == Self.reportLength,
-              bytes[0] == UInt8(Self.reportID)
+            bytes.count == Self.reportLength,
+            bytes[0] == UInt8(Self.reportID)
         else {
             return nil
         }
@@ -120,8 +120,8 @@ public struct ACK05ReportDecoder: Sendable {
         previousKeys: Set<ACK05Key>
     ) -> Set<ACK05Key>? {
         guard reportID == Self.reportID,
-              bytes.count == Self.reportLength,
-              bytes[0] == UInt8(Self.reportID)
+            bytes.count == Self.reportLength,
+            bytes[0] == UInt8(Self.reportID)
         else {
             return nil
         }
@@ -157,7 +157,8 @@ public struct ACK05ReportDecoder: Sendable {
             let score = (candidate, retained, changes, candidate.count, mask)
 
             if let current = best {
-                let isBetter = retained > current.retained
+                let isBetter =
+                    retained > current.retained
                     || (retained == current.retained && changes < current.changes)
                     || (retained == current.retained && changes == current.changes
                         && candidate.count < current.count)
@@ -170,16 +171,18 @@ public struct ACK05ReportDecoder: Sendable {
         }
 
         if best?.keys == previousKeys,
-           let expanded = matches
-            .filter({ candidate in
-                previousKeys.isSubset(of: candidate.keys)
-                    && candidate.keys.count == previousKeys.count + 1
-                    && candidate.keys.subtracting(previousKeys).allSatisfy {
-                        Self.signature(for: $0).usage == nil
-                    }
-            })
-            .sorted(by: { $0.mask < $1.mask })
-            .first {
+            let expanded =
+                matches
+                .filter({ candidate in
+                    previousKeys.isSubset(of: candidate.keys)
+                        && candidate.keys.count == previousKeys.count + 1
+                        && candidate.keys.subtracting(previousKeys).allSatisfy {
+                            Self.signature(for: $0).usage == nil
+                        }
+                })
+                .sorted(by: { $0.mask < $1.mask })
+                .first
+        {
             return expanded.keys
         }
 

@@ -17,7 +17,8 @@ public enum RekordboxActionAdapter {
         case .cue: "3007"
         case .playPause: "3006"
         case .captureWaveformPosition, .jogSearchLeft, .jogSearchRight,
-             .cycleGroup, .cycleGroupBackward, .toggleRekordboxMode: nil
+            .cycleGroup, .cycleGroupBackward, .toggleRekordboxMode:
+            nil
         }
     }
 

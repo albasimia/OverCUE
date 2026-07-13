@@ -72,8 +72,8 @@ struct DevicePanelView: View {
                         model.dialAssignment(direction)?.functionName
                             ?? localization.text("common.unassigned")
                     )
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                 } else if let key = model.selectedDeviceKey {
                     Text(key.rawValue.uppercased())
                         .font(.headline)
@@ -81,8 +81,8 @@ struct DevicePanelView: View {
                         model.deviceAssignment(to: key)?.functionName
                             ?? localization.text("common.unassigned")
                     )
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                 } else {
                     Text(localization.text("device.select"))
                         .font(.subheadline)
@@ -183,7 +183,8 @@ private struct ACK05DeviceMap: View {
 
     private func dialLabel(_ direction: DialDirection, symbol: String) -> some View {
         let assignment = dialAssignment(direction)
-        let isHighlighted = highlightedDialDirections.contains(direction)
+        let isHighlighted =
+            highlightedDialDirections.contains(direction)
             || selectedDialDirection == direction
         let isActive = activeDialDirection == direction
         return Button {
@@ -232,10 +233,12 @@ private struct ACK05DeviceMap: View {
         .buttonStyle(.plain)
         .foregroundStyle(assignment == nil ? Color.secondary : Color.primary)
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .help(assignment.map {
-            let shortcut = $0.shortcut.map { " [\($0)]" } ?? ""
-            return "\(direction.displayName): \($0.functionName)\(shortcut)"
-        } ?? L10n.text("common.unassigned"))
+        .help(
+            assignment.map {
+                let shortcut = $0.shortcut.map { " [\($0)]" } ?? ""
+                return "\(direction.displayName): \($0.functionName)\(shortcut)"
+            } ?? L10n.text("common.unassigned")
+        )
         .accessibilityLabel(direction.displayName)
         .accessibilityValue(assignment?.functionName ?? L10n.text("common.unassigned"))
     }
@@ -293,10 +296,12 @@ private struct ACK05DeviceMap: View {
             )
         }
         .buttonStyle(.plain)
-        .help(assignment.map {
-            let shortcut = $0.shortcut.map { " [\($0)]" } ?? ""
-            return "\(key.rawValue.uppercased()): \($0.functionName)\(shortcut)"
-        } ?? L10n.text("common.unassigned"))
+        .help(
+            assignment.map {
+                let shortcut = $0.shortcut.map { " [\($0)]" } ?? ""
+                return "\(key.rawValue.uppercased()): \($0.functionName)\(shortcut)"
+            } ?? L10n.text("common.unassigned")
+        )
         .accessibilityLabel(key.rawValue.uppercased())
         .accessibilityValue(assignment?.functionName ?? L10n.text("common.unassigned"))
     }
@@ -349,17 +354,20 @@ private struct ACK05BodyShape: Shape {
             rect.height * (124.0 / 430.0)
         )
         let leftOffset = dialCenter.x - left
-        let leftIntersectionOffset = sqrt(max(0, shoulderRadius * shoulderRadius - leftOffset * leftOffset))
+        let leftIntersectionOffset = sqrt(
+            max(0, shoulderRadius * shoulderRadius - leftOffset * leftOffset))
         let shoulderStart = CGPoint(x: left, y: dialCenter.y + leftIntersectionOffset)
 
         let topOffset = dialCenter.y - top
-        let topIntersectionOffset = sqrt(max(0, shoulderRadius * shoulderRadius - topOffset * topOffset))
+        let topIntersectionOffset = sqrt(
+            max(0, shoulderRadius * shoulderRadius - topOffset * topOffset))
         let shoulderEnd = CGPoint(x: dialCenter.x + topIntersectionOffset, y: top)
 
-        let startAngle = Angle(radians: atan2(
-            Double(shoulderStart.y - dialCenter.y),
-            Double(shoulderStart.x - dialCenter.x)
-        ))
+        let startAngle = Angle(
+            radians: atan2(
+                Double(shoulderStart.y - dialCenter.y),
+                Double(shoulderStart.x - dialCenter.x)
+            ))
         var endRadians = atan2(
             Double(shoulderEnd.y - dialCenter.y),
             Double(shoulderEnd.x - dialCenter.x)

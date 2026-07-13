@@ -70,9 +70,10 @@ final class OverCUECLIRuntime {
 
     private static func errorDetail(from pipe: Pipe) -> String? {
         guard let data = try? pipe.fileHandleForReading.readToEnd(),
-              let output = String(data: data, encoding: .utf8)
+            let output = String(data: data, encoding: .utf8)
         else { return nil }
-        let firstLine = output
+        let firstLine =
+            output
             .split(whereSeparator: \.isNewline)
             .map(String.init)
             .first(where: { !$0.isEmpty })
@@ -114,7 +115,8 @@ final class OverCUECLIRuntime {
                 .appendingPathComponent("Contents/Helpers/overcue-cli")
         )
         if let executableURL = Bundle.main.executableURL {
-            candidates.append(executableURL.deletingLastPathComponent().appendingPathComponent("overcue-cli"))
+            candidates.append(
+                executableURL.deletingLastPathComponent().appendingPathComponent("overcue-cli"))
         }
         let currentDirectory = URL(fileURLWithPath: fileManager.currentDirectoryPath, isDirectory: true)
         candidates.append(currentDirectory.appendingPathComponent(".build/debug/overcue-cli"))
@@ -135,16 +137,21 @@ final class OverCUECLIRuntime {
             )
         }
 
-        guard let executable = candidates.first(where: { fileManager.isExecutableFile(atPath: $0.path) }) else {
+        guard
+            let executable = candidates.first(where: { fileManager.isExecutableFile(atPath: $0.path) })
+        else {
             return nil
         }
-        return LaunchConfiguration(executableURL: executable, arguments: arguments, currentDirectoryURL: currentDirectory)
+        return LaunchConfiguration(
+            executableURL: executable, arguments: arguments, currentDirectoryURL: currentDirectory)
     }
 
     private func packageRoot(startingAt directory: URL) -> URL? {
         var candidate = directory.standardizedFileURL
         for _ in 0..<8 {
-            if FileManager.default.fileExists(atPath: candidate.appendingPathComponent("Package.swift").path) {
+            if FileManager.default.fileExists(
+                atPath: candidate.appendingPathComponent("Package.swift").path)
+            {
                 return candidate
             }
             let parent = candidate.deletingLastPathComponent()

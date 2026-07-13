@@ -22,7 +22,8 @@ public enum ActionConfigurationMigrator {
     public static func migrateToVersion7(
         _ source: OverCUEConfiguration
     ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
-        var result = source.version < 6
+        var result =
+            source.version < 6
             ? migrateToVersion6(source)
             : (configuration: source, warnings: [])
 
@@ -47,7 +48,8 @@ public enum ActionConfigurationMigrator {
     public static func migrateToVersion6(
         _ source: OverCUEConfiguration
     ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
-        var result = source.version < 5
+        var result =
+            source.version < 5
             ? migrateToVersion5(source)
             : (configuration: source, warnings: [])
         let defaultGroup1 = OverCUEProfile.defaultValue.storedMapping(for: 1)
@@ -73,7 +75,8 @@ public enum ActionConfigurationMigrator {
     public static func migrateToVersion5(
         _ source: OverCUEConfiguration
     ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
-        var result = source.version < 4
+        var result =
+            source.version < 4
             ? migrateToVersion4(source)
             : (configuration: source, warnings: [])
         let defaults = OverCUEProfile.defaultValue
@@ -88,8 +91,8 @@ public enum ActionConfigurationMigrator {
                 group1.keyMap[$0.key] == $0.value
             }
             guard usesPreviousDefaultLayout,
-                  group2.hasNoInputMappings,
-                  group3.hasNoInputMappings
+                group2.hasNoInputMappings,
+                group3.hasNoInputMappings
             else { continue }
 
             for (input, target) in defaultGroup1.dialChordMap
@@ -109,7 +112,8 @@ public enum ActionConfigurationMigrator {
     public static func migrateToVersion4(
         _ source: OverCUEConfiguration
     ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
-        var result = source.version < 3
+        var result =
+            source.version < 3
             ? migrateToVersion3(source)
             : (configuration: source, warnings: [])
         for profileName in result.configuration.profiles.keys.sorted() {
@@ -136,9 +140,11 @@ public enum ActionConfigurationMigrator {
 
         for profileName in configuration.profiles.keys.sorted() {
             guard var profile = configuration.profiles[profileName] else { continue }
-            let hadPreviousDefaultChords = Set(profile.chordMap.keys) == Set([
-                "K8+K1", "K7+K8", "K7+K4", "K7+K1",
-            ])
+            let hadPreviousDefaultChords =
+                Set(profile.chordMap.keys)
+                == Set([
+                    "K8+K1", "K7+K8", "K7+K4", "K7+K1",
+                ])
             profile.keyMap = migrate(
                 profile.keyMap,
                 profileName: profileName,
@@ -170,7 +176,8 @@ public enum ActionConfigurationMigrator {
         var migrated: [String: String] = [:]
         for (input, rawAction) in mappings {
             if let action = ActionID(rawValue: rawAction)
-                ?? ActionID(legacyDisplayName: rawAction) {
+                ?? ActionID(legacyDisplayName: rawAction)
+            {
                 migrated[input] = action.rawValue
             } else {
                 warnings.append(
@@ -187,8 +194,8 @@ public enum ActionConfigurationMigrator {
     }
 }
 
-private extension OverCUEGroupMapping {
-    var hasNoInputMappings: Bool {
+extension OverCUEGroupMapping {
+    fileprivate var hasNoInputMappings: Bool {
         keyMap.isEmpty && chordMap.isEmpty && dialMap.isEmpty && dialChordMap.isEmpty
     }
 }

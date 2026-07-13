@@ -38,7 +38,8 @@ final class AppLocalization: ObservableObject {
     }
 
     func text(_ key: String, _ arguments: CVarArg...) -> String {
-        let format = tables[language]?[key]
+        let format =
+            tables[language]?[key]
             ?? tables[.english]?[key]
             ?? key
         guard !arguments.isEmpty else { return format }
@@ -50,14 +51,15 @@ final class AppLocalization: ObservableObject {
     }
 
     private static func load(language: AppLanguage) -> [String: String] {
-        let url = AppResources.bundle.url(
-            forResource: language.rawValue,
-            withExtension: "json",
-            subdirectory: "Localization"
-        ) ?? AppResources.bundle.url(forResource: language.rawValue, withExtension: "json")
+        let url =
+            AppResources.bundle.url(
+                forResource: language.rawValue,
+                withExtension: "json",
+                subdirectory: "Localization"
+            ) ?? AppResources.bundle.url(forResource: language.rawValue, withExtension: "json")
         guard let url,
-        let data = try? Data(contentsOf: url),
-        let table = try? JSONDecoder().decode([String: String].self, from: data)
+            let data = try? Data(contentsOf: url),
+            let table = try? JSONDecoder().decode([String: String].self, from: data)
         else {
             assertionFailure("Missing localization file for \(language.rawValue)")
             return [:]
@@ -73,9 +75,10 @@ enum L10n {
     }
 }
 
-private extension AppLocalization {
-    func text(_ key: String, _ arguments: [CVarArg]) -> String {
-        let format = tables[language]?[key]
+extension AppLocalization {
+    fileprivate func text(_ key: String, _ arguments: [CVarArg]) -> String {
+        let format =
+            tables[language]?[key]
             ?? tables[.english]?[key]
             ?? key
         guard !arguments.isEmpty else { return format }

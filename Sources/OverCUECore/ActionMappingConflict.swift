@@ -43,16 +43,18 @@ public enum ActionMappingConflictDetector {
         for group in groups {
             let mapping = profile.mapping(for: group)
             if let existing = existingTarget(for: input, mapping: mapping, group: group),
-               existing != target {
-                return ActionMappingConflict(input: input, group: group, kind: .occupied(existing: existing))
+                existing != target
+            {
+                return ActionMappingConflict(
+                    input: input, group: group, kind: .occupied(existing: existing))
             }
 
             switch input {
             case let .key(key) where isLongPress(target.behavior):
                 for (rawChord, rawAction) in mapping.chordMap.sorted(by: { $0.key < $1.key }) {
                     guard let chord = parseChord(rawChord),
-                          chord.modifiers.contains(key),
-                          let chordTarget = ActionTarget(configurationValue: rawAction)
+                        chord.modifiers.contains(key),
+                        let chordTarget = ActionTarget(configurationValue: rawAction)
                     else { continue }
                     return ActionMappingConflict(
                         input: input,
@@ -62,8 +64,8 @@ public enum ActionMappingConflictDetector {
                 }
                 for (rawChord, rawAction) in mapping.dialChordMap.sorted(by: { $0.key < $1.key }) {
                     guard let chord = parseDialChord(rawChord),
-                          chord.keys.contains(key),
-                          let chordTarget = ActionTarget(configurationValue: rawAction)
+                        chord.keys.contains(key),
+                        let chordTarget = ActionTarget(configurationValue: rawAction)
                     else { continue }
                     return ActionMappingConflict(
                         input: input,
@@ -73,13 +75,14 @@ public enum ActionMappingConflictDetector {
                 }
             case let .chord(chord):
                 for modifier in chord.modifiers {
-                    guard let rawAction = effectiveKeyAction(
-                        mapping: mapping,
-                        key: modifier,
-                        group: group
-                    ),
-                    let existing = ActionTarget(configurationValue: rawAction),
-                    isLongPress(existing.behavior)
+                    guard
+                        let rawAction = effectiveKeyAction(
+                            mapping: mapping,
+                            key: modifier,
+                            group: group
+                        ),
+                        let existing = ActionTarget(configurationValue: rawAction),
+                        isLongPress(existing.behavior)
                     else { continue }
                     return ActionMappingConflict(
                         input: input,
@@ -90,8 +93,8 @@ public enum ActionMappingConflictDetector {
             case let .dialChord(chord):
                 for key in chord.keys {
                     guard let rawAction = effectiveKeyAction(mapping: mapping, key: key, group: group),
-                          let existing = ActionTarget(configurationValue: rawAction),
-                          isLongPress(existing.behavior)
+                        let existing = ActionTarget(configurationValue: rawAction),
+                        isLongPress(existing.behavior)
                     else { continue }
                     return ActionMappingConflict(
                         input: input,
@@ -121,15 +124,17 @@ public enum ActionMappingConflictDetector {
         case let .key(key):
             rawAction = effectiveKeyAction(mapping: mapping, key: key, group: group)
         case let .chord(chord):
-            rawAction = mapping.chordMap.first(where: {
-                parseChord($0.key) == chord
-            })?.value
+            rawAction =
+                mapping.chordMap.first(where: {
+                    parseChord($0.key) == chord
+                })?.value
         case let .dial(direction):
             rawAction = mapping.dialMap[direction.rawValue]
         case let .dialChord(chord):
-            rawAction = mapping.dialChordMap.first(where: {
-                parseDialChord($0.key) == chord
-            })?.value
+            rawAction =
+                mapping.dialChordMap.first(where: {
+                    parseDialChord($0.key) == chord
+                })?.value
         }
         guard let rawAction, rawAction != "unassigned" else { return nil }
         return ActionTarget(configurationValue: rawAction)
@@ -146,9 +151,10 @@ public enum ActionMappingConflictDetector {
     }
 
     private static func parseChord(_ rawChord: String) -> KeyChord? {
-        let keysByName = Dictionary(uniqueKeysWithValues: ACK05Key.allCases.map {
-            ($0.rawValue.uppercased(), $0)
-        })
+        let keysByName = Dictionary(
+            uniqueKeysWithValues: ACK05Key.allCases.map {
+                ($0.rawValue.uppercased(), $0)
+            })
         let names = rawChord.uppercased().replacingOccurrences(of: " ", with: "").split(separator: "+")
         let keys = names.compactMap { keysByName[String($0)] }
         guard keys.count == names.count else { return nil }
@@ -167,9 +173,10 @@ public enum ActionMappingConflictDetector {
         case "DIAL_LEFT", "LEFT", "COUNTERCLOCKWISE": direction = .counterclockwise
         default: return nil
         }
-        let keysByName = Dictionary(uniqueKeysWithValues: ACK05Key.allCases.map {
-            ($0.rawValue.uppercased(), $0)
-        })
+        let keysByName = Dictionary(
+            uniqueKeysWithValues: ACK05Key.allCases.map {
+                ($0.rawValue.uppercased(), $0)
+            })
         let keys = components.dropLast().compactMap { keysByName[$0] }
         guard keys.count == components.count - 1 else { return nil }
         return DialChord(keys: keys, direction: direction)

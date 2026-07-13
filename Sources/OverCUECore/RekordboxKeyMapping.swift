@@ -17,7 +17,6 @@ public struct RekordboxShortcutEntry: Equatable, Identifiable, Sendable {
         "\(commandID):\(index)"
     }
 }
-
 public struct RekordboxKeyMapping: Equatable, Sendable {
     public let name: String
     public let entries: [RekordboxShortcutEntry]
@@ -52,11 +51,9 @@ public struct RekordboxKeyMapping: Equatable, Sendable {
         )
     }
 }
-
 public enum RekordboxKeyMappingError: Error {
     case invalidXML
 }
-
 private final class MappingXMLDelegate: NSObject, XMLParserDelegate {
     var mappingName: String?
     var entries: [RekordboxShortcutEntry] = []
@@ -70,12 +67,14 @@ private final class MappingXMLDelegate: NSObject, XMLParserDelegate {
         attributes attributeDict: [String: String] = [:]
     ) {
         if elementName == "VALUE",
-           attributeDict["name"] == "keyMappingName" {
+            attributeDict["name"] == "keyMappingName"
+        {
             mappingName = attributeDict["val"]
         } else if elementName == "MAPPING",
-                  let commandID = attributeDict["commandId"],
-                  let key = attributeDict["key"],
-                  !key.isEmpty {
+            let commandID = attributeDict["commandId"],
+            let key = attributeDict["key"],
+            !key.isEmpty
+        {
             entries.append(
                 RekordboxShortcutEntry(
                     index: entries.count,
@@ -88,7 +87,6 @@ private final class MappingXMLDelegate: NSObject, XMLParserDelegate {
         }
     }
 }
-
 public enum RekordboxMappingMode: String, Codable, CaseIterable, Identifiable, Sendable {
     case performance
     case export
@@ -102,7 +100,6 @@ public enum RekordboxMappingMode: String, Codable, CaseIterable, Identifiable, S
         }
     }
 }
-
 public struct LoadedRekordboxKeyMapping: Equatable, Sendable {
     public let mode: RekordboxMappingMode
     public let mappingID: String
@@ -121,14 +118,15 @@ public struct LoadedRekordboxKeyMapping: Equatable, Sendable {
         self.mapping = mapping
     }
 }
-
 public struct RekordboxKeyMappingLoader: Sendable {
     public let baseURL: URL
 
     public init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
-        let pioneerURL = homeDirectory
+        let pioneerURL =
+            homeDirectory
             .appendingPathComponent("Library/Application Support/Pioneer")
-        baseURL = Self.rekordboxDirectory(in: pioneerURL)
+        baseURL =
+            Self.rekordboxDirectory(in: pioneerURL)
             ?? pioneerURL.appendingPathComponent("rekordbox6")
     }
 
@@ -137,11 +135,12 @@ public struct RekordboxKeyMappingLoader: Sendable {
         let settings = try loadSettingsIfPresent()
         let selectedID = settings?.keyMappingID(for: mode)
         let configured = selectedID.flatMap { id in mappings.first { $0.id == id } }
-        let selected = if let configured, !configured.mapping.entries.isEmpty {
-            configured
-        } else {
-            Self.originalMapping(for: mode, in: mappings) ?? configured
-        }
+        let selected =
+            if let configured, !configured.mapping.entries.isEmpty {
+                configured
+            } else {
+                Self.originalMapping(for: mode, in: mappings) ?? configured
+            }
 
         guard let selected else {
             throw RekordboxKeyMappingLoaderError.mappingNotFound(mode: mode, selectedID: selectedID)
@@ -159,13 +158,15 @@ public struct RekordboxKeyMappingLoader: Sendable {
             at: baseURL,
             includingPropertiesForKeys: nil
         )
-        let settingsURL = candidates
+        let settingsURL =
+            candidates
             .filter { $0.pathExtension == "settings" && !$0.lastPathComponent.contains("backup") }
             .sorted { lhs, rhs in
                 let lhsPreferred = lhs.lastPathComponent == "rekordbox3.settings"
                 let rhsPreferred = rhs.lastPathComponent == "rekordbox3.settings"
                 if lhsPreferred != rhsPreferred { return lhsPreferred }
-                return lhs.lastPathComponent.localizedStandardCompare(rhs.lastPathComponent) == .orderedAscending
+                return lhs.lastPathComponent.localizedStandardCompare(rhs.lastPathComponent)
+                    == .orderedAscending
             }
             .first
         guard let settingsURL else { return nil }
@@ -180,12 +181,15 @@ public struct RekordboxKeyMappingLoader: Sendable {
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         )
-        return try urls
+        return
+            try urls
             .filter {
                 $0.pathExtension.lowercased() == "mappings"
                     && $0.lastPathComponent.lowercased().hasPrefix("rekordbox_")
             }
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+            .sorted {
+                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+            }
             .map { url in
                 MappingFile(
                     id: Self.mappingID(from: url),
@@ -215,12 +219,12 @@ public struct RekordboxKeyMappingLoader: Sendable {
                 $0.mapping.name.localizedCaseInsensitiveCompare(originalName) == .orderedSame
             }
             ?? mappings
-                .filter { $0.mapping.name.localizedCaseInsensitiveContains(mode.rawValue) }
-                .sorted {
-                    $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent)
-                        == .orderedAscending
-                }
-                .first
+            .filter { $0.mapping.name.localizedCaseInsensitiveContains(mode.rawValue) }
+            .sorted {
+                $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent)
+                    == .orderedAscending
+            }
+            .first
     }
 
     private static func mappingID(from url: URL) -> String {
@@ -229,17 +233,22 @@ public struct RekordboxKeyMappingLoader: Sendable {
     }
 
     private static func rekordboxDirectory(in pioneerURL: URL) -> URL? {
-        guard let urls = try? FileManager.default.contentsOfDirectory(
-            at: pioneerURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return nil }
-        return urls
+        guard
+            let urls = try? FileManager.default.contentsOfDirectory(
+                at: pioneerURL,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+        else { return nil }
+        return
+            urls
             .filter {
                 $0.lastPathComponent.lowercased().hasPrefix("rekordbox")
                     && FileManager.default.fileExists(atPath: $0.appendingPathComponent("KeyMappings").path)
             }
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedDescending }
+            .sorted {
+                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedDescending
+            }
             .first
     }
 
@@ -249,7 +258,6 @@ public struct RekordboxKeyMappingLoader: Sendable {
         let mapping: RekordboxKeyMapping
     }
 }
-
 public enum RekordboxKeyMappingLoaderError: Error, LocalizedError {
     case selectedPerformanceMappingNotFound
     case mappingNotFound(mode: RekordboxMappingMode, selectedID: String?)
@@ -267,7 +275,6 @@ public enum RekordboxKeyMappingLoaderError: Error, LocalizedError {
         }
     }
 }
-
 public enum RekordboxShortcutCategory: String, CaseIterable, Identifiable, Sendable {
     case browse = "Browse"
     case deck1 = "Deck 1"
@@ -307,7 +314,6 @@ public enum RekordboxShortcutCategory: String, CaseIterable, Identifiable, Senda
         }
     }
 }
-
 public struct RekordboxSettings: Equatable, Sendable {
     public let performanceKeyMappingID: String?
     public let exportKeyMappingID: String?
@@ -338,7 +344,6 @@ public struct RekordboxSettings: Equatable, Sendable {
         )
     }
 }
-
 private final class SettingsXMLDelegate: NSObject, XMLParserDelegate {
     var performanceKeyMappingID: String?
     var exportKeyMappingID: String?
@@ -351,10 +356,10 @@ private final class SettingsXMLDelegate: NSObject, XMLParserDelegate {
         attributes attributeDict: [String: String] = [:]
     ) {
         guard elementName == "VALUE",
-              let name = attributeDict["name"]?.lowercased(),
-              name.contains("keymapping"),
-              let value = attributeDict["val"],
-              !value.isEmpty
+            let name = attributeDict["name"]?.lowercased(),
+            name.contains("keymapping"),
+            let value = attributeDict["val"],
+            !value.isEmpty
         else { return }
 
         if name.contains("performace") || name.contains("performance") {

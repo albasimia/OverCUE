@@ -5,5 +5,8 @@
     "spaces": 4
   },
   "maximumBlankLines": 1,
-  "respectsExistingLineBreaks": true
+  "respectsExistingLineBreaks": true,
+  "rules": {
+    "UseLetInEveryBoundCaseVariable": false
+  }
 }

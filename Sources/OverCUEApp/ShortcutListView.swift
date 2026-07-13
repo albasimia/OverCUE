@@ -19,7 +19,7 @@ struct ShortcutListView: View {
         .padding(28)
         .onChange(of: model.selectedEntryID) { newValue in
             guard let newValue,
-                  let entry = model.entries.first(where: { $0.id == newValue })
+                let entry = model.entries.first(where: { $0.id == newValue })
             else {
                 return
             }
@@ -146,7 +146,8 @@ struct ShortcutListView: View {
                     }
 
                     if model.sections.isEmpty, model.filteredInternalEntries.isEmpty,
-                       model.errorMessage == nil {
+                        model.errorMessage == nil
+                    {
                         VStack(spacing: 12) {
                             Image(systemName: "keyboard")
                                 .font(.system(size: 34))
@@ -325,8 +326,11 @@ struct ShortcutListView: View {
                 Button {
                     model.beginCapture(for: entry)
                 } label: {
-                    Image(systemName: model.editingEntryID == entry.id ? "keyboard.badge.ellipsis" : "square.and.pencil")
-                        .foregroundStyle(model.editingEntryID == entry.id ? Color.orange : Color.accentColor)
+                    Image(
+                        systemName: model.editingEntryID == entry.id
+                            ? "keyboard.badge.ellipsis" : "square.and.pencil"
+                    )
+                    .foregroundStyle(model.editingEntryID == entry.id ? Color.orange : Color.accentColor)
                 }
                 .buttonStyle(.plain)
                 .help(localization.text("shortcuts.edit.help"))

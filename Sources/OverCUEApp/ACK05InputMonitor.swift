@@ -98,11 +98,13 @@ final class ACK05InputMonitor {
             onDialTurned?(direction)
             return
         }
-        guard let keys = decoder.pressedKeys(
-            reportID: reportID,
-            bytes: bytes,
-            previousKeys: previousKeys
-        ) else {
+        guard
+            let keys = decoder.pressedKeys(
+                reportID: reportID,
+                bytes: bytes,
+                previousKeys: previousKeys
+            )
+        else {
             return
         }
         previousKeys = keys

@@ -118,7 +118,8 @@ private final class HIDProbe {
     }
 
     func run() throws -> Never {
-        let openOptions = options.seizeDevice
+        let openOptions =
+            options.seizeDevice
             ? IOOptionBits(kIOHIDOptionsTypeSeizeDevice)
             : IOOptionBits(kIOHIDOptionsTypeNone)
         let result = IOHIDManagerOpen(manager, openOptions)

@@ -40,11 +40,13 @@ public struct OverCUEGroupMapping: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        waveformPosition = try container.decodeIfPresent(WaveformPosition.self, forKey: .waveformPosition)
+        waveformPosition = try container.decodeIfPresent(
+            WaveformPosition.self, forKey: .waveformPosition)
         keyMap = try container.decodeIfPresent([String: String].self, forKey: .keyMap) ?? [:]
         chordMap = try container.decodeIfPresent([String: String].self, forKey: .chordMap) ?? [:]
         dialMap = try container.decodeIfPresent([String: String].self, forKey: .dialMap) ?? [:]
-        dialChordMap = try container.decodeIfPresent([String: String].self, forKey: .dialChordMap) ?? [:]
+        dialChordMap =
+            try container.decodeIfPresent([String: String].self, forKey: .dialChordMap) ?? [:]
         rekordboxMode = try container.decodeIfPresent(RekordboxMappingMode.self, forKey: .rekordboxMode)
     }
 }
@@ -71,7 +73,7 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
                 dialMap: dialMap,
                 dialChordMap: dialChordMap,
                 rekordboxMode: rekordboxMode
-            ),
+            )
         ]
     }
 
@@ -159,7 +161,8 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        waveformPosition = try container.decodeIfPresent(WaveformPosition.self, forKey: .waveformPosition)
+        waveformPosition = try container.decodeIfPresent(
+            WaveformPosition.self, forKey: .waveformPosition)
         if let groups = try container.decodeIfPresent(
             [String: OverCUEGroupMapping].self,
             forKey: .groupMappings
@@ -171,7 +174,7 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
                     keyMap: try container.decodeIfPresent([String: String].self, forKey: .keyMap) ?? [:],
                     chordMap: try container.decodeIfPresent([String: String].self, forKey: .chordMap) ?? [:],
                     dialMap: try container.decodeIfPresent([String: String].self, forKey: .dialMap) ?? [:]
-                ),
+                )
             ]
         }
     }
@@ -183,10 +186,12 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
     }
 
     public static let defaultValue: OverCUEProfile = {
-        guard let url = Bundle.module.url(
-            forResource: "DefaultKeyMapping",
-            withExtension: "json"
-        ) else {
+        guard
+            let url = Bundle.module.url(
+                forResource: "DefaultKeyMapping",
+                withExtension: "json"
+            )
+        else {
             fatalError("DefaultKeyMapping.json is missing from OverCUECore resources.")
         }
         do {

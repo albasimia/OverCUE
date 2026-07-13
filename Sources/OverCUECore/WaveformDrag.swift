@@ -33,7 +33,7 @@ public struct WaveformDragProfile: Equatable, Sendable {
 
     public func dragMagnitude(intervalMilliseconds: Double?) -> Double {
         guard maximumPixelsPerDetent > pixelsPerDetent,
-              let intervalMilliseconds
+            let intervalMilliseconds
         else {
             return pixelsPerDetent
         }

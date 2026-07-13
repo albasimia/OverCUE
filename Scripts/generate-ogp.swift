@@ -86,28 +86,36 @@ private func drawRoundedImage(_ image: NSImage, in rect: NSRect, radius: CGFloat
 }
 
 private func generate(_ variant: OGPVariant, icon: NSImage) throws {
-    guard let screenshot = NSImage(
-        contentsOf: imageDirectory.appendingPathComponent(variant.screenshotName)
-    ) else {
-        throw NSError(domain: "OverCUEOGP", code: 1, userInfo: [
-            NSLocalizedDescriptionKey: "Missing screenshot: \(variant.screenshotName)",
-        ])
+    guard
+        let screenshot = NSImage(
+            contentsOf: imageDirectory.appendingPathComponent(variant.screenshotName)
+        )
+    else {
+        throw NSError(
+            domain: "OverCUEOGP", code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Missing screenshot: \(variant.screenshotName)"
+            ])
     }
-    guard let bitmap = NSBitmapImageRep(
-        bitmapDataPlanes: nil,
-        pixelsWide: Int(canvasSize.width),
-        pixelsHigh: Int(canvasSize.height),
-        bitsPerSample: 8,
-        samplesPerPixel: 4,
-        hasAlpha: true,
-        isPlanar: false,
-        colorSpaceName: .deviceRGB,
-        bytesPerRow: 0,
-        bitsPerPixel: 0
-    ), let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
-        throw NSError(domain: "OverCUEOGP", code: 2, userInfo: [
-            NSLocalizedDescriptionKey: "Could not create bitmap context.",
-        ])
+    guard
+        let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(canvasSize.width),
+            pixelsHigh: Int(canvasSize.height),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ), let context = NSGraphicsContext(bitmapImageRep: bitmap)
+    else {
+        throw NSError(
+            domain: "OverCUEOGP", code: 2,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Could not create bitmap context."
+            ])
     }
 
     let previousContext = NSGraphicsContext.current
@@ -136,7 +144,9 @@ private func generate(_ variant: OGPVariant, icon: NSImage) throws {
     )
 
     NSColor(calibratedRed: 0.18, green: 0.5, blue: 1, alpha: 1).setFill()
-    NSBezierPath(roundedRect: topRect(x: 70, y: 174, width: 84, height: 7), xRadius: 3.5, yRadius: 3.5).fill()
+    NSBezierPath(
+        roundedRect: topRect(x: 70, y: 174, width: 84, height: 7), xRadius: 3.5, yRadius: 3.5
+    ).fill()
 
     drawText(
         variant.headline,
@@ -190,11 +200,11 @@ private func generate(_ variant: OGPVariant, icon: NSImage) throws {
     if let pixels = bitmap.bitmapData {
         let levels = 48
         let maximumLevel = levels - 1
-        for y in 0 ..< bitmap.pixelsHigh {
+        for y in 0..<bitmap.pixelsHigh {
             let row = pixels.advanced(by: y * bitmap.bytesPerRow)
-            for x in 0 ..< bitmap.pixelsWide {
+            for x in 0..<bitmap.pixelsWide {
                 let pixel = row.advanced(by: x * bitmap.samplesPerPixel)
-                for channel in 0 ..< 3 {
+                for channel in 0..<3 {
                     let value = Int(pixel[channel])
                     let level = (value * maximumLevel + 127) / 255
                     pixel[channel] = UInt8((level * 255 + maximumLevel / 2) / maximumLevel)
@@ -204,15 +214,18 @@ private func generate(_ variant: OGPVariant, icon: NSImage) throws {
     }
 
     guard let data = bitmap.representation(using: .png, properties: [:]) else {
-        throw NSError(domain: "OverCUEOGP", code: 3, userInfo: [
-            NSLocalizedDescriptionKey: "Could not encode \(variant.outputName).",
-        ])
+        throw NSError(
+            domain: "OverCUEOGP", code: 3,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Could not encode \(variant.outputName)."
+            ])
     }
     try data.write(to: outputDirectory.appendingPathComponent(variant.outputName), options: .atomic)
 }
 
 try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-guard let icon = NSImage(contentsOf: imageDirectory.appendingPathComponent("overcue-icon.png")) else {
+guard let icon = NSImage(contentsOf: imageDirectory.appendingPathComponent("overcue-icon.png"))
+else {
     fatalError("Missing OverCUE icon.")
 }
 

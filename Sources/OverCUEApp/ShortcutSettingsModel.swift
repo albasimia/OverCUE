@@ -144,7 +144,8 @@ final class ShortcutSettingsModel: ObservableObject {
             isBridgeEnabled = defaults.bool(forKey: "ack05BridgeEnabled")
         }
         if let savedMode = defaults.string(forKey: "rekordboxMappingMode"),
-           let restoredMode = RekordboxMappingMode(rawValue: savedMode) {
+            let restoredMode = RekordboxMappingMode(rawValue: savedMode)
+        {
             mode = restoredMode
         }
         runtimeMode = mode
@@ -154,9 +155,11 @@ final class ShortcutSettingsModel: ObservableObject {
                 object: nil,
                 queue: .main
             ) { [weak self] notification in
-                guard let modeValue = notification.userInfo?[OverCUERuntimeStatusNotification.modeKey] as? String,
-                      let mode = RekordboxMappingMode(rawValue: modeValue),
-                      let group = notification.userInfo?[OverCUERuntimeStatusNotification.groupKey] as? Int
+                guard
+                    let modeValue = notification.userInfo?[OverCUERuntimeStatusNotification.modeKey]
+                        as? String,
+                    let mode = RekordboxMappingMode(rawValue: modeValue),
+                    let group = notification.userInfo?[OverCUERuntimeStatusNotification.groupKey] as? Int
                 else { return }
                 Task { @MainActor in
                     self?.applyRuntimeStatus(mode: mode, group: group)
@@ -169,11 +172,13 @@ final class ShortcutSettingsModel: ObservableObject {
                 object: nil,
                 queue: .main
             ) { [weak self] notification in
-                let rawKeys = notification.userInfo?[OverCUEInputStatusNotification.keysKey]
+                let rawKeys =
+                    notification.userInfo?[OverCUEInputStatusNotification.keysKey]
                     as? [String] ?? []
                 let includesKeyState = notification.userInfo?[OverCUEInputStatusNotification.keysKey] != nil
                 let keys = Set(rawKeys.compactMap { ACK05Key(rawValue: $0.lowercased()) })
-                let direction = (notification.userInfo?[OverCUEInputStatusNotification.dialDirectionKey]
+                let direction =
+                    (notification.userInfo?[OverCUEInputStatusNotification.dialDirectionKey]
                     as? String).flatMap(DialDirection.init(rawValue:))
                 Task { @MainActor in
                     guard let self else { return }
@@ -242,12 +247,17 @@ final class ShortcutSettingsModel: ObservableObject {
 
     var sections: [ShortcutSection] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let filtered = query.isEmpty ? entries : entries.filter { entry in
-            entry.description.localizedCaseInsensitiveContains(query)
-                || entry.shortcut.localizedCaseInsensitiveContains(query)
-                || entry.commandID.localizedCaseInsensitiveContains(query)
-                || bindingLabels(for: entry).contains(where: { $0.localizedCaseInsensitiveContains(query) })
-        }
+        let filtered =
+            query.isEmpty
+            ? entries
+            : entries.filter { entry in
+                entry.description.localizedCaseInsensitiveContains(query)
+                    || entry.shortcut.localizedCaseInsensitiveContains(query)
+                    || entry.commandID.localizedCaseInsensitiveContains(query)
+                    || bindingLabels(for: entry).contains(where: {
+                        $0.localizedCaseInsensitiveContains(query)
+                    })
+            }
         let grouped = Dictionary(grouping: filtered) {
             RekordboxShortcutCategory.category(for: $0.commandID)
         }
@@ -280,13 +290,14 @@ final class ShortcutSettingsModel: ObservableObject {
 
     var highlightedDialDirections: Set<DialDirection> {
         guard let entry = selectedEntry else { return [] }
-        return Set(bindingsByTarget[bindingKey(for: entry), default: []].compactMap { binding in
-            switch binding {
-            case let .dial(direction): direction
-            case let .dialChord(chord): chord.direction
-            case .key, .chord: nil
-            }
-        })
+        return Set(
+            bindingsByTarget[bindingKey(for: entry), default: []].compactMap { binding in
+                switch binding {
+                case let .dial(direction): direction
+                case let .dialChord(chord): chord.direction
+                case .key, .chord: nil
+                }
+            })
     }
 
     var isCapturing: Bool { editingEntryID != nil }
@@ -376,7 +387,7 @@ final class ShortcutSettingsModel: ObservableObject {
         selectedDialDirection = nil
         let targetKey = assignedTargetKey(to: key)
         guard let targetKey,
-              let entry = allEntries.first(where: { bindingKey(for: $0) == targetKey })
+            let entry = allEntries.first(where: { bindingKey(for: $0) == targetKey })
         else {
             selectedEntryID = nil
             return
@@ -388,7 +399,7 @@ final class ShortcutSettingsModel: ObservableObject {
         selectedDeviceKey = nil
         selectedDialDirection = direction
         guard let targetKey = assignedTargetKey(to: direction),
-              let entry = allEntries.first(where: { bindingKey(for: $0) == targetKey })
+            let entry = allEntries.first(where: { bindingKey(for: $0) == targetKey })
         else {
             selectedEntryID = nil
             return
@@ -422,7 +433,7 @@ final class ShortcutSettingsModel: ObservableObject {
 
     func deviceAssignment(to key: ACK05Key) -> ACK05DeviceAssignment? {
         guard let targetKey = assignedTargetKey(to: key),
-              let target = ActionTarget(configurationValue: targetKey)
+            let target = ActionTarget(configurationValue: targetKey)
         else { return nil }
         let entry = allEntries.first { bindingKey(for: $0) == targetKey }
         return ACK05DeviceAssignment(
@@ -434,7 +445,7 @@ final class ShortcutSettingsModel: ObservableObject {
 
     func dialAssignment(_ direction: DialDirection) -> ACK05DeviceAssignment? {
         guard let targetKey = assignedTargetKey(to: direction),
-              let target = ActionTarget(configurationValue: targetKey)
+            let target = ActionTarget(configurationValue: targetKey)
         else { return nil }
         let entry = allEntries.first { bindingKey(for: $0) == targetKey }
         return ACK05DeviceAssignment(
@@ -445,7 +456,8 @@ final class ShortcutSettingsModel: ObservableObject {
     }
 
     private func assignedTargetKey(to direction: DialDirection) -> String? {
-        let directTarget = bindingsByTarget
+        let directTarget =
+            bindingsByTarget
             .sorted(by: { $0.key < $1.key })
             .first(where: { $0.value.contains(.dial(direction)) })?.key
         if let directTarget { return directTarget }
@@ -471,7 +483,8 @@ final class ShortcutSettingsModel: ObservableObject {
     }
 
     private func assignedTargetKey(to key: ACK05Key) -> String? {
-        let singleKeyTarget = bindingsByTarget
+        let singleKeyTarget =
+            bindingsByTarget
             .sorted(by: { $0.key < $1.key })
             .first(where: { $0.value.contains(.key(key)) })?.key
         if let singleKeyTarget {
@@ -484,7 +497,8 @@ final class ShortcutSettingsModel: ObservableObject {
                 ? targetKey
                 : nil
         }
-        return preferredCommandID ?? bindingsByTarget
+        return preferredCommandID
+            ?? bindingsByTarget
             .sorted(by: { $0.key < $1.key })
             .first(where: { $0.value.contains(where: { $0.keys.contains(key) }) })?.key
     }
@@ -519,7 +533,8 @@ final class ShortcutSettingsModel: ObservableObject {
         monitor.onConnectionChanged = { [weak self] connected in
             guard let self else { return }
             Task { @MainActor in
-                self.captureMessage = connected
+                self.captureMessage =
+                    connected
                     ? L10n.text("message.capturePrompt")
                     : L10n.text("message.waitingDevice")
             }
@@ -617,8 +632,8 @@ final class ShortcutSettingsModel: ObservableObject {
 
     private func commitCapture(allowOverwrite: Bool = false) {
         guard let editingEntryID,
-              let entry = allEntries.first(where: { $0.id == editingEntryID }),
-              var profile = configuration.profiles[configuration.defaultProfile]
+            let entry = allEntries.first(where: { $0.id == editingEntryID }),
+            var profile = configuration.profiles[configuration.defaultProfile]
         else {
             captureError = L10n.text("message.profileMissing")
             cancelCaptureKeepingError()
@@ -703,8 +718,8 @@ final class ShortcutSettingsModel: ObservableObject {
         allowOverwrite: Bool = false
     ) {
         guard let editingEntryID,
-              let entry = allEntries.first(where: { $0.id == editingEntryID }),
-              var profile = configuration.profiles[configuration.defaultProfile]
+            let entry = allEntries.first(where: { $0.id == editingEntryID }),
+            var profile = configuration.profiles[configuration.defaultProfile]
         else { return }
 
         let target = target(for: entry)
@@ -775,7 +790,8 @@ final class ShortcutSettingsModel: ObservableObject {
         profile: OverCUEProfile
     ) -> ActionMappingConflict? {
         guard !keys.isEmpty else { return nil }
-        let input: ACK05PhysicalInput = keys.count == 1
+        let input: ACK05PhysicalInput =
+            keys.count == 1
             ? .key(keys[0])
             : .chord(KeyChord(keys: keys)!)
         return ActionMappingConflictDetector.conflict(
@@ -792,7 +808,8 @@ final class ShortcutSettingsModel: ObservableObject {
         target: ActionTarget,
         profile: OverCUEProfile
     ) -> ActionMappingConflict? {
-        let input: ACK05PhysicalInput = heldKeys.isEmpty
+        let input: ACK05PhysicalInput =
+            heldKeys.isEmpty
             ? .dial(direction)
             : .dialChord(DialChord(keys: heldKeys, direction: direction)!)
         return ActionMappingConflictDetector.conflict(
@@ -856,7 +873,8 @@ final class ShortcutSettingsModel: ObservableObject {
     }
 
     private func conflictMessage(_ conflict: ActionMappingConflict, target: ActionTarget) -> String {
-        let groupSuffix = isGroupCycle(target)
+        let groupSuffix =
+            isGroupCycle(target)
             ? L10n.text("conflict.groupSuffix", conflict.group)
             : ""
         switch conflict.kind {
@@ -959,7 +977,8 @@ final class ShortcutSettingsModel: ObservableObject {
 
     private func loadConfiguration() {
         if let data = try? Data(contentsOf: configurationURL),
-           let decoded = try? JSONDecoder().decode(OverCUEConfiguration.self, from: data) {
+            let decoded = try? JSONDecoder().decode(OverCUEConfiguration.self, from: data)
+        {
             if decoded.version < OverCUEConfiguration.currentVersion {
                 let backupURL = configurationURL.deletingLastPathComponent()
                     .appendingPathComponent("config.v\(decoded.version).backup.json")
@@ -1054,35 +1073,37 @@ final class ShortcutSettingsModel: ObservableObject {
             return
         }
         let mapping = profile.mapping(for: selectedGroup)
-        let keysByName = Dictionary(uniqueKeysWithValues: ACK05Key.allCases.map {
-            ($0.rawValue.uppercased(), $0)
-        })
+        let keysByName = Dictionary(
+            uniqueKeysWithValues: ACK05Key.allCases.map {
+                ($0.rawValue.uppercased(), $0)
+            })
         var result: [String: [ACK05Binding]] = [:]
 
         for (rawKey, value) in mapping.keyMap {
             guard value != "unassigned",
-                  let key = keysByName[rawKey.uppercased()],
-                  ActionTarget(configurationValue: value) != nil
+                let key = keysByName[rawKey.uppercased()],
+                ActionTarget(configurationValue: value) != nil
             else { continue }
             result[value, default: []].append(.key(key))
         }
         for (rawChord, value) in mapping.chordMap {
-            let names = rawChord.uppercased().replacingOccurrences(of: " ", with: "").split(separator: "+")
+            let names = rawChord.uppercased().replacingOccurrences(of: " ", with: "").split(
+                separator: "+")
             let chordKeys = names.compactMap { keysByName[String($0)] }
             guard let chord = KeyChord(keys: chordKeys),
-                  ActionTarget(configurationValue: value) != nil
+                ActionTarget(configurationValue: value) != nil
             else { continue }
             result[value, default: []].append(.chord(chord))
         }
         for (rawDirection, value) in mapping.dialMap {
             guard let direction = DialDirection(rawValue: rawDirection),
-                  ActionTarget(configurationValue: value) != nil
+                ActionTarget(configurationValue: value) != nil
             else { continue }
             result[value, default: []].append(.dial(direction))
         }
         for (rawChord, value) in mapping.dialChordMap {
             guard let chord = parsedDialChord(rawChord),
-                  ActionTarget(configurationValue: value) != nil
+                ActionTarget(configurationValue: value) != nil
             else { continue }
             result[value, default: []].append(.dialChord(chord))
         }
@@ -1101,9 +1122,10 @@ final class ShortcutSettingsModel: ObservableObject {
         case "DIAL_LEFT", "LEFT", "COUNTERCLOCKWISE": direction = .counterclockwise
         default: return nil
         }
-        let keysByName = Dictionary(uniqueKeysWithValues: ACK05Key.allCases.map {
-            ($0.rawValue.uppercased(), $0)
-        })
+        let keysByName = Dictionary(
+            uniqueKeysWithValues: ACK05Key.allCases.map {
+                ($0.rawValue.uppercased(), $0)
+            })
         let keys = components.dropLast().compactMap { keysByName[$0] }
         guard keys.count == components.count - 1 else { return nil }
         return DialChord(keys: keys, direction: direction)
@@ -1111,7 +1133,8 @@ final class ShortcutSettingsModel: ObservableObject {
 
     private func target(for entry: RekordboxShortcutEntry) -> ActionTarget {
         if entry.commandID.hasPrefix("overcue:"),
-           let action = ActionID(rawValue: String(entry.commandID.dropFirst("overcue:".count))) {
+            let action = ActionID(rawValue: String(entry.commandID.dropFirst("overcue:".count)))
+        {
             return .action(action)
         }
         return RekordboxActionAdapter.target(for: entry.commandID)
@@ -1123,10 +1146,12 @@ final class ShortcutSettingsModel: ObservableObject {
 
     private func initialSelection(in entries: [RekordboxShortcutEntry]) -> RekordboxShortcutEntry? {
         for key in ACK05Key.allCases {
-            let targetKey = bindingsByTarget
+            let targetKey =
+                bindingsByTarget
                 .first(where: { $0.value.contains(.key(key)) })?.key
             if let targetKey,
-               let entry = allEntries.first(where: { bindingKey(for: $0) == targetKey }) {
+                let entry = allEntries.first(where: { bindingKey(for: $0) == targetKey })
+            {
                 return entry
             }
         }
@@ -1139,7 +1164,7 @@ final class ShortcutSettingsModel: ObservableObject {
 
     private func keyOrder(_ lhs: ACK05Key, _ rhs: ACK05Key) -> Bool {
         guard let left = ACK05Key.allCases.firstIndex(of: lhs),
-              let right = ACK05Key.allCases.firstIndex(of: rhs)
+            let right = ACK05Key.allCases.firstIndex(of: rhs)
         else { return lhs.rawValue < rhs.rawValue }
         return left < right
     }

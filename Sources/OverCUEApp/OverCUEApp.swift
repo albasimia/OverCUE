@@ -1,5 +1,5 @@
-import ApplicationServices
 import AppKit
+import ApplicationServices
 import SwiftUI
 
 private final class OverCUEApplicationDelegate: NSObject, NSApplicationDelegate {
@@ -185,7 +185,8 @@ private struct ContentView: View {
         HStack(spacing: 12) {
             Group {
                 if let url = AppResources.bundle.url(forResource: "OverCUEIcon", withExtension: "png"),
-                   let image = NSImage(contentsOf: url) {
+                    let image = NSImage(contentsOf: url)
+                {
                     Image(nsImage: image)
                         .resizable()
                         .scaledToFit()
@@ -382,9 +383,10 @@ private enum MenuBarStatusIcon {
 enum AppResources {
     static let bundle: Bundle = {
         if let resourcesURL = Bundle.main.resourceURL,
-           let packagedBundle = Bundle(
-               url: resourcesURL.appendingPathComponent("OverCUE_OverCUEApp.bundle")
-           ) {
+            let packagedBundle = Bundle(
+                url: resourcesURL.appendingPathComponent("OverCUE_OverCUEApp.bundle")
+            )
+        {
             return packagedBundle
         }
         return .module

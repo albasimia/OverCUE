@@ -1,10 +1,11 @@
 import Darwin
+
 import Foundation
+
 import OverCUECore
 
 private var checkCount = 0
 private var failureCount = 0
-
 @MainActor
 private func check(_ condition: @autoclosure () -> Bool, _ label: String) {
     checkCount += 1
@@ -13,17 +14,19 @@ private func check(_ condition: @autoclosure () -> Bool, _ label: String) {
         fputs("FAIL: \(label)\n", stderr)
     }
 }
-
 let decoder = ACK05ReportDecoder()
-
-check(Set(ActionID.allCases.map(\.rawValue)).count == ActionID.allCases.count, "Action IDs are unique")
-check(ActionID.allCases.allSatisfy { !$0.displayName.isEmpty }, "every Action ID has a display name")
+check(
+    Set(ActionID.allCases.map(\.rawValue)).count == ActionID.allCases.count, "Action IDs are unique")
+check(
+    ActionID.allCases.allSatisfy { !$0.displayName.isEmpty }, "every Action ID has a display name")
 for action in ActionID.allCases {
     do {
         let encoded = try JSONEncoder().encode(action)
         let decoded = try JSONDecoder().decode(ActionID.self, from: encoded)
         check(decoded == action, "Action ID Codable round-trip \(action.rawValue)")
-        check(ActionID(legacyDisplayName: action.displayName) == action, "legacy display mapping \(action.rawValue)")
+        check(
+            ActionID(legacyDisplayName: action.displayName) == action,
+            "legacy display mapping \(action.rawValue)")
     } catch {
         failureCount += 1
         fputs("FAIL: Action ID Codable error for \(action.rawValue): \(error)\n", stderr)
@@ -31,35 +34,55 @@ for action in ActionID.allCases {
 }
 check(ActionID.cue.behavior == .hold, "Cue uses hold behavior")
 check(ActionID.jumpForward.behavior == .acceleratingRepeat, "Jump uses repeat behavior")
-check(ActionID.captureWaveformPosition.behavior == .internalCommand, "capture uses internal behavior")
+check(
+    ActionID.captureWaveformPosition.behavior == .internalCommand, "capture uses internal behavior")
 check(ActionID.jogSearchLeft.behavior == .internalCommand, "Jog Search Left uses internal behavior")
 check(ActionID.cycleGroup.behavior == .internalCommand, "group cycle uses internal behavior")
 check(
     ActionID.cycleGroupBackward.behavior == .internalCommand,
     "descending group cycle uses internal behavior"
 )
-check(ActionID.toggleRekordboxMode.behavior == .internalCommand, "mode toggle uses internal behavior")
+check(
+    ActionID.toggleRekordboxMode.behavior == .internalCommand, "mode toggle uses internal behavior")
 check(RekordboxActionAdapter.commandID(for: .hotCue1) == "301e", "rekordbox Hot Cue 1 command")
-check(RekordboxActionAdapter.commandID(for: .callNextMemoryCue) == "3039", "rekordbox next Memory Cue command")
-check(RekordboxActionAdapter.commandID(for: .callPreviousMemoryCue) == "303a", "rekordbox previous Memory Cue command")
-check(RekordboxActionAdapter.commandID(for: .captureWaveformPosition) == nil, "internal action has no rekordbox command")
-check(ActionTarget(configurationValue: "hot_cue_1") == .action(.hotCue1), "built-in Action target parses")
-check(ActionTarget(configurationValue: "rekordbox:42ff") == .rekordboxCommand("42ff"), "generic rekordbox target parses")
-check(ActionTarget(configurationValue: "rekordbox:") == nil, "empty generic rekordbox target is rejected")
-check(RekordboxActionAdapter.commandID(for: .rekordboxCommand("42ff")) == "42ff", "generic target keeps command ID")
-check(RekordboxActionAdapter.target(for: "301e") == .action(.hotCue1), "known command ID maps to built-in Action")
-check(RekordboxActionAdapter.target(for: "42ff") == .rekordboxCommand("42ff"), "unknown command ID maps to generic target")
-
+check(
+    RekordboxActionAdapter.commandID(for: .callNextMemoryCue) == "3039",
+    "rekordbox next Memory Cue command")
+check(
+    RekordboxActionAdapter.commandID(for: .callPreviousMemoryCue) == "303a",
+    "rekordbox previous Memory Cue command")
+check(
+    RekordboxActionAdapter.commandID(for: .captureWaveformPosition) == nil,
+    "internal action has no rekordbox command")
+check(
+    ActionTarget(configurationValue: "hot_cue_1") == .action(.hotCue1),
+    "built-in Action target parses")
+check(
+    ActionTarget(configurationValue: "rekordbox:42ff") == .rekordboxCommand("42ff"),
+    "generic rekordbox target parses")
+check(
+    ActionTarget(configurationValue: "rekordbox:") == nil,
+    "empty generic rekordbox target is rejected")
+check(
+    RekordboxActionAdapter.commandID(for: .rekordboxCommand("42ff")) == "42ff",
+    "generic target keeps command ID")
+check(
+    RekordboxActionAdapter.target(for: "301e") == .action(.hotCue1),
+    "known command ID maps to built-in Action")
+check(
+    RekordboxActionAdapter.target(for: "42ff") == .rekordboxCommand("42ff"),
+    "unknown command ID maps to generic target"
+)
 let genericMapping = ActionMapping(
     keys: [.k2: .rekordboxCommand("42ff")],
     chords: [:]
 )
 var genericResolver = InputActionResolver()
 check(
-    genericResolver.handle(pressedKeys: [.k2], mapping: genericMapping).first?.target == .rekordboxCommand("42ff"),
+    genericResolver.handle(pressedKeys: [.k2], mapping: genericMapping).first?.target
+        == .rekordboxCommand("42ff"),
     "generic rekordbox target resolves from a physical key"
 )
-
 let actionMapping = ActionMapping(
     keys: [
         .k1: .hotCue3,
@@ -74,35 +97,52 @@ let actionMapping = ActionMapping(
     ]
 )
 var triggerResolver = InputActionResolver()
-check(triggerResolver.handle(pressedKeys: [.k1], mapping: actionMapping) == [
-    ActionEvent(action: .hotCue3, phase: .triggered, sourceKey: .k1, sourceLabel: "K1")
-], "normal key resolves to Action")
-check(triggerResolver.handle(pressedKeys: [], mapping: actionMapping).isEmpty, "trigger key release emits nothing")
-
+check(
+    triggerResolver.handle(pressedKeys: [.k1], mapping: actionMapping) == [
+        ActionEvent(action: .hotCue3, phase: .triggered, sourceKey: .k1, sourceLabel: "K1")
+    ], "normal key resolves to Action")
+check(
+    triggerResolver.handle(pressedKeys: [], mapping: actionMapping).isEmpty,
+    "trigger key release emits nothing")
 var cueResolver = InputActionResolver()
-check(cueResolver.handle(pressedKeys: [.k9], mapping: actionMapping).first?.phase == .pressed, "Cue emits pressed")
-check(cueResolver.handle(pressedKeys: [], mapping: actionMapping).first?.phase == .released, "Cue emits released")
-
+check(
+    cueResolver.handle(pressedKeys: [.k9], mapping: actionMapping).first?.phase == .pressed,
+    "Cue emits pressed")
+check(
+    cueResolver.handle(pressedKeys: [], mapping: actionMapping).first?.phase == .released,
+    "Cue emits released")
 var repeatResolver = InputActionResolver()
-check(repeatResolver.handle(pressedKeys: [.k3], mapping: actionMapping).first?.action == .jumpForward, "Jump emits Action")
-check(repeatResolver.repeatedEvent(for: .k3, mapping: actionMapping)?.phase == .repeated, "Jump repeat reissues Action")
+check(
+    repeatResolver.handle(pressedKeys: [.k3], mapping: actionMapping).first?.action == .jumpForward,
+    "Jump emits Action"
+)
+check(
+    repeatResolver.repeatedEvent(for: .k3, mapping: actionMapping)?.phase == .repeated,
+    "Jump repeat reissues Action")
 _ = repeatResolver.handle(pressedKeys: [], mapping: actionMapping)
-check(repeatResolver.repeatedEvent(for: .k3, mapping: actionMapping) == nil, "Jump repeat stops on release")
-
+check(
+    repeatResolver.repeatedEvent(for: .k3, mapping: actionMapping) == nil,
+    "Jump repeat stops on release")
 var chordResolver = InputActionResolver()
-check(chordResolver.handle(pressedKeys: [.k7], mapping: actionMapping).isEmpty, "modifier press is deferred")
-check(chordResolver.handle(pressedKeys: [.k7, .k1], mapping: actionMapping) == [
-    ActionEvent(action: .deleteHotCue3, phase: .triggered, sourceKey: .k1, sourceLabel: "K7+K1")
-], "chord emits Action and suppresses trigger")
-check(chordResolver.handle(pressedKeys: [.k7], mapping: actionMapping).isEmpty, "chord trigger release emits nothing")
-check(chordResolver.handle(pressedKeys: [], mapping: actionMapping).isEmpty, "used modifier action is suppressed")
-
+check(
+    chordResolver.handle(pressedKeys: [.k7], mapping: actionMapping).isEmpty,
+    "modifier press is deferred")
+check(
+    chordResolver.handle(pressedKeys: [.k7, .k1], mapping: actionMapping) == [
+        ActionEvent(action: .deleteHotCue3, phase: .triggered, sourceKey: .k1, sourceLabel: "K7+K1")
+    ], "chord emits Action and suppresses trigger")
+check(
+    chordResolver.handle(pressedKeys: [.k7], mapping: actionMapping).isEmpty,
+    "chord trigger release emits nothing")
+check(
+    chordResolver.handle(pressedKeys: [], mapping: actionMapping).isEmpty,
+    "used modifier action is suppressed")
 var unusedModifierResolver = InputActionResolver()
 _ = unusedModifierResolver.handle(pressedKeys: [.k7], mapping: actionMapping)
-check(unusedModifierResolver.handle(pressedKeys: [], mapping: actionMapping) == [
-    ActionEvent(action: .quantize, phase: .triggered, sourceKey: .k7, sourceLabel: "K7")
-], "unused modifier emits standalone Action on release")
-
+check(
+    unusedModifierResolver.handle(pressedKeys: [], mapping: actionMapping) == [
+        ActionEvent(action: .quantize, phase: .triggered, sourceKey: .k7, sourceLabel: "K7")
+    ], "unused modifier emits standalone Action on release")
 let threeKeyChord = KeyChord(keys: [.k7, .k8, .k1])!
 let overlappingChordMapping = ActionMapping(
     keys: [:],
@@ -116,10 +156,10 @@ check(
     threeChordResolver.handle(pressedKeys: [.k7, .k8], mapping: overlappingChordMapping).isEmpty,
     "three-key chord modifiers are deferred"
 )
-check(threeChordResolver.handle(pressedKeys: [.k7, .k8, .k1], mapping: overlappingChordMapping) == [
-    ActionEvent(action: .cycleGroup, phase: .triggered, sourceKey: .k1, sourceLabel: "K7+K8+K1")
-], "three-key chord wins over overlapping two-key chord")
-
+check(
+    threeChordResolver.handle(pressedKeys: [.k7, .k8, .k1], mapping: overlappingChordMapping) == [
+        ActionEvent(action: .cycleGroup, phase: .triggered, sourceKey: .k1, sourceLabel: "K7+K8+K1")
+    ], "three-key chord wins over overlapping two-key chord")
 let fiveKeyChord = KeyChord(keys: [.k7, .k8, .k5, .k4, .k1])!
 let fiveKeyMapping = ActionMapping(keys: [:], chords: [fiveKeyChord: .toggleRekordboxMode])
 var fiveKeyResolver = InputActionResolver()
@@ -136,7 +176,6 @@ check(
 )
 check(KeyChord(keys: ACK05Key.allCases) != nil, "all ACK05 buttons can form one chord")
 check(KeyChord(keys: [.k1]) == nil, "single key is not represented as a chord")
-
 let occupiedConflict = ActionMappingConflictDetector.conflict(
     for: .key(.k1),
     target: .action(.hotCue2),
@@ -167,10 +206,11 @@ let longTargetConflict = ActionMappingConflictDetector.conflict(
     selectedGroup: 1
 )
 check(
-    longTargetConflict?.kind == .longPressTargetUsesChord(
-        chord: KeyChord(modifier: .k7, trigger: .k1),
-        chordTarget: .action(.deleteHotCue3)
-    ),
+    longTargetConflict?.kind
+        == .longPressTargetUsesChord(
+            chord: KeyChord(modifier: .k7, trigger: .k1),
+            chordTarget: .action(.deleteHotCue3)
+        ),
     "detect a hold Action assigned to an existing chord modifier"
 )
 var dialChordConflictProfile = OverCUEProfile.defaultValue
@@ -195,7 +235,6 @@ check(
     )?.kind == .dialChordUsesLongPressModifier(key: .k9, existing: .action(.cue)),
     "detect a held dial modifier assigned to a hold Action"
 )
-
 let legacyConfiguration = OverCUEConfiguration(
     version: 2,
     defaultProfile: "legacy",
@@ -219,22 +258,32 @@ let legacyConfiguration = OverCUEConfiguration(
 )
 let migration = ActionConfigurationMigrator.migrateToVersion3(legacyConfiguration)
 check(migration.configuration.version == 3, "migration updates configuration version")
-check(migration.configuration.profiles["legacy"]?.keyMap["K1"] == "hot_cue_3", "migration converts known key Action")
-check(migration.configuration.profiles["legacy"]?.keyMap["K9"] == "cue", "migration converts Cue Action")
-check(migration.configuration.profiles["legacy"]?.keyMap["K2"] == nil, "migration disables unknown Action")
-check(migration.warnings == [
-    ActionMigrationWarning(
-        profileName: "legacy",
-        section: "keyMap",
-        input: "K2",
-        rawAction: "Unknown Legacy Action"
-    )
-], "migration reports unknown Action")
 check(
-    migration.configuration.profiles["legacy"]?.waveformPosition == WaveformPosition(x: 12.5, y: 34.5),
+    migration.configuration.profiles["legacy"]?.keyMap["K1"] == "hot_cue_3",
+    "migration converts known key Action")
+check(
+    migration.configuration.profiles["legacy"]?.keyMap["K9"] == "cue", "migration converts Cue Action"
+)
+check(
+    migration.configuration.profiles["legacy"]?.keyMap["K2"] == nil,
+    "migration disables unknown Action")
+check(
+    migration.warnings == [
+        ActionMigrationWarning(
+            profileName: "legacy",
+            section: "keyMap",
+            input: "K2",
+            rawAction: "Unknown Legacy Action"
+        )
+    ], "migration reports unknown Action")
+check(
+    migration.configuration.profiles["legacy"]?.waveformPosition
+        == WaveformPosition(x: 12.5, y: 34.5),
     "migration preserves waveform position"
 )
-check(migration.configuration.deviceProfiles["device-1"] == "legacy", "migration preserves device profile")
+check(
+    migration.configuration.deviceProfiles["device-1"] == "legacy",
+    "migration preserves device profile")
 check(
     migration.configuration.profiles["legacy"]?.chordMap["K7+K3"] == "call_next_memory_cue",
     "migration upgrades prior default chords"
@@ -281,7 +330,6 @@ check(
         == ActionID.cycleGroupBackward.rawValue,
     "default mapping cycles groups in descending order with K7+K5"
 )
-
 var previousDefaultProfile = OverCUEProfile.defaultValue
 var previousGroup1 = previousDefaultProfile.storedMapping(for: 1)
 previousGroup1.dialChordMap = [:]
@@ -368,7 +416,7 @@ check(
 let stableVersion3 = OverCUEConfiguration(
     version: 3,
     profiles: [
-        "default": OverCUEProfile(keyMap: ["K1": "rekordbox:42ff"], chordMap: [:]),
+        "default": OverCUEProfile(keyMap: ["K1": "rekordbox:42ff"], chordMap: [:])
     ]
 )
 check(
@@ -376,7 +424,6 @@ check(
         .configuration.profiles["default"]?.keyMap["K1"] == "rekordbox:42ff",
     "version 4 migration preserves generic rekordbox targets"
 )
-
 let heldDialChord = DialChord(keys: [.k7], direction: .clockwise)!
 let heldDialMapping = ActionMapping(
     keys: [.k7: .quantize],
@@ -397,11 +444,11 @@ check(
     heldDialResolver.handle(pressedKeys: [], mapping: heldDialMapping).isEmpty,
     "dial chord suppresses the held key standalone Action"
 )
-
 do {
-    let legacyGroupJSON = Data("""
-    {"keyMap":{"K1":"hot_cue_1"},"chordMap":{},"dialMap":{}}
-    """.utf8)
+    let legacyGroupJSON = Data(
+        """
+        {"keyMap":{"K1":"hot_cue_1"},"chordMap":{},"dialMap":{}}
+        """.utf8)
     let group = try JSONDecoder().decode(OverCUEGroupMapping.self, from: legacyGroupJSON)
     check(group.dialChordMap.isEmpty, "decode group mapping without dialChordMap")
     check(group.rekordboxMode == nil, "decode group mapping without rekordboxMode")
@@ -409,7 +456,6 @@ do {
     failureCount += 1
     fputs("FAIL: unexpected legacy group mapping error: \(error)\n", stderr)
 }
-
 check(
     decoder.decode(reportID: 6, bytes: [6, 1, 0x57, 0, 0, 0, 0, 0]) == .dial(.clockwise),
     "decode clockwise dial"
@@ -418,7 +464,6 @@ check(
     decoder.decode(reportID: 6, bytes: [6, 1, 0x56, 0, 0, 0, 0, 0]) == .dial(.counterclockwise),
     "decode counterclockwise dial"
 )
-
 let keyReports: [(ACK05Key, [UInt8])] = [
     (.k1, [6, 1, 0x12, 0, 0, 0, 0, 0]),
     (.k2, [6, 1, 0x11, 0, 0, 0, 0, 0]),
@@ -434,7 +479,6 @@ let keyReports: [(ACK05Key, [UInt8])] = [
 for (key, report) in keyReports {
     check(decoder.decode(reportID: 6, bytes: report) == .keyDown(key), "decode \(key.rawValue)")
 }
-
 check(
     decoder.decode(reportID: 6, bytes: [6, 0, 0, 0, 0, 0, 0, 0]) == .allReleased,
     "decode release"
@@ -514,16 +558,19 @@ check(
     decoder.decode(reportID: 6, bytes: [6, 1, 0x57, 1, 0, 0, 0, 0]) == nil,
     "reject unexpected trailing data"
 )
-
 var state = JogStateMachine()
-check(state.rotate(.clockwise) == [.touchOn, .scratch(.clockwise)], "touch on before first rotation")
-check(state.rotate(.counterclockwise) == [.scratch(.counterclockwise)], "keep touch during rotation")
+check(
+    state.rotate(.clockwise) == [.touchOn, .scratch(.clockwise)], "touch on before first rotation")
+check(
+    state.rotate(.counterclockwise) == [.scratch(.counterclockwise)], "keep touch during rotation")
 check(state.touchDidTimeout() == [.touchOff], "touch off on timeout")
 check(state.touchDidTimeout() == [], "do not duplicate touch off")
-
 let normalDrag = WaveformDragProfile(pixelsPerDetent: 1, maximumPixelsPerDetent: 20)
-check(normalDrag.horizontalDelta(for: .clockwise) == -1, "first clockwise detent uses fine movement")
-check(normalDrag.horizontalDelta(for: .counterclockwise) == 1, "first counterclockwise detent uses fine movement")
+check(
+    normalDrag.horizontalDelta(for: .clockwise) == -1, "first clockwise detent uses fine movement")
+check(
+    normalDrag.horizontalDelta(for: .counterclockwise) == 1,
+    "first counterclockwise detent uses fine movement")
 check(
     normalDrag.horizontalDelta(for: .clockwise, intervalMilliseconds: 250) == -1,
     "slow rotation stays fine"
@@ -553,15 +600,16 @@ let secondSmoothedInterval = normalDrag.smoothedInterval(
     previousMilliseconds: firstSmoothedInterval,
     currentMilliseconds: 50
 )
-check(secondSmoothedInterval > 113 && secondSmoothedInterval < 114, "speed ramps over multiple detents")
-
+check(
+    secondSmoothedInterval > 113 && secondSmoothedInterval < 114, "speed ramps over multiple detents")
 let keyRepeat = AcceleratingKeyRepeatProfile()
-check(keyRepeat.repeatInterval(heldMilliseconds: 0) == 180, "key repeat stays slow before initial delay")
+check(
+    keyRepeat.repeatInterval(heldMilliseconds: 0) == 180, "key repeat stays slow before initial delay"
+)
 check(keyRepeat.repeatInterval(heldMilliseconds: 400) == 180, "key repeat starts at slow interval")
 check(keyRepeat.repeatInterval(heldMilliseconds: 1_400) == 107.5, "key repeat accelerates smoothly")
 check(keyRepeat.repeatInterval(heldMilliseconds: 2_400) == 35, "key repeat reaches fast interval")
 check(keyRepeat.repeatInterval(heldMilliseconds: 4_000) == 35, "key repeat clamps at fast interval")
-
 let invertedDrag = WaveformDragProfile(
     pixelsPerDetent: 0.5,
     maximumPixelsPerDetent: 0.5,
@@ -569,8 +617,8 @@ let invertedDrag = WaveformDragProfile(
 )
 check(invertedDrag.horizontalDelta(for: .clockwise) == 0.5, "invert clockwise drag")
 check(invertedDrag.horizontalDelta(for: .counterclockwise) == -0.5, "invert counterclockwise drag")
-
 do {
+    // swift-format-ignore
     let mappingXML = """
     <?xml version="1.0" encoding="UTF-8"?>
     <PROPERTIES>
@@ -613,6 +661,7 @@ do {
         "categorize Sampler shortcut"
     )
 
+    // swift-format-ignore
     let settingsXML = """
     <?xml version="1.0" encoding="UTF-8"?>
     <PROPERTIES>
@@ -622,7 +671,8 @@ do {
     """
     let settings = try RekordboxSettings.parse(data: Data(settingsXML.utf8))
     check(settings.performanceKeyMappingID == "1234567890123", "parse selected Performance mapping")
-    check(settings.exportKeyMappingID == "9876543210123", "parse selected Export mapping when available")
+    check(
+        settings.exportKeyMappingID == "9876543210123", "parse selected Export mapping when available")
 
     let functionShortcut = try RekordboxKeyboardShortcut(rawValue: "command+F10")
     check(functionShortcut.keyCode == 109, "parse F10 key code without spacing around separators")
@@ -634,20 +684,22 @@ do {
     failureCount += 1
     fputs("FAIL: unexpected rekordbox XML parsing error: \(error)\n", stderr)
 }
-
 do {
     let temporaryHome = FileManager.default.temporaryDirectory
         .appendingPathComponent("overcue-loader-\(UUID().uuidString)")
-    let baseURL = temporaryHome
+    let baseURL =
+        temporaryHome
         .appendingPathComponent("Library/Application Support/Pioneer/rekordbox7")
     let mappingsURL = baseURL.appendingPathComponent("KeyMappings")
     try FileManager.default.createDirectory(at: mappingsURL, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: temporaryHome) }
 
+    // swift-format-ignore
     let settingsXML = """
     <?xml version="1.0" encoding="UTF-8"?>
     <PROPERTIES><VALUE name="performaceKeyMapping" val="1234567890123"/></PROPERTIES>
     """
+    // swift-format-ignore
     let mappingXML = """
     <?xml version="1.0" encoding="UTF-8"?>
     <PROPERTIES>
@@ -657,6 +709,7 @@ do {
       </VALUE>
     </PROPERTIES>
     """
+    // swift-format-ignore
     let exportMappingXML = """
     <?xml version="1.0" encoding="UTF-8"?>
     <PROPERTIES>
@@ -678,7 +731,9 @@ do {
     )
 
     let loader = RekordboxKeyMappingLoader(homeDirectory: temporaryHome)
-    check(loader.baseURL.lastPathComponent == "rekordbox7", "discover versioned rekordbox settings directory")
+    check(
+        loader.baseURL.lastPathComponent == "rekordbox7",
+        "discover versioned rekordbox settings directory")
     let performance = try loader.load(mode: .performance)
     check(performance.mappingID == "1234567890123", "load selected Performance mapping ID")
     check(performance.mapping.name == "Loader Test", "load selected Performance mapping XML")
@@ -691,16 +746,17 @@ do {
     failureCount += 1
     fputs("FAIL: unexpected rekordbox mapping loader error: \(error)\n", stderr)
 }
-
 do {
     let temporaryHome = FileManager.default.temporaryDirectory
         .appendingPathComponent("overcue-loader-fallback-\(UUID().uuidString)")
-    let baseURL = temporaryHome
+    let baseURL =
+        temporaryHome
         .appendingPathComponent("Library/Application Support/Pioneer/rekordbox7")
     let mappingsURL = baseURL.appendingPathComponent("KeyMappings")
     try FileManager.default.createDirectory(at: mappingsURL, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: temporaryHome) }
 
+    // swift-format-ignore
     let settingsXML = """
     <?xml version="1.0" encoding="UTF-8"?>
     <PROPERTIES>
@@ -708,6 +764,7 @@ do {
       <VALUE name="exportKeyMapping" val="missing-export"/>
     </PROPERTIES>
     """
+    // swift-format-ignore
     let performancePresetXML = """
     <?xml version="1.0" encoding="UTF-8"?>
     <PROPERTIES>
@@ -717,6 +774,7 @@ do {
       </KEYMAPPINGS></VALUE>
     </PROPERTIES>
     """
+    // swift-format-ignore
     let exportPresetXML = """
     <?xml version="1.0" encoding="UTF-8"?>
     <PROPERTIES>
@@ -737,7 +795,8 @@ do {
     let loader = RekordboxKeyMappingLoader(homeDirectory: temporaryHome)
     let performance = try loader.load(mode: .performance)
     check(performance.mappingID == "0000000000000", "fall back to original Performance mapping")
-    check(performance.mapping.shortcut(for: "3006") == "spacebar", "read original Performance shortcut")
+    check(
+        performance.mapping.shortcut(for: "3006") == "spacebar", "read original Performance shortcut")
     let export = try loader.load(mode: .export)
     check(export.mappingID == "0000000000030", "fall back to original Export mapping")
     check(export.mapping.shortcut(for: "3007") == "C", "read original Export shortcut")
@@ -745,7 +804,6 @@ do {
     failureCount += 1
     fputs("FAIL: unexpected original rekordbox mapping fallback error: \(error)\n", stderr)
 }
-
 do {
     var configuration = OverCUEConfiguration.defaultValue
     configuration.profiles["default"]?.keyMap["K1"] = "hot_cue_1"
@@ -798,12 +856,12 @@ do {
     failureCount += 1
     fputs("FAIL: unexpected configuration error: \(error)\n", stderr)
 }
-
 do {
     let deck1 = try DDJSXMIDIProfile(deck: 1)
     check(deck1.message(for: .touchOn).bytes == [0x90, 0x36, 0x7F], "Deck 1 touch on MIDI")
     check(deck1.message(for: .touchOff).bytes == [0x90, 0x36, 0x00], "Deck 1 touch off MIDI")
-    check(deck1.message(for: .scratch(.clockwise)).bytes == [0xB0, 0x22, 0x41], "Deck 1 clockwise MIDI")
+    check(
+        deck1.message(for: .scratch(.clockwise)).bytes == [0xB0, 0x22, 0x41], "Deck 1 clockwise MIDI")
     check(
         deck1.message(for: .scratch(.counterclockwise)).bytes == [0xB0, 0x22, 0x3F],
         "Deck 1 counterclockwise MIDI"
@@ -816,24 +874,20 @@ do {
     failureCount += 1
     fputs("FAIL: unexpected MIDI profile error: \(error)\n", stderr)
 }
-
 do {
     _ = try DDJSXMIDIProfile(deck: 0)
     check(false, "reject Deck 0")
 } catch {
     check(error as? DDJSXMIDIProfileError == .invalidDeck(0), "reject Deck 0")
 }
-
 do {
     _ = try DDJSXMIDIProfile(deck: 5)
     check(false, "reject Deck 5")
 } catch {
     check(error as? DDJSXMIDIProfileError == .invalidDeck(5), "reject Deck 5")
 }
-
 guard failureCount == 0 else {
     fputs("\(failureCount) of \(checkCount) checks failed.\n", stderr)
     exit(EXIT_FAILURE)
 }
-
 print("All \(checkCount) OverCUE core checks passed.")

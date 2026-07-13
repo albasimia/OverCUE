@@ -177,13 +177,13 @@ internal static class Program
 
         var brightPixels = 0;
         for (var y = 10; y < Math.Min(65, bitmap.PixelHeight); y++)
-        for (var x = 10; x < Math.Min(220, bitmap.PixelWidth); x++)
-        {
-            var offset = y * stride + x * 4;
-            if (pixels[offset + 3] > 200
-                && (pixels[offset] > 150 || pixels[offset + 1] > 150 || pixels[offset + 2] > 150))
-                brightPixels++;
-        }
+            for (var x = 10; x < Math.Min(220, bitmap.PixelWidth); x++)
+            {
+                var offset = y * stride + x * 4;
+                if (pixels[offset + 3] > 200
+                    && (pixels[offset] > 150 || pixels[offset + 1] > 150 || pixels[offset + 2] > 150))
+                    brightPixels++;
+            }
 
         var logoPixel = 20 * stride + 30 * 4;
         var logoIsVisible = pixels[logoPixel + 3] > 200

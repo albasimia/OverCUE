@@ -52,7 +52,8 @@ public enum ActionID: String, Codable, CaseIterable, Equatable, Hashable, Sendab
         case .cue: .hold
         case .jumpForward, .jumpBackward: .acceleratingRepeat
         case .captureWaveformPosition, .jogSearchLeft, .jogSearchRight,
-             .cycleGroup, .cycleGroupBackward, .toggleRekordboxMode: .internalCommand
+            .cycleGroup, .cycleGroupBackward, .toggleRekordboxMode:
+            .internalCommand
         default: .trigger
         }
     }
@@ -139,7 +140,6 @@ public struct ActionEvent: Equatable, Sendable {
         self.sourceLabel = sourceLabel
     }
 
-
     public init(
         target: ActionTarget,
         phase: ActionPhase,
@@ -167,8 +167,8 @@ public struct KeyChord: Equatable, Hashable, Sendable {
 
     public init?(keys: [ACK05Key]) {
         guard keys.count >= 2,
-              keys.count <= ACK05Key.allCases.count,
-              Set(keys).count == keys.count
+            keys.count <= ACK05Key.allCases.count,
+            Set(keys).count == keys.count
         else { return nil }
         self.keys = keys
     }
@@ -188,8 +188,8 @@ public struct DialChord: Equatable, Hashable, Sendable {
 
     public init?(keys: [ACK05Key], direction: DialDirection) {
         guard !keys.isEmpty,
-              keys.count <= ACK05Key.allCases.count,
-              Set(keys).count == keys.count
+            keys.count <= ACK05Key.allCases.count,
+            Set(keys).count == keys.count
         else { return nil }
         self.keys = keys
         self.direction = direction
@@ -259,7 +259,8 @@ public struct InputActionResolver: Equatable, Sendable {
         })
         where newlyPressed.contains(chord.trigger)
             && Set(chord.keys).isSubset(of: nextPressedKeys)
-            && !consumedChordTriggers.contains(chord.trigger) {
+            && !consumedChordTriggers.contains(chord.trigger)
+        {
             guard let target = mapping.chords[chord] else { continue }
             events.append(
                 ActionEvent(
@@ -278,7 +279,8 @@ public struct InputActionResolver: Equatable, Sendable {
             if mapping.modifierKeys.contains(key) { continue }
             if suppressedChordTriggers.contains(key) { continue }
             guard let target = mapping.keys[key] else { continue }
-            let phase: ActionPhase = target.behavior == .hold || target.behavior == .acceleratingRepeat
+            let phase: ActionPhase =
+                target.behavior == .hold || target.behavior == .acceleratingRepeat
                 ? .pressed
                 : .triggered
             events.append(event(target: target, phase: phase, key: key))
@@ -294,8 +296,9 @@ public struct InputActionResolver: Equatable, Sendable {
 
         for modifier in released where mapping.modifierKeys.contains(modifier) {
             if !usedChordModifiers.contains(modifier),
-               !suppressedChordTriggers.contains(modifier),
-               let target = mapping.keys[modifier] {
+                !suppressedChordTriggers.contains(modifier),
+                let target = mapping.keys[modifier]
+            {
                 events.append(event(target: target, phase: .triggered, key: modifier))
             }
         }
@@ -308,8 +311,8 @@ public struct InputActionResolver: Equatable, Sendable {
 
     public func repeatedEvent(for key: ACK05Key, mapping: ActionMapping) -> ActionEvent? {
         guard pressedKeys.contains(key),
-              let target = mapping.keys[key],
-              target.behavior == .acceleratingRepeat
+            let target = mapping.keys[key],
+            target.behavior == .acceleratingRepeat
         else {
             return nil
         }
