@@ -8,3 +8,7 @@ Windows/**/obj/
 Windows/artifacts/
 Windows/backups/
 Windows/ack05-keyboard.jsonl
+
+_site/
+.bundle/
+vendor/bundle/
