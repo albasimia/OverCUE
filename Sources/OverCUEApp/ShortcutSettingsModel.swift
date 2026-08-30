@@ -80,6 +80,7 @@ private final class SendableObserverToken: @unchecked Sendable {
 @MainActor
 final class ShortcutSettingsModel: ObservableObject {
     @Published private(set) var mode: RekordboxMappingMode = .export
+    @Published private(set) var targetDeck: RekordboxDeck = .deck1
     @Published var searchText = ""
     @Published var mappingName = L10n.text("message.loading")
     @Published var mappingURL: URL?
@@ -342,6 +343,15 @@ final class ShortcutSettingsModel: ObservableObject {
         showToast(L10n.text("message.modeUpdated", newMode.displayName), style: .success)
     }
 
+    func setTargetDeck(_ newDeck: RekordboxDeck) {
+        guard targetDeck != newDeck else { return }
+        targetDeck = newDeck
+        saveDeck(newDeck, for: selectedGroup)
+        rebuildBindings()
+        postRuntimeControl(group: selectedGroup, mode: mode)
+        showToast(L10n.text("message.deckUpdated", newDeck.displayName), style: .success)
+    }
+
     func setBridgeEnabled(_ enabled: Bool) {
         guard isBridgeEnabled != enabled else { return }
         isBridgeEnabled = enabled
@@ -402,6 +412,7 @@ final class ShortcutSettingsModel: ObservableObject {
         if wasCapturing { stopCaptureMonitor() }
         selectedGroup = group
         mode = configuredMode(for: group)
+        targetDeck = configuredDeck(for: group)
         runtimeGroup = group
         runtimeMode = mode
         UserDefaults.standard.set(mode.rawValue, forKey: "rekordboxMappingMode")
@@ -974,14 +985,15 @@ final class ShortcutSettingsModel: ObservableObject {
         } else {
             configuration = .defaultValue
         }
-        normalizeGroupModes(defaultMode: mode)
+        normalizeGroupSettings(defaultMode: mode)
         mode = configuredMode(for: selectedGroup)
+        targetDeck = configuredDeck(for: selectedGroup)
         runtimeMode = mode
         runtimeGroup = selectedGroup
         rebuildBindings()
     }
 
-    private func normalizeGroupModes(defaultMode: RekordboxMappingMode) {
+    private func normalizeGroupSettings(defaultMode: RekordboxMappingMode) {
         var changed = false
         for profileName in configuration.profiles.keys.sorted() {
             guard var profile = configuration.profiles[profileName] else { continue }
@@ -989,9 +1001,13 @@ final class ShortcutSettingsModel: ObservableObject {
                 var mapping = profile.storedMapping(for: group)
                 if mapping.rekordboxMode == nil {
                     mapping.rekordboxMode = defaultMode
-                    profile.setMapping(mapping, for: group)
                     changed = true
                 }
+                if mapping.rekordboxDeck == nil {
+                    mapping.rekordboxDeck = .deck1
+                    changed = true
+                }
+                profile.setMapping(mapping, for: group)
             }
             configuration.profiles[profileName] = profile
         }
@@ -1001,6 +1017,11 @@ final class ShortcutSettingsModel: ObservableObject {
     private func configuredMode(for group: Int) -> RekordboxMappingMode {
         configuration.profiles[configuration.defaultProfile]?
             .mapping(for: group).rekordboxMode ?? mode
+    }
+
+    private func configuredDeck(for group: Int) -> RekordboxDeck {
+        configuration.profiles[configuration.defaultProfile]?
+            .mapping(for: group).rekordboxDeck ?? .deck1
     }
 
     private func saveMode(_ newMode: RekordboxMappingMode, for group: Int) {
@@ -1016,6 +1037,19 @@ final class ShortcutSettingsModel: ObservableObject {
         }
     }
 
+    private func saveDeck(_ newDeck: RekordboxDeck, for group: Int) {
+        guard var profile = configuration.profiles[configuration.defaultProfile] else { return }
+        var mapping = profile.storedMapping(for: group)
+        mapping.rekordboxDeck = newDeck
+        profile.setMapping(mapping, for: group)
+        configuration.profiles[configuration.defaultProfile] = profile
+        do {
+            try saveConfiguration()
+        } catch {
+            showToast(L10n.text("message.deckSaveFailed", error.localizedDescription), style: .error)
+        }
+    }
+
     private func applyRuntimeStatus(mode newMode: RekordboxMappingMode, group: Int) {
         guard (1...4).contains(group) else { return }
         let didChange = runtimeMode != newMode || runtimeGroup != group
@@ -1025,6 +1059,7 @@ final class ShortcutSettingsModel: ObservableObject {
 
         selectedGroup = group
         mode = newMode
+        targetDeck = configuredDeck(for: group)
         saveMode(newMode, for: group)
         UserDefaults.standard.set(newMode.rawValue, forKey: "rekordboxMappingMode")
         selectedDeviceKey = nil

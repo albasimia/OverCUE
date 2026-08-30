@@ -45,6 +45,14 @@ OverCUEが役に立ったら、今後の開発を支援していただけると�
 
 The generated `dist/OverCUE.app` is an `arm64 + x86_64` Universal Binary.
 
+Run the complete local macOS verification path (debug build, core checks, Universal Binary release build, and code-signature verification) with:
+
+```sh
+./Scripts/verify-macos.sh
+```
+
+In PERFORMANCE mode, each of the four OverCUE groups can independently target rekordbox Deck 1, 2, 3, or 4. Mode, target Deck, and waveform drag position are stored per group.
+
 ## License
 
 [MIT License](LICENSE)

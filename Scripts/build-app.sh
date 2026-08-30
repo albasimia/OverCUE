@@ -6,7 +6,7 @@ ROOT_DIR="${0:A:h:h}"
 OUTPUT_DIR="${1:-${ROOT_DIR}/dist}"
 APP_DIR="${OUTPUT_DIR}/OverCUE.app"
 SIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
-BUILD_ARGS=(-c release --arch arm64 --arch x86_64)
+BUILD_ARGS=(--disable-sandbox -c release --arch arm64 --arch x86_64)
 
 cd "${ROOT_DIR}"
 swift build "${BUILD_ARGS[@]}" --product OverCUE

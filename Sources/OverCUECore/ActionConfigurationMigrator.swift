@@ -16,7 +16,42 @@ public enum ActionConfigurationMigrator {
     public static func migrateToCurrentVersion(
         _ source: OverCUEConfiguration
     ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
-        migrateToVersion7(source)
+        migrateToVersion8(source)
+    }
+
+    public static func migrateToVersion8(
+        _ source: OverCUEConfiguration
+    ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
+        var result = source.version < 7
+            ? migrateToVersion7(source)
+            : (configuration: source, warnings: [])
+        let defaults = OverCUEProfile.defaultValue
+
+        for profileName in result.configuration.profiles.keys.sorted() {
+            guard var profile = result.configuration.profiles[profileName] else { continue }
+            for group in 1...4 {
+                var mapping = profile.storedMapping(for: group)
+                guard mapping.rekordboxDeck == nil else { continue }
+
+                if group == 2, isLegacyDeck2Default(mapping) {
+                    let replacement = defaults.storedMapping(for: 2)
+                    mapping.keyMap = replacement.keyMap
+                    mapping.chordMap = replacement.chordMap
+                    mapping.dialMap = replacement.dialMap
+                    mapping.dialChordMap = replacement.dialChordMap
+                    mapping.rekordboxDeck = .deck2
+                } else {
+                    // Standard Actions resolved to Deck 1 before version 8. Generic
+                    // rekordbox:<id> values remain untouched and therefore retain
+                    // any explicitly embedded deck selection.
+                    mapping.rekordboxDeck = .deck1
+                }
+                profile.setMapping(mapping, for: group)
+            }
+            result.configuration.profiles[profileName] = profile
+        }
+        result.configuration.version = 8
+        return result
     }
 
     public static func migrateToVersion7(
@@ -184,6 +219,27 @@ public enum ActionConfigurationMigrator {
             }
         }
         return migrated
+    }
+
+    private static func isLegacyDeck2Default(_ mapping: OverCUEGroupMapping) -> Bool {
+        let current = OverCUEProfile.defaultValue.storedMapping(for: 2)
+        return mapping.rekordboxMode == .performance
+            && mapping.keyMap == deckSpecificMappings(current.keyMap, deck: .deck2)
+            && mapping.chordMap == deckSpecificMappings(current.chordMap, deck: .deck2)
+            && mapping.dialMap == current.dialMap
+            && mapping.dialChordMap == deckSpecificMappings(current.dialChordMap, deck: .deck2)
+    }
+
+    private static func deckSpecificMappings(
+        _ mappings: [String: String],
+        deck: RekordboxDeck
+    ) -> [String: String] {
+        mappings.mapValues { value in
+            guard let target = ActionTarget(configurationValue: value),
+                  let commandID = RekordboxActionAdapter.commandID(for: target, deck: deck)
+            else { return value }
+            return "rekordbox:\(commandID)"
+        }
     }
 }
 

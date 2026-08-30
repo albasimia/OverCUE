@@ -322,6 +322,10 @@ private final class ConfigurationStore {
         configuration.profiles[profileName]?.mapping(for: group).rekordboxMode ?? fallback
     }
 
+    func rekordboxDeck(profileName: String, group: Int) -> RekordboxDeck {
+        configuration.profiles[profileName]?.mapping(for: group).rekordboxDeck ?? .deck1
+    }
+
     func saveRekordboxMode(
         _ mode: RekordboxMappingMode,
         profileName: String,
@@ -580,26 +584,35 @@ private struct ResolvedKeyboardCommand {
     let shortcut: KeyboardShortcut
 }
 
+private struct RekordboxCommandLookupKey: Hashable {
+    let target: ActionTarget
+    let deck: RekordboxDeck
+}
+
 private struct RekordboxAdapter {
     private let loader = RekordboxKeyMappingLoader()
 
     func load(
         mode: RekordboxMappingMode,
-        requiredTargets: Set<ActionTarget>
-    ) throws -> (name: String, actions: [ActionTarget: ResolvedKeyboardCommand]) {
+        requiredTargets: Set<RekordboxCommandLookupKey>
+    ) throws -> (name: String, actions: [RekordboxCommandLookupKey: ResolvedKeyboardCommand]) {
         let mapping = try loader.load(mode: mode).mapping
-        var actions: [ActionTarget: ResolvedKeyboardCommand] = [:]
+        var actions: [RekordboxCommandLookupKey: ResolvedKeyboardCommand] = [:]
 
-        for target in requiredTargets {
-            guard let commandID = RekordboxActionAdapter.commandID(for: target),
+        for lookup in requiredTargets {
+            let effectiveDeck = mode == .performance ? lookup.deck : .deck1
+            guard let commandID = RekordboxActionAdapter.commandID(
+                for: lookup.target,
+                deck: effectiveDeck
+            ),
                   let rawShortcut = mapping.shortcut(for: commandID)
             else {
                 continue
             }
             let displayName = mapping.entries.first(where: { $0.commandID == commandID })?.description
-                ?? target.displayName
+                ?? lookup.target.displayName
             do {
-                actions[target] = ResolvedKeyboardCommand(
+                actions[lookup] = ResolvedKeyboardCommand(
                     displayName: displayName,
                     shortcut: try KeyboardShortcut(rawValue: rawShortcut)
                 )
@@ -784,7 +797,9 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     private let decoder = ACK05ReportDecoder()
     private let profile: WaveformDragProfile
     private let keyboardOutput: RekordboxKeyboardOutput
-    private let keyboardCommandsByMode: [RekordboxMappingMode: [ActionTarget: ResolvedKeyboardCommand]]
+    private let keyboardCommandsByMode: [
+        RekordboxMappingMode: [RekordboxCommandLookupKey: ResolvedKeyboardCommand]
+    ]
     private let internalActionHandler = InternalActionHandler()
     private var mappings: ActionMapping
     private let mappingsByProfile: [String: [Int: ActionMapping]]
@@ -792,6 +807,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     private var activeProfileName: String
     private var activeDeviceID: String?
     private var activeGroup = 1
+    private var activeRekordboxDeck: RekordboxDeck = .deck1
     private var activeRekordboxMode: RekordboxMappingMode
     private let releaseInterval: TimeInterval
     private var waveformAnchor: CGPoint?
@@ -812,7 +828,9 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     init(
         profile: WaveformDragProfile,
         keyboardOutput: RekordboxKeyboardOutput,
-        keyboardCommandsByMode: [RekordboxMappingMode: [ActionTarget: ResolvedKeyboardCommand]],
+        keyboardCommandsByMode: [
+            RekordboxMappingMode: [RekordboxCommandLookupKey: ResolvedKeyboardCommand]
+        ],
         initialRekordboxMode: RekordboxMappingMode,
         initialGroup: Int,
         mappingsByProfile: [String: [Int: ActionMapping]],
@@ -831,6 +849,10 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
             profileName: activeProfileName,
             group: initialGroup,
             fallback: initialRekordboxMode
+        )
+        activeRekordboxDeck = configurationStore.rekordboxDeck(
+            profileName: activeProfileName,
+            group: initialGroup
         )
         guard let defaultMappings = mappingsByProfile[activeProfileName]?[initialGroup] else {
             throw BridgeError.configuration("Default profile mappings are unavailable.")
@@ -961,6 +983,10 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
             group: nextGroup,
             fallback: activeRekordboxMode
         )
+        activeRekordboxDeck = configurationStore.rekordboxDeck(
+            profileName: profileName,
+            group: nextGroup
+        )
         activeDeviceID = deviceID
         publishRuntimeStatus(mode: activeRekordboxMode, group: activeGroup)
 
@@ -1021,7 +1047,8 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     }
 
     private func resolveKeyboardCommand(for event: ActionEvent) -> ResolvedKeyboardCommand? {
-        guard let command = keyboardCommandsByMode[activeRekordboxMode]?[event.target] else {
+        let lookup = RekordboxCommandLookupKey(target: event.target, deck: activeRekordboxDeck)
+        guard let command = keyboardCommandsByMode[activeRekordboxMode]?[lookup] else {
             log("KEY \(event.sourceLabel) \(event.target.displayName) is unassigned in rekordbox.")
             return nil
         }
@@ -1070,6 +1097,14 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
             group: nextGroup,
             fallback: activeRekordboxMode
         )
+        let savedDeck = configurationStore.rekordboxDeck(
+            profileName: activeProfileName,
+            group: nextGroup
+        )
+        if activeRekordboxDeck != savedDeck {
+            keyboardOutput.releaseAll()
+            activeRekordboxDeck = savedDeck
+        }
         if keyboardCommandsByMode[savedMode] != nil {
             if activeRekordboxMode != savedMode { keyboardOutput.releaseAll() }
             activeRekordboxMode = savedMode
@@ -1552,6 +1587,7 @@ do {
         let defaultProfile = try configurationStore.profile(named: defaultProfileName)
         let initialGroupConfiguration = defaultProfile.mapping(for: options.group)
         let initialRekordboxMode = initialGroupConfiguration.rekordboxMode ?? options.rekordboxMode
+        let initialRekordboxDeck = initialGroupConfiguration.rekordboxDeck ?? .deck1
         let maximumPixels = options.accelerationEnabled
             ? options.maximumDragPixels
             : options.dragPixels
@@ -1560,18 +1596,25 @@ do {
             maximumPixelsPerDetent: maximumPixels,
             isInverted: options.invertDial
         )
-        let requiredTargets = Set(
-            mappingsByProfile.values.flatMap { groups in
-                groups.values.flatMap { mapping in
-                    Array(mapping.keys.values)
-                        + Array(mapping.chords.values)
-                        + Array(mapping.dial.values)
-                        + Array(mapping.dialChords.values)
+        var requiredTargets: Set<RekordboxCommandLookupKey> = []
+        for groups in mappingsByProfile.values {
+            for mapping in groups.values {
+                let targets = Array(mapping.keys.values)
+                    + Array(mapping.chords.values)
+                    + Array(mapping.dial.values)
+                    + Array(mapping.dialChords.values)
+                for target in targets {
+                    requiredTargets.formUnion(RekordboxDeck.allCases.map {
+                        RekordboxCommandLookupKey(target: target, deck: $0)
+                    })
                 }
             }
-        )
+        }
         var loadedShortcutsByMode: [
-            RekordboxMappingMode: (name: String, actions: [ActionTarget: ResolvedKeyboardCommand])
+            RekordboxMappingMode: (
+                name: String,
+                actions: [RekordboxCommandLookupKey: ResolvedKeyboardCommand]
+            )
         ] = [:]
         for mode in RekordboxMappingMode.allCases {
             do {
@@ -1621,7 +1664,8 @@ do {
         log(options.invertDial ? "Dial direction is inverted." : "Dial direction is normal.")
         for key in ACK05Key.allCases {
             let action = mappings.keys[key] ?? .action(defaultAction(for: key))
-            if let resolved = loadedShortcutsByMode[initialRekordboxMode]?.actions[action] {
+            let lookup = RekordboxCommandLookupKey(target: action, deck: initialRekordboxDeck)
+            if let resolved = loadedShortcutsByMode[initialRekordboxMode]?.actions[lookup] {
                 log("  \(key.rawValue.uppercased()): \(action.displayName) [\(resolved.shortcut.rawValue)]")
             } else {
                 log("  \(key.rawValue.uppercased()): \(action.displayName) [unassigned]")
@@ -1638,20 +1682,23 @@ do {
                 log("  \(chord): \(chordAction.displayName)")
             } else {
                 let action = chordAction
-                let shortcut = loadedShortcutsByMode[initialRekordboxMode]?.actions[action]?.shortcut.rawValue
+                let lookup = RekordboxCommandLookupKey(target: action, deck: initialRekordboxDeck)
+                let shortcut = loadedShortcutsByMode[initialRekordboxMode]?.actions[lookup]?.shortcut.rawValue
                     ?? "unassigned"
                 log("  \(chord): \(action.displayName) [\(shortcut)]")
             }
         }
         for direction in DialDirection.allCases {
             guard let action = mappings.dial[direction] else { continue }
-            let shortcut = loadedShortcutsByMode[initialRekordboxMode]?.actions[action]?.shortcut.rawValue
+            let lookup = RekordboxCommandLookupKey(target: action, deck: initialRekordboxDeck)
+            let shortcut = loadedShortcutsByMode[initialRekordboxMode]?.actions[lookup]?.shortcut.rawValue
             let detail = shortcut.map { " [\($0)]" } ?? ""
             log("  \(direction.displayName): \(action.displayName)\(detail)")
         }
         for chord in mappings.dialChords.keys.sorted(by: { $0.label < $1.label }) {
             guard let action = mappings.dialChords[chord] else { continue }
-            let shortcut = loadedShortcutsByMode[initialRekordboxMode]?.actions[action]?.shortcut.rawValue
+            let lookup = RekordboxCommandLookupKey(target: action, deck: initialRekordboxDeck)
+            let shortcut = loadedShortcutsByMode[initialRekordboxMode]?.actions[lookup]?.shortcut.rawValue
             let detail = shortcut.map { " [\($0)]" } ?? ""
             log("  \(chord.label): \(action.displayName)\(detail)")
         }

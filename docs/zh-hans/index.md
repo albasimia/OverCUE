@@ -67,7 +67,7 @@ OverCUE 使用以下 macOS 权限：
 
 1. 启动 rekordbox。
 2. 连接 ACK05 并启动 OverCUE。
-3. 选择 OverCUE 分组以及 EXPORT 或 PERFORMANCE 模式。
+3. 选择 OverCUE 分组、EXPORT 或 PERFORMANCE 模式，以及 PERFORMANCE 的目标 Deck 1～4。
 4. 如需控制波形，请将指针放在放大的波形上，并按 `K8+K1` 保存位置。
 5. 将 rekordbox 切换到最前方后操作 ACK05。
 
@@ -82,7 +82,7 @@ OverCUE 使用以下 macOS 权限：
 | 3 | EXPORT | Deck 1 |
 | 4 | EXPORT | 可用于自定义映射 |
 
-每个分组都会保存最后使用的 EXPORT 或 PERFORMANCE 模式。GUI、ACK05、CLI 桥接和菜单栏中的分组与模式会保持同步。
+每个分组都会保存最后使用的 EXPORT 或 PERFORMANCE 模式和目标 Deck。目标 Deck 用于指定 PERFORMANCE 模式下标准 Action 发送到 Deck 1～4 中的哪一个；EXPORT 模式不使用此设置。GUI、ACK05、CLI 桥接和菜单栏中的分组与模式会保持同步。
 
 使用 `K8+K1` 保存的波形位置也会按分组独立保存。切换分组时，会启用该分组最后保存的位置。
 

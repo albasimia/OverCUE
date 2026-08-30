@@ -103,6 +103,16 @@ public enum RekordboxMappingMode: String, Codable, CaseIterable, Identifiable, S
     }
 }
 
+public enum RekordboxDeck: Int, Codable, CaseIterable, Identifiable, Sendable {
+    case deck1 = 1
+    case deck2 = 2
+    case deck3 = 3
+    case deck4 = 4
+
+    public var id: Int { rawValue }
+    public var displayName: String { "Deck \(rawValue)" }
+}
+
 public struct LoadedRekordboxKeyMapping: Equatable, Sendable {
     public let mode: RekordboxMappingMode
     public let mappingID: String
@@ -254,6 +264,8 @@ public enum RekordboxShortcutCategory: String, CaseIterable, Identifiable, Senda
     case browse = "Browse"
     case deck1 = "Deck 1"
     case deck2 = "Deck 2"
+    case deck3 = "Deck 3"
+    case deck4 = "Deck 4"
     case allDecks = "All Decks"
     case sampler = "Sampler"
     case recordings = "Recordings"
@@ -272,6 +284,10 @@ public enum RekordboxShortcutCategory: String, CaseIterable, Identifiable, Senda
             return .deck1
         case let value where value.hasPrefix("31"):
             return .deck2
+        case let value where value.hasPrefix("32"):
+            return .deck3
+        case let value where value.hasPrefix("33"):
+            return .deck4
         case let value where value.hasPrefix("f"):
             return .sampler
         case "d0f0":

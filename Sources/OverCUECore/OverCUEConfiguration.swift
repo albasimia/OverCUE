@@ -17,6 +17,7 @@ public struct OverCUEGroupMapping: Codable, Equatable, Sendable {
     public var dialMap: [String: String]
     public var dialChordMap: [String: String]
     public var rekordboxMode: RekordboxMappingMode?
+    public var rekordboxDeck: RekordboxDeck?
 
     public init(
         waveformPosition: WaveformPosition? = nil,
@@ -24,7 +25,8 @@ public struct OverCUEGroupMapping: Codable, Equatable, Sendable {
         chordMap: [String: String] = [:],
         dialMap: [String: String] = [:],
         dialChordMap: [String: String] = [:],
-        rekordboxMode: RekordboxMappingMode? = nil
+        rekordboxMode: RekordboxMappingMode? = nil,
+        rekordboxDeck: RekordboxDeck? = nil
     ) {
         self.waveformPosition = waveformPosition
         self.keyMap = keyMap
@@ -32,10 +34,11 @@ public struct OverCUEGroupMapping: Codable, Equatable, Sendable {
         self.dialMap = dialMap
         self.dialChordMap = dialChordMap
         self.rekordboxMode = rekordboxMode
+        self.rekordboxDeck = rekordboxDeck
     }
 
     private enum CodingKeys: String, CodingKey {
-        case waveformPosition, keyMap, chordMap, dialMap, dialChordMap, rekordboxMode
+        case waveformPosition, keyMap, chordMap, dialMap, dialChordMap, rekordboxMode, rekordboxDeck
     }
 
     public init(from decoder: Decoder) throws {
@@ -46,6 +49,7 @@ public struct OverCUEGroupMapping: Codable, Equatable, Sendable {
         dialMap = try container.decodeIfPresent([String: String].self, forKey: .dialMap) ?? [:]
         dialChordMap = try container.decodeIfPresent([String: String].self, forKey: .dialChordMap) ?? [:]
         rekordboxMode = try container.decodeIfPresent(RekordboxMappingMode.self, forKey: .rekordboxMode)
+        rekordboxDeck = try container.decodeIfPresent(RekordboxDeck.self, forKey: .rekordboxDeck)
     }
 }
 
@@ -206,7 +210,7 @@ private struct DefaultKeyMappingResource: Decodable {
 }
 
 public struct OverCUEConfiguration: Codable, Equatable, Sendable {
-    public static let currentVersion = 7
+    public static let currentVersion = 8
 
     public var version: Int
     public var defaultProfile: String

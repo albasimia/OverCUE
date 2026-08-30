@@ -1,6 +1,6 @@
 # OverCUE 現行仕様
 
-更新日: 2026-07-12
+更新日: 2026-08-30
 対象: macOS版 OverCUE / XPPen ACK05 / rekordbox 7
 
 ## 1. 概要
@@ -165,7 +165,7 @@ ACK05のキーによってはHIDレポートが修飾キーだけで構成され
 
 物理入力は`InputActionResolver`で論理的な`ActionEvent`へ変換される。ActionEventのphaseは`triggered`、`pressed`、`released`、`repeated`のいずれかであり、Cue保持とJump長押しは物理キーではなくActionの動作特性として処理する。
 
-rekordbox固有のcommandIdは`RekordboxActionAdapter`だけが保持する。`capture_waveform_position`はInternal Action Handlerで処理し、rekordboxへは送信しない。
+rekordbox固有のcommandId規則は`RekordboxActionAdapter`だけが保持する。Deck依存ActionはAction IDと各Groupの`rekordboxDeck`から解決し、DeckごとにAction定義を複製しない。`capture_waveform_position`はInternal Action Handlerで処理し、rekordboxへは送信しない。
 
 設定ファイルの`keyMap`と`chordMap`では、以下の安定Action IDを使用する。
 
@@ -186,8 +186,12 @@ rekordbox固有のcommandIdは`RekordboxActionAdapter`だけが保持する。`c
 | `quantize` | Quantize | `301c` |
 | `cue` | Cue | `3007` |
 | `play_pause` | Play/Pause | `3006` |
+| `pitch_bend_increase` | Pitch Bend + | `304f` |
+| `pitch_bend_decrease` | Pitch Bend - | `3050` |
 
 `chordMap`のみ、内部操作`capture_waveform_position`を指定できる。
+
+表のcommandIdはDeck 1。PERFORMANCEでは同じAction suffixに対してDeck 1=`30xx`、Deck 2=`31xx`、Deck 3=`32xx`、Deck 4=`33xx`として解決する。例えば`play_pause`は`3006` / `3106` / `3206` / `3306`になる。`rekordbox:<commandId>`のGeneric Actionはユーザー指定値をそのまま使用し、Deck変換しない。EXPORTではDeck指定を使用せず、従来どおりDeck 1のcommandIdを解決する。
 
 ## 8. rekordboxショートカット連携
 
@@ -203,6 +207,8 @@ OverCUEは固定キーやマッピングファイルIDを直接決め打ちせ�
 
 キーボード操作はrekordbox（bundle ID `com.pioneerdj.rekordboxdj`）が最前面の場合だけ送信する。
 
+2026-08-30にこのMacの選択中`Performance 1 (Preset)`を既存ローダーと同じ経路で読み、Deck 1 / 2 / 3がそれぞれ`30xx` / `31xx` / `32xx`で同一suffixを使うことを確認した。選択プリセットにはDeck 4の割り当て行自体が含まれないため、Deck 4は同じrekordboxの4Deck command familyである`33xx`として扱い、Core checksで全Deckの解決とカテゴリ分類を固定する。
+
 ## 9. 外部設定ファイル
 
 デフォルト保存先:
@@ -211,11 +217,11 @@ OverCUEは固定キーやマッピングファイルIDを直接決め打ちせ�
 ~/Library/Application Support/OverCUE/config.json
 ```
 
-設定形式はversion 7。初回起動時に自動生成する。version 1〜6設定を検出した場合は原本を`config.vN.backup.json`へ保存してversion 7へ自動移行する。version 6以前のプロファイル共通`waveformPosition`はグループ1〜4へコピーし、移行直後の操作位置を維持する。旧デフォルト構成ではグループ1をPERFORMANCE / Deck 1、グループ2をPERFORMANCE / Deck 2、グループ3をEXPORT / Deck 1とし、K7＋ダイヤル左右へrekordbox既存のPitch Bend − / ＋、K7+K2へ昇順グループ切り替え、K7+K5へ降順グループ切り替えを追加する。ユーザーが変更した割り当ては保持する。デフォルトマップは`Sources/OverCUECore/Resources/DefaultKeyMapping.json`から読み込む。
+設定形式はversion 8。初回起動時に自動生成する。version 1〜7設定を検出した場合は原本を`config.vN.backup.json`へ保存してversion 8へ自動移行する。version 6以前のプロファイル共通`waveformPosition`はグループ1〜4へコピーし、移行直後の操作位置を維持する。version 7の旧既定Group 2はPERFORMANCE / Deck 2として認識し、直書きDeck 2 commandIdを標準Actionへ置換する。それ以外は従来の標準ActionがDeck 1を操作していた意味を維持するためDeck 1を補完し、ユーザー指定のGeneric `rekordbox:<commandId>`は変更しない。Group 3のEXPORT用途も維持する。デフォルトマップは`Sources/OverCUECore/Resources/DefaultKeyMapping.json`から読み込む。
 
 ```json
 {
-  "version": 7,
+  "version": 8,
   "defaultProfile": "default",
   "deviceProfiles": {
     "DEVICE-PHYSICAL-UUID": "default"
@@ -229,6 +235,7 @@ OverCUEは固定キーやマッピングファイルIDを直接決め打ちせ�
             "y": 212.25
           },
           "rekordboxMode": "performance",
+          "rekordboxDeck": 1,
           "keyMap": {
             "K1": "hot_cue_3",
             "K2": "delete_memory_cue",
@@ -251,8 +258,8 @@ OverCUEは固定キーやマッピングファイルIDを直接決め打ちせ�
             "clockwise": "jog_search_right"
           },
           "dialChordMap": {
-            "K7+DIAL_LEFT": "rekordbox:3050",
-            "K7+DIAL_RIGHT": "rekordbox:304f"
+            "K7+DIAL_LEFT": "pitch_bend_decrease",
+            "K7+DIAL_RIGHT": "pitch_bend_increase"
           }
         }
       }
@@ -267,6 +274,7 @@ OverCUEは固定キーやマッピングファイルIDを直接決め打ちせ�
 
 - `waveformPosition`: グループ固有の波形ドラッグ座標
 - `rekordboxMode`: グループで使用する`export`または`performance`
+- `rekordboxDeck`: PERFORMANCEで標準Actionを送るDeck（1〜4）。EXPORTでは保持するが使用しない
 - `keyMap`: K1〜K10の単体操作
 - `chordMap`: 2〜10キーの任意数コード操作。末尾のキーをトリガーとして扱う
 - `dialMap`: `clockwise`と`counterclockwise`のダイヤル操作
@@ -274,7 +282,7 @@ OverCUEは固定キーやマッピングファイルIDを直接決め打ちせ�
 
 グループ切り替えActionはグループ1で設定するプロファイル共通割り当てで、昇順は1→2→3→4→1、降順は1→4→3→2→1と循環する。旧`cycle_group` Actionは昇順として扱う。EXPORT / PERFORMANCE切り替えActionは、CLIが参照するrekordboxショートカットセットを切り替える。設定編集後はOverCUEを再起動する。
 
-GUIのグループPickerとCLIの実行グループは双方向に同期する。GUIからグループを変更した場合はCLIとメニューバーも更新し、ACK05から変更した場合はGUIのPickerも更新する。モードは各グループの`rekordboxMode`へ保存し、グループ変更時に保存値を復元する。波形ドラッグ座標もグループごとに保存・復元する。ACK05またはGUIからモードを変更した場合は現在グループへ直ちに保存する。
+GUIのグループPickerとCLIの実行グループは双方向に同期する。GUIからグループを変更した場合はCLIとメニューバーも更新し、ACK05から変更した場合はGUIのPickerも更新する。モードと対象Deckは各グループへ保存し、グループ変更時に復元する。これによりGroup 1〜4をPERFORMANCE / Deck 1〜4へ割り当てられる。波形ドラッグ座標もGroupごとに独立して保存・復元する。ACK05またはGUIからモードを変更した場合は現在グループへ直ちに保存する。
 
 表示言語はOverCUEメニューの設定画面から日本語、英語、簡体字中国語を切り替える。翻訳辞書は`Sources/OverCUEApp/Resources/Localization`のJSONファイルとして管理し、選択はUserDefaultsへ保存する。rekordbox由来の機能名はrekordboxマッピングの記述を優先する。
 
@@ -331,7 +339,13 @@ HID入力確認:
 .build/debug/overcue-checks
 ```
 
-現時点のコアチェック数は150件。
+macOSでdebug build、Core checks、release Universal Binary app生成、codesign検証を一括実行:
+
+```sh
+./Scripts/verify-macos.sh
+```
+
+現時点のコアチェック数は241件。
 
 ## 12. SwiftUI設定画面
 
@@ -345,7 +359,7 @@ swift run OverCUE
 
 - 選択中のPERFORMANCEマッピングおよびEXPORTマッピングの読み込み
 - `MAPPING`要素の順序、commandId、説明、キーを保持（同一commandIdへの複数キーを含む）
-- Browse、Deck 1、Deck 2、All Decks、Sampler、Recordings、General、View、Playlistへの分類
+- Browse、Deck 1〜4、All Decks、Sampler、Recordings、General、View、Playlistへの分類
 - カテゴリ折りたたみと機能・rekordboxショートカット・ACK05キーマップの3カラム表示
 - 機能名、キー、commandId、ACK05キーによる検索
 - `config.json`のデフォルトプロファイルとACK05筐体表示の対応
@@ -362,6 +376,7 @@ swift run OverCUE
 - `Scripts/build-app.sh`でarm64 / x86_64 Universal Binaryの署名済み`dist/OverCUE.app`を生成し、同じくUniversal BinaryのCLIヘルパーを内包
 - Apple Silicon Mac / Intel Macの両方を対象とし、最低対応OSはmacOS 13
 - 4グループ表示
+- GroupごとのEXPORT / PERFORMANCEモードと対象Deck 1〜4の表示・編集（EXPORTではDeck指定を無効表示）
 - 時計回り90度の縦向きを初期値とする筐体表示、90度単位の回転、回転時にも正立するキーラベル
 
 ## 13. 現在の制約

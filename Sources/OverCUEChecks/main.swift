@@ -40,6 +40,11 @@ check(
 )
 check(ActionID.toggleRekordboxMode.behavior == .internalCommand, "mode toggle uses internal behavior")
 check(RekordboxActionAdapter.commandID(for: .hotCue1) == "301e", "rekordbox Hot Cue 1 command")
+check(RekordboxActionAdapter.commandID(for: .playPause, deck: .deck1) == "3006", "Play/Pause resolves for Deck 1")
+check(RekordboxActionAdapter.commandID(for: .playPause, deck: .deck2) == "3106", "Play/Pause resolves for Deck 2")
+check(RekordboxActionAdapter.commandID(for: .playPause, deck: .deck3) == "3206", "Play/Pause resolves for Deck 3")
+check(RekordboxActionAdapter.commandID(for: .playPause, deck: .deck4) == "3306", "Play/Pause resolves for Deck 4")
+check(RekordboxActionAdapter.commandID(for: .pitchBendIncrease, deck: .deck4) == "334f", "Pitch Bend uses the shared Deck rule")
 check(RekordboxActionAdapter.commandID(for: .callNextMemoryCue) == "3039", "rekordbox next Memory Cue command")
 check(RekordboxActionAdapter.commandID(for: .callPreviousMemoryCue) == "303a", "rekordbox previous Memory Cue command")
 check(RekordboxActionAdapter.commandID(for: .captureWaveformPosition) == nil, "internal action has no rekordbox command")
@@ -47,8 +52,10 @@ check(ActionTarget(configurationValue: "hot_cue_1") == .action(.hotCue1), "built
 check(ActionTarget(configurationValue: "rekordbox:42ff") == .rekordboxCommand("42ff"), "generic rekordbox target parses")
 check(ActionTarget(configurationValue: "rekordbox:") == nil, "empty generic rekordbox target is rejected")
 check(RekordboxActionAdapter.commandID(for: .rekordboxCommand("42ff")) == "42ff", "generic target keeps command ID")
+check(RekordboxActionAdapter.commandID(for: .rekordboxCommand("42ff"), deck: .deck4) == "42ff", "generic target is not Deck-transformed")
 check(RekordboxActionAdapter.target(for: "301e") == .action(.hotCue1), "known command ID maps to built-in Action")
 check(RekordboxActionAdapter.target(for: "42ff") == .rekordboxCommand("42ff"), "unknown command ID maps to generic target")
+check(RekordboxActionAdapter.target(for: "331e") == .action(.hotCue1), "Deck 4 command maps to shared Action")
 
 let genericMapping = ActionMapping(
     keys: [.k2: .rekordboxCommand("42ff")],
@@ -254,8 +261,16 @@ check(
     "default group 2 uses Performance mode"
 )
 check(
-    OverCUEProfile.defaultValue.storedMapping(for: 2).keyMap["K10"] == "rekordbox:3106",
-    "default group 2 targets Deck 2 commands"
+    OverCUEProfile.defaultValue.storedMapping(for: 1).rekordboxDeck == .deck1,
+    "default group 1 targets Deck 1"
+)
+check(
+    OverCUEProfile.defaultValue.storedMapping(for: 2).rekordboxDeck == .deck2,
+    "default group 2 targets Deck 2"
+)
+check(
+    OverCUEProfile.defaultValue.storedMapping(for: 2).keyMap["K10"] == "play_pause",
+    "default group 2 uses the shared Play/Pause Action"
 )
 check(
     OverCUEProfile.defaultValue.storedMapping(for: 3).rekordboxMode == .export,
@@ -263,13 +278,13 @@ check(
 )
 check(
     OverCUEProfile.defaultValue.storedMapping(for: 1).dialChordMap["K7+DIAL_LEFT"]
-        == "rekordbox:3050",
-    "default group 1 maps K7 plus dial left to Deck 1 Pitch Bend minus"
+        == ActionID.pitchBendDecrease.rawValue,
+    "default group 1 uses the shared Pitch Bend minus Action"
 )
 check(
     OverCUEProfile.defaultValue.storedMapping(for: 2).dialChordMap["K7+DIAL_RIGHT"]
-        == "rekordbox:314f",
-    "default group 2 maps K7 plus dial right to Deck 2 Pitch Bend plus"
+        == ActionID.pitchBendIncrease.rawValue,
+    "default group 2 uses the shared Pitch Bend plus Action"
 )
 check(
     OverCUEProfile.defaultValue.storedMapping(for: 1).chordMap["K7+K2"]
@@ -301,7 +316,7 @@ check(
 )
 check(
     version5Migration.configuration.profiles["default"]?.storedMapping(for: 1)
-        .dialChordMap["K7+DIAL_RIGHT"] == "rekordbox:304f",
+        .dialChordMap["K7+DIAL_RIGHT"] == ActionID.pitchBendIncrease.rawValue,
     "version 5 migration adds Deck 1 Pitch Bend mapping"
 )
 check(
@@ -311,7 +326,7 @@ check(
 )
 check(
     version5Migration.configuration.profiles["default"]?.storedMapping(for: 2)
-        .keyMap["K10"] == "rekordbox:3106",
+        .keyMap["K10"] == "play_pause",
     "version 5 migration seeds Deck 2 defaults"
 )
 var previousVersion5Profile = version5Migration.configuration.profiles["default"]!
@@ -354,6 +369,64 @@ check(
     version7Migration.configuration.profiles["default"]?.storedMapping(for: 4).waveformPosition
         == WaveformPosition(x: 12.5, y: 34.5),
     "version 7 migration copies the shared waveform position to every group"
+)
+let makeLegacyDeckMappings: ([String: String], RekordboxDeck) -> [String: String] = {
+    mappings, deck in
+    mappings.mapValues { value in
+        guard let target = ActionTarget(configurationValue: value),
+              let commandID = RekordboxActionAdapter.commandID(for: target, deck: deck)
+        else { return value }
+        return "rekordbox:\(commandID)"
+    }
+}
+var legacyVersion7Profile = OverCUEProfile.defaultValue
+for group in 1...4 {
+    var mapping = legacyVersion7Profile.storedMapping(for: group)
+    mapping.rekordboxDeck = nil
+    legacyVersion7Profile.setMapping(mapping, for: group)
+}
+var legacyDeck2 = legacyVersion7Profile.storedMapping(for: 2)
+legacyDeck2.keyMap = makeLegacyDeckMappings(legacyDeck2.keyMap, .deck2)
+legacyDeck2.chordMap = makeLegacyDeckMappings(legacyDeck2.chordMap, .deck2)
+legacyDeck2.dialChordMap = makeLegacyDeckMappings(legacyDeck2.dialChordMap, .deck2)
+legacyVersion7Profile.setMapping(legacyDeck2, for: 2)
+var explicitGenericProfile = OverCUEProfile(
+    keyMap: ["K1": "rekordbox:42ff"],
+    chordMap: [:],
+    rekordboxMode: .performance
+)
+explicitGenericProfile.waveformPosition = nil
+let version8Migration = ActionConfigurationMigrator.migrateToVersion8(
+    OverCUEConfiguration(
+        version: 7,
+        profiles: ["default": legacyVersion7Profile, "generic": explicitGenericProfile]
+    )
+)
+check(version8Migration.configuration.version == 8, "migration updates configuration to version 8")
+check(
+    version8Migration.configuration.profiles["default"]?.storedMapping(for: 2).rekordboxDeck
+        == .deck2,
+    "version 8 migration identifies the legacy default Deck 2 group"
+)
+check(
+    version8Migration.configuration.profiles["default"]?.storedMapping(for: 2).keyMap["K10"]
+        == ActionID.playPause.rawValue,
+    "version 8 migration replaces legacy Deck 2 IDs with standard Actions"
+)
+check(
+    version8Migration.configuration.profiles["default"]?.storedMapping(for: 3).rekordboxMode
+        == .export,
+    "version 8 migration preserves the existing EXPORT group"
+)
+check(
+    version8Migration.configuration.profiles["default"]?.storedMapping(for: 2).waveformPosition
+        == legacyDeck2.waveformPosition,
+    "version 8 migration preserves group waveform coordinates"
+)
+check(
+    version8Migration.configuration.profiles["generic"]?.storedMapping(for: 1).keyMap["K1"]
+        == "rekordbox:42ff",
+    "version 8 migration preserves explicit Generic command IDs"
 )
 var globalGroupProfile = OverCUEProfile.defaultValue
 globalGroupProfile.chordMap["K7+K8+K1"] = ActionID.cycleGroup.rawValue
@@ -405,6 +478,17 @@ do {
     let group = try JSONDecoder().decode(OverCUEGroupMapping.self, from: legacyGroupJSON)
     check(group.dialChordMap.isEmpty, "decode group mapping without dialChordMap")
     check(group.rekordboxMode == nil, "decode group mapping without rekordboxMode")
+    check(group.rekordboxDeck == nil, "decode group mapping without rekordboxDeck")
+
+    let invalidDeckJSON = Data("""
+    {"keyMap":{},"chordMap":{},"dialMap":{},"rekordboxDeck":5}
+    """.utf8)
+    do {
+        _ = try JSONDecoder().decode(OverCUEGroupMapping.self, from: invalidDeckJSON)
+        check(false, "reject target Deck outside 1 through 4")
+    } catch {
+        check(true, "reject target Deck outside 1 through 4")
+    }
 } catch {
     failureCount += 1
     fputs("FAIL: unexpected legacy group mapping error: \(error)\n", stderr)
@@ -605,6 +689,14 @@ do {
         "categorize Deck 2 shortcut"
     )
     check(
+        RekordboxShortcutCategory.category(for: "3206") == .deck3,
+        "categorize Deck 3 shortcut"
+    )
+    check(
+        RekordboxShortcutCategory.category(for: "3306") == .deck4,
+        "categorize Deck 4 shortcut"
+    )
+    check(
         RekordboxShortcutCategory.category(for: "3000") == .allDecks,
         "categorize All Decks shortcut"
     )
@@ -698,6 +790,7 @@ do {
     configuration.profiles["alternate"] = OverCUEProfile.defaultValue
     var group2 = configuration.profiles["default"]!.storedMapping(for: 2)
     group2.rekordboxMode = .performance
+    group2.rekordboxDeck = .deck3
     group2.waveformPosition = WaveformPosition(x: 840.5, y: 312.25)
     configuration.profiles["default"]!.setMapping(group2, for: 2)
     var group1 = configuration.profiles["default"]!.storedMapping(for: 1)
@@ -707,7 +800,7 @@ do {
     let data = try JSONEncoder().encode(configuration)
     let decoded = try JSONDecoder().decode(OverCUEConfiguration.self, from: data)
     check(decoded == configuration, "round-trip external configuration")
-    check(decoded.version == 7, "persist profile configuration version")
+    check(decoded.version == 8, "persist profile configuration version")
     check(
         decoded.profiles["default"]?.storedMapping(for: 1).waveformPosition
             == WaveformPosition(x: 640.5, y: 212.25),
@@ -739,6 +832,10 @@ do {
     check(
         decoded.profiles["default"]?.mapping(for: 2).rekordboxMode == .performance,
         "persist rekordbox mode independently for group 2"
+    )
+    check(
+        decoded.profiles["default"]?.mapping(for: 2).rekordboxDeck == .deck3,
+        "persist target Deck independently for group 2"
     )
 } catch {
     failureCount += 1

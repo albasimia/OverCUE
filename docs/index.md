@@ -69,7 +69,7 @@ XPPenPenTabletがACK05入力を消費する場合は終了してください。A
 
 1. rekordboxを起動します。
 2. ACK05を接続してOverCUEを起動します。
-3. OverCUEのグループとEXPORT／PERFORMANCEモードを選択します。
+3. OverCUEのグループ、EXPORT／PERFORMANCEモード、PERFORMANCEの対象Deck 1〜4を選択します。
 4. 波形操作を使う場合は、rekordboxの拡大波形上へポインターを置き、`K8+K1`で位置を保存します。
 5. rekordboxを最前面にしてACK05を操作します。
 
@@ -84,7 +84,7 @@ XPPenPenTabletがACK05入力を消費する場合は終了してください。A
 | 3 | EXPORT | Deck 1 |
 | 4 | EXPORT | ユーザー設定用 |
 
-各グループは最後に使用したEXPORT／PERFORMANCEモードを保存します。GUI、ACK05、CLI、メニューバーのグループとモードは連動します。
+各グループは最後に使用したEXPORT／PERFORMANCEモードと対象Deckを保存します。対象DeckはPERFORMANCEで標準Actionを送るDeck 1〜4を指定し、EXPORTでは使用しません。GUI、ACK05、CLI、メニューバーのグループとモードは連動します。
 
 `K8+K1`で保存する波形位置もグループごとに独立しています。グループを切り替えると、そのグループで最後に保存した位置へ切り替わります。
 
