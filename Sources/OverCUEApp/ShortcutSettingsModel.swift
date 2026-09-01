@@ -121,6 +121,7 @@ final class ShortcutSettingsModel: ObservableObject {
     private var dialHighlightTask: Task<Void, Never>?
     private var runtimeStatusObserver: SendableObserverToken?
     private var inputStatusObserver: SendableObserverToken?
+    private var configurationChangedObserver: SendableObserverToken?
     private var pendingAssignment: PendingAssignment?
 
     var internalEntries: [RekordboxShortcutEntry] {
@@ -214,6 +215,21 @@ final class ShortcutSettingsModel: ObservableObject {
                 }
             }
         )
+        configurationChangedObserver = SendableObserverToken(
+            DistributedNotificationCenter.default().addObserver(
+                forName: OverCUEConfigurationChangedNotification.name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.refreshConfigurationFromDisk() else { return }
+                    self.mode = self.configuredMode(for: self.selectedGroup)
+                    self.targetDeck = self.configuredDeck(for: self.selectedGroup)
+                    self.rebuildBindings()
+                    self.reload()
+                }
+            }
+        )
         runtimeBridge.onStatusChanged = { [weak self] status in
             self?.bridgeStatus = status
             if case let .failed(message) = status {
@@ -233,6 +249,9 @@ final class ShortcutSettingsModel: ObservableObject {
         }
         if let inputStatusObserver {
             DistributedNotificationCenter.default().removeObserver(inputStatusObserver.value)
+        }
+        if let configurationChangedObserver {
+            DistributedNotificationCenter.default().removeObserver(configurationChangedObserver.value)
         }
     }
 
@@ -438,6 +457,7 @@ final class ShortcutSettingsModel: ObservableObject {
         guard (1...4).contains(group), selectedGroup != group else { return }
         let wasCapturing = isCapturing
         if wasCapturing { stopCaptureMonitor() }
+        refreshConfigurationFromDisk()
         selectedGroup = group
         mode = configuredMode(for: group)
         targetDeck = configuredDeck(for: group)
@@ -1025,6 +1045,23 @@ final class ShortcutSettingsModel: ObservableObject {
         persistedConfiguration = configuration
     }
 
+    @discardableResult
+    private func refreshConfigurationFromDisk() -> Bool {
+        do {
+            let remote = try OverCUEConfigurationFileStore.readCurrent(at: configurationURL)
+            let reconciled = OverCUEConfigurationSnapshotSynchronizer.reconcile(
+                configuration: configuration,
+                persistedConfiguration: persistedConfiguration,
+                remote: remote
+            )
+            configuration = reconciled.configuration
+            persistedConfiguration = reconciled.persistedConfiguration
+            return true
+        } catch {
+            return false
+        }
+    }
+
     private func loadConfiguration() {
         if let data = try? Data(contentsOf: configurationURL),
            let decoded = try? JSONDecoder().decode(OverCUEConfiguration.self, from: data) {
@@ -1137,7 +1174,6 @@ final class ShortcutSettingsModel: ObservableObject {
         connected: Bool
     ) {
         guard (1...4).contains(group) else { return }
-        guard profileName == configuration.defaultProfile else { return }
         let currentTarget = runtimeDeviceID.map {
             OverCUERuntimeTarget(
                 deviceID: $0,
@@ -1145,6 +1181,17 @@ final class ShortcutSettingsModel: ObservableObject {
                 profileName: runtimeProfileName ?? configuration.defaultProfile
             )
         }
+        let statusChanged = runtimeMode != newMode
+            || runtimeGroup != group
+            || currentTarget?.deviceID != deviceID
+            || currentTarget?.logicalDeviceID != logicalDeviceID
+            || currentTarget?.profileName != profileName
+        if connected,
+           statusChanged,
+           profileName == configuration.defaultProfile {
+            guard refreshConfigurationFromDisk() else { return }
+        }
+        guard profileName == configuration.defaultProfile else { return }
         let nextTarget = OverCUERuntimeTargetPolicy.updatedTarget(
             current: currentTarget,
             defaultProfileName: configuration.defaultProfile,

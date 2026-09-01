@@ -597,6 +597,500 @@ check(!captureLock.deviceDisconnected("ack05-b"), "ignore disconnect of another 
 check(captureLock.deviceDisconnected("ack05-a"), "cancel the lock when its capture device disconnects")
 check(captureLock.deviceID == nil, "clear capture source after its device disconnects")
 
+let registryDeviceA = HIDPhysicalDeviceDescriptor(
+    kind: .genericHID,
+    vendorID: 0x1234,
+    productID: 0x5678,
+    serialNumber: "GENERIC-A",
+    productName: "Generic Pad",
+    manufacturerName: "Example",
+    transport: "USB",
+    locationID: 0x0102_0304,
+    transportIdentifier: "registry-a"
+)
+let registryDeviceB = HIDPhysicalDeviceDescriptor(
+    kind: .genericHID,
+    vendorID: 0x1234,
+    productID: 0x5678,
+    serialNumber: "GENERIC-B",
+    productName: "Generic Pad",
+    manufacturerName: "Example",
+    transport: "USB",
+    locationID: 0x0506_0708,
+    transportIdentifier: "registry-b"
+)
+var deviceRegistry = HIDDeviceRegistry()
+check(deviceRegistry.deviceConnected(registryDeviceA), "register a connected Generic HID device")
+check(!deviceRegistry.deviceConnected(registryDeviceA), "ignore an unchanged registry reconnect callback")
+check(deviceRegistry.deviceConnected(registryDeviceB), "register a second Physical Device")
+check(deviceRegistry.count == 2, "keep one registry entry per live session")
+check(
+    deviceRegistry.device(sessionIdentifier: registryDeviceA.sessionIdentifier)?.productName
+        == "Generic Pad",
+    "retain Device Registry metadata"
+)
+
+var registryConfiguration = OverCUEConfiguration.defaultValue
+registryConfiguration.profiles["alternate"] = OverCUEProfile.defaultValue
+registryConfiguration.logicalDevices["logical-a"] = OverCUELogicalDevice(
+    name: "Logical A",
+    profileName: "alternate"
+)
+registryConfiguration.physicalDeviceBindings = [
+    OverCUEPhysicalDeviceBinding(
+        logicalDeviceID: "logical-a",
+        kind: .genericHID,
+        vendorID: registryDeviceA.vendorID,
+        productID: registryDeviceA.productID,
+        serialNumber: registryDeviceA.serialNumber,
+        lastKnownLocationID: registryDeviceA.locationID
+    ),
+    OverCUEPhysicalDeviceBinding(
+        logicalDeviceID: "logical-a",
+        kind: .genericHID,
+        vendorID: registryDeviceB.vendorID,
+        productID: registryDeviceB.productID,
+        lastKnownLocationID: registryDeviceB.locationID
+    ),
+]
+let registryEntries = deviceRegistry.entries(configuration: registryConfiguration)
+let registryEntryA = registryEntries.first {
+    $0.descriptor.sessionIdentifier == registryDeviceA.sessionIdentifier
+}
+check(
+    registryEntryA?.bindingResolution == .bound(logicalDeviceID: "logical-a"),
+    "resolve Device Registry entry through Physical Binding"
+)
+check(registryEntryA?.profileName == "alternate", "resolve Registry entry through Logical Device Profile")
+let registryEntryB = registryEntries.first {
+    $0.descriptor.sessionIdentifier == registryDeviceB.sessionIdentifier
+}
+check(registryEntryB?.bindingResolution == .unbound, "Location hint does not bind a Registry device")
+check(
+    registryEntryB?.locationHintLogicalDeviceIDs == ["logical-a"],
+    "Device Registry exposes LocationID only as a Rebind hint"
+)
+check(
+    deviceRegistry.deviceDisconnected(sessionIdentifier: registryDeviceA.sessionIdentifier)
+        == registryDeviceA,
+    "remove only the disconnected Physical Device from Registry"
+)
+check(deviceRegistry.count == 1, "retain other Registry devices after disconnect")
+
+var identifySession = HIDIdentifySession()
+identifySession.begin(candidateSessionIDs: [
+    registryDeviceA.sessionIdentifier,
+    registryDeviceB.sessionIdentifier,
+])
+check(
+    identifySession.observeInput(from: "not-a-candidate") == .ignored,
+    "Identify ignores input outside its candidate devices"
+)
+check(
+    identifySession.observeInput(from: registryDeviceA.sessionIdentifier)
+        == .identified(sessionIdentifier: registryDeviceA.sessionIdentifier),
+    "Identify locks to the first operated Physical Device"
+)
+check(
+    identifySession.observeInput(from: registryDeviceB.sessionIdentifier) == .ignored,
+    "Identify cannot be stolen by a later Physical Device"
+)
+identifySession.deviceDisconnected(registryDeviceA.sessionIdentifier)
+check(
+    identifySession.state == .cancelled(.sourceDisconnected),
+    "Identify invalidates a selected source that disconnects"
+)
+var identifyCandidates = HIDIdentifySession()
+identifyCandidates.begin(candidateSessionIDs: [registryDeviceA.sessionIdentifier])
+identifyCandidates.deviceDisconnected(registryDeviceA.sessionIdentifier)
+check(
+    identifyCandidates.state == .cancelled(.noCandidatesRemain),
+    "Identify cancels when every explicit candidate disconnects"
+)
+
+var rebindConfiguration = registryConfiguration
+rebindConfiguration.physicalDeviceBindings = []
+do {
+    let newBinding = try HIDDeviceBindingManager.rebind(
+        logicalDeviceID: "logical-a",
+        to: registryDeviceA,
+        among: [registryDeviceA, registryDeviceB],
+        configuration: &rebindConfiguration
+    )
+    check(newBinding.serialNumber == "GENERIC-A", "Rebind persists a verified Serial identity")
+    check(
+        rebindConfiguration.logicalDevices["logical-a"]?.profileName == "alternate",
+        "Rebind leaves the Logical Device Profile unchanged"
+    )
+    check(
+        rebindConfiguration.bindingResolution(
+            for: registryDeviceA,
+            among: [registryDeviceA, registryDeviceB]
+        ) == .bound(logicalDeviceID: "logical-a"),
+        "Rebind replaces only the Physical Binding"
+    )
+    check(
+        HIDDeviceBindingManager.forgetBinding(
+            logicalDeviceID: "logical-a",
+            device: registryDeviceA,
+            configuration: &rebindConfiguration
+        ) == 1,
+        "Forget removes the selected Physical Binding"
+    )
+    check(
+        rebindConfiguration.logicalDevices["logical-a"]?.profileName == "alternate",
+        "Forget does not delete the Logical Device or Profile assignment"
+    )
+} catch {
+    check(false, "Rebind a unique persistent Physical Device: \(error)")
+}
+
+let duplicateRegistryDevice = HIDPhysicalDeviceDescriptor(
+    kind: .genericHID,
+    vendorID: registryDeviceA.vendorID,
+    productID: registryDeviceA.productID,
+    serialNumber: registryDeviceA.serialNumber,
+    locationID: 0x9999,
+    transportIdentifier: "registry-a-duplicate"
+)
+do {
+    _ = try HIDDeviceBindingManager.rebind(
+        logicalDeviceID: "logical-a",
+        to: registryDeviceA,
+        among: [registryDeviceA, duplicateRegistryDevice],
+        configuration: &rebindConfiguration
+    )
+    check(false, "reject ambiguous persistent identity during Rebind")
+} catch let error as HIDDeviceBindingManagementError {
+    check(
+        error == .ambiguousPersistentIdentity(registryDeviceA.persistentIdentifier!),
+        "reject ambiguous persistent identity during Rebind"
+    )
+} catch {
+    check(false, "reject ambiguous persistent identity during Rebind")
+}
+var alreadyBoundConfiguration = registryConfiguration
+alreadyBoundConfiguration.logicalDevices["logical-b"] = OverCUELogicalDevice(
+    name: "Logical B",
+    profileName: "default"
+)
+alreadyBoundConfiguration.physicalDeviceBindings = [
+    OverCUEPhysicalDeviceBinding(
+        logicalDeviceID: "logical-b",
+        kind: registryDeviceA.kind,
+        vendorID: registryDeviceA.vendorID,
+        productID: registryDeviceA.productID,
+        serialNumber: registryDeviceA.serialNumber
+    ),
+]
+do {
+    _ = try HIDDeviceBindingManager.rebind(
+        logicalDeviceID: "logical-a",
+        to: registryDeviceA,
+        among: [registryDeviceA],
+        configuration: &alreadyBoundConfiguration
+    )
+    check(false, "Rebind does not silently steal a Physical Device from another Logical Device")
+} catch let error as HIDDeviceBindingManagementError {
+    check(
+        error == .alreadyBound(logicalDeviceIDs: ["logical-b"]),
+        "Rebind does not silently steal a Physical Device from another Logical Device"
+    )
+} catch {
+    check(false, "Rebind does not silently steal a Physical Device from another Logical Device")
+}
+let locationOnlyDevice = HIDPhysicalDeviceDescriptor(
+    kind: .genericHID,
+    vendorID: 0x1234,
+    productID: 0x5678,
+    locationID: 0x1111,
+    transportIdentifier: "location-only"
+)
+do {
+    _ = try HIDDeviceBindingManager.rebind(
+        logicalDeviceID: "logical-a",
+        to: locationOnlyDevice,
+        among: [locationOnlyDevice],
+        configuration: &rebindConfiguration
+    )
+    check(false, "do not promote LocationID to persistent Rebind identity")
+} catch let error as HIDDeviceBindingManagementError {
+    check(
+        error == .missingPersistentIdentity(locationOnlyDevice.sessionIdentifier),
+        "do not promote LocationID to persistent Rebind identity"
+    )
+} catch {
+    check(false, "do not promote LocationID to persistent Rebind identity")
+}
+let prohibitedLocationBinding = OverCUEPhysicalDeviceBinding(
+    logicalDeviceID: "logical-a",
+    kind: .genericHID,
+    vendorID: locationOnlyDevice.vendorID,
+    productID: locationOnlyDevice.productID,
+    legacyDeviceIdentifier: "location:00001111"
+)
+let locationLegacyDescriptor = HIDPhysicalDeviceDescriptor(
+    kind: .genericHID,
+    vendorID: locationOnlyDevice.vendorID,
+    productID: locationOnlyDevice.productID,
+    locationID: locationOnlyDevice.locationID,
+    transportIdentifier: "location-legacy",
+    legacyIdentifiers: ["location:00001111"]
+)
+check(
+    !prohibitedLocationBinding.matches(locationLegacyDescriptor),
+    "never match a legacy location identifier as persistent identity"
+)
+
+let keyboardInput = GenericHIDInputDescriptor(
+    usagePage: 0x07,
+    usage: 0x3A,
+    reportID: 1,
+    collectionPath: [HIDUsage(page: 0x01, usage: 0x06)]
+)
+let keyboardElement = GenericHIDRuntimeElementDescriptor(
+    input: keyboardInput,
+    cookie: 100,
+    isRelative: false,
+    matchingElementCount: 1
+)
+let keyboardPress = GenericHIDEventNormalizer.normalize(
+    GenericHIDRawValue(
+        sessionDeviceID: registryDeviceA.sessionIdentifier,
+        element: keyboardElement,
+        value: 1
+    )
+)
+let keyboardRelease = GenericHIDEventNormalizer.normalize(
+    GenericHIDRawValue(
+        sessionDeviceID: registryDeviceA.sessionIdentifier,
+        element: keyboardElement,
+        value: 0
+    )
+)
+check(keyboardInput.kind == .keyboard, "classify Generic HID Keyboard usage")
+check(keyboardPress?.phase == .pressed, "normalize Generic HID key press")
+check(keyboardRelease?.phase == .released, "normalize Generic HID key release")
+do {
+    let encodedInput = try JSONEncoder().encode(keyboardInput)
+    let decodedInput = try JSONDecoder().decode(
+        GenericHIDInputDescriptor.self,
+        from: encodedInput
+    )
+    check(decodedInput == keyboardInput, "round-trip persistent Generic HID input descriptor")
+} catch {
+    check(false, "round-trip persistent Generic HID input descriptor: \(error)")
+}
+let sameUsageDifferentCollection = GenericHIDInputDescriptor(
+    usagePage: 0x07,
+    usage: 0x3A,
+    reportID: 1,
+    collectionPath: [HIDUsage(page: 0x01, usage: 0x02)]
+)
+check(
+    sameUsageDifferentCollection != keyboardInput,
+    "distinguish equal HID usages in different collection paths"
+)
+
+let consumerInput = GenericHIDInputDescriptor(usagePage: 0x0C, usage: 0x00E9, reportID: 2)
+let consumerElement = GenericHIDRuntimeElementDescriptor(
+    input: consumerInput,
+    isRelative: false,
+    matchingElementCount: 1
+)
+check(consumerInput.kind == .consumerControl, "classify Consumer Control usage")
+check(
+    GenericHIDEventNormalizer.normalize(
+        GenericHIDRawValue(
+            sessionDeviceID: registryDeviceA.sessionIdentifier,
+            element: consumerElement,
+            value: 1
+        )
+    )?.phase == .pressed,
+    "normalize Consumer Control press"
+)
+
+let buttonInput = GenericHIDInputDescriptor(usagePage: 0x09, usage: 1)
+let buttonElement = GenericHIDRuntimeElementDescriptor(
+    input: buttonInput,
+    isRelative: false,
+    matchingElementCount: 1
+)
+check(buttonInput.kind == .button, "classify Generic HID Button usage")
+check(
+    GenericHIDEventNormalizer.normalize(
+        GenericHIDRawValue(
+            sessionDeviceID: registryDeviceA.sessionIdentifier,
+            element: buttonElement,
+            value: 0
+        )
+    )?.phase == .released,
+    "normalize Generic HID Button release"
+)
+
+let relativeInput = GenericHIDInputDescriptor(usagePage: 0x01, usage: 0x37, reportID: 3)
+let relativeElement = GenericHIDRuntimeElementDescriptor(
+    input: relativeInput,
+    cookie: 200,
+    isRelative: true,
+    matchingElementCount: 1
+)
+let relativeEvent = GenericHIDEventNormalizer.normalize(
+    GenericHIDRawValue(
+        sessionDeviceID: registryDeviceA.sessionIdentifier,
+        element: relativeElement,
+        value: -2
+    )
+)
+check(relativeElement.kind == .relativeValue, "classify relative Generic HID input")
+check(relativeEvent?.phase == .relative(delta: -2), "preserve relative HID delta")
+check(
+    GenericHIDEventNormalizer.normalize(
+        GenericHIDRawValue(
+            sessionDeviceID: registryDeviceA.sessionIdentifier,
+            element: relativeElement,
+            value: 0
+        )
+    ) == nil,
+    "ignore zero relative HID values"
+)
+
+let absoluteInput = GenericHIDInputDescriptor(usagePage: 0x01, usage: 0x30)
+let absoluteElement = GenericHIDRuntimeElementDescriptor(
+    input: absoluteInput,
+    isRelative: false,
+    matchingElementCount: 1
+)
+check(
+    GenericHIDEventNormalizer.normalize(
+        GenericHIDRawValue(
+            sessionDeviceID: registryDeviceA.sessionIdentifier,
+            element: absoluteElement,
+            value: 512
+        )
+    )?.phase == .absolute(value: 512),
+    "preserve absolute Generic HID value without guessing an Action"
+)
+let duplicateElement = GenericHIDRuntimeElementDescriptor(
+    input: buttonInput,
+    cookie: 201,
+    isRelative: false,
+    matchingElementCount: 2
+)
+check(
+    duplicateElement.persistentInput == nil,
+    "do not persist duplicate HID elements from cookie identity alone"
+)
+
+var genericLearn = GenericHIDLearnSession()
+genericLearn.begin()
+check(
+    genericLearn.observe(keyboardRelease!) == .ignored,
+    "Generic HID Learn ignores release before activation"
+)
+guard let learnedPress = keyboardPress else {
+    fputs("FAIL: missing normalized Generic HID press\n", stderr)
+    exit(EXIT_FAILURE)
+}
+check(
+    genericLearn.observe(learnedPress) == .captured(GenericHIDLearnCandidate(event: learnedPress)),
+    "Generic HID Learn captures the first source device input"
+)
+let otherDevicePress = GenericHIDEvent(
+    sessionDeviceID: registryDeviceB.sessionIdentifier,
+    element: keyboardElement,
+    phase: .pressed
+)
+check(
+    genericLearn.observe(otherDevicePress) == .ignored,
+    "Generic HID Learn cannot mix another Physical Device"
+)
+do {
+    let learnedBinding = try genericLearn.binding(target: .action(.playPause))
+    check(learnedBinding.input == keyboardInput, "Learn produces a persistent logical input descriptor")
+    check(learnedBinding.target == .action(.playPause), "Learn binds only to an OverCUE Action target")
+} catch {
+    check(false, "create Generic HID learned binding: \(error)")
+}
+genericLearn.deviceDisconnected(registryDeviceA.sessionIdentifier)
+check(
+    genericLearn.state == .cancelled(.sourceDisconnected),
+    "Generic HID Learn cancels when its source disconnects"
+)
+
+var ambiguousLearn = GenericHIDLearnSession()
+ambiguousLearn.begin()
+let ambiguousPress = GenericHIDEvent(
+    sessionDeviceID: registryDeviceA.sessionIdentifier,
+    element: duplicateElement,
+    phase: .pressed
+)
+_ = ambiguousLearn.observe(ambiguousPress)
+do {
+    _ = try ambiguousLearn.binding(target: .action(.hotCue1))
+    check(false, "reject ambiguous Generic HID persistent input identity")
+} catch let error as GenericHIDLearnError {
+    check(error == .ambiguousPersistentInput, "reject ambiguous Generic HID persistent input identity")
+} catch {
+    check(false, "reject ambiguous Generic HID persistent input identity")
+}
+
+var genericActionResolver = GenericHIDActionResolver()
+let genericActionMapping: [GenericHIDInputDescriptor: ActionTarget] = [
+    keyboardInput: .action(.cue),
+    consumerInput: .action(.jumpBackward),
+    relativeInput: .action(.jumpForward),
+]
+check(
+    genericActionResolver.resolve(event: learnedPress, mapping: genericActionMapping).first
+        == ActionEvent(
+            action: .cue,
+            phase: .pressed,
+            sourceKey: nil,
+            sourceLabel: keyboardInput.label
+        ),
+    "synthetic Generic HID press reaches the existing ActionEvent layer"
+)
+check(
+    genericActionResolver.resolve(event: keyboardRelease!, mapping: genericActionMapping).first?.phase
+        == .released,
+    "synthetic Generic HID release preserves hold semantics"
+)
+guard let relativeEvent else {
+    fputs("FAIL: missing normalized Generic HID relative event\n", stderr)
+    exit(EXIT_FAILURE)
+}
+check(
+    genericActionResolver.resolve(event: relativeEvent, mapping: genericActionMapping).first?.action
+        == .jumpForward,
+    "synthetic relative Generic HID input reaches an OverCUE Action"
+)
+let consumerPressEvent = GenericHIDEvent(
+    sessionDeviceID: registryDeviceA.sessionIdentifier,
+    element: consumerElement,
+    phase: .pressed
+)
+let consumerReleaseEvent = GenericHIDEvent(
+    sessionDeviceID: registryDeviceA.sessionIdentifier,
+    element: consumerElement,
+    phase: .released
+)
+check(
+    genericActionResolver.resolve(event: consumerPressEvent, mapping: genericActionMapping)
+        .first?.phase == .pressed,
+    "Generic HID accelerating Action starts with pressed phase"
+)
+check(
+    genericActionResolver.repeatedEvent(for: consumerInput, mapping: genericActionMapping)?.phase
+        == .repeated,
+    "Generic HID accelerating Action exposes repeat events"
+)
+_ = genericActionResolver.resolve(event: consumerReleaseEvent, mapping: genericActionMapping)
+check(
+    genericActionResolver.repeatedEvent(for: consumerInput, mapping: genericActionMapping) == nil,
+    "Generic HID accelerating Action stops repeating on release"
+)
+
 check(
     OverCUERuntimeNotificationScope.device.controls(
         activeDeviceID: "ack05-a",
@@ -1146,11 +1640,67 @@ do {
     )
     check(profileDeletion.profiles["alternate"] == nil, "local Profile deletion wins its conflict")
 
+    var staleGUIConfiguration = base
+    var staleGUIGroup1 = staleGUIConfiguration.profiles["default"]!.storedMapping(for: 1)
+    staleGUIGroup1.keyMap["K10"] = "play_pause"
+    staleGUIConfiguration.profiles["default"]!.setMapping(staleGUIGroup1, for: 1)
+    var runtimeRemote = base
+    var runtimeRemoteGroup2 = runtimeRemote.profiles["default"]!.storedMapping(for: 2)
+    runtimeRemoteGroup2.rekordboxMode = .performance
+    runtimeRemoteGroup2.rekordboxDeck = .deck3
+    runtimeRemoteGroup2.waveformPosition = WaveformPosition(x: 920, y: 280)
+    runtimeRemote.profiles["default"]!.setMapping(runtimeRemoteGroup2, for: 2)
+    runtimeRemote.logicalDevices["runtime-added"] = OverCUELogicalDevice(
+        name: "Runtime Added",
+        profileName: "default"
+    )
+    let runtimeReconciliation = OverCUEConfigurationSnapshotSynchronizer.reconcile(
+        configuration: staleGUIConfiguration,
+        persistedConfiguration: base,
+        remote: runtimeRemote
+    )
+    let group1AfterRuntimeStatus = runtimeReconciliation.configuration.profiles["default"]!
+        .storedMapping(for: 1)
+    let group2AfterReturning = runtimeReconciliation.configuration.profiles["default"]!
+        .storedMapping(for: 2)
+    check(
+        group1AfterRuntimeStatus.keyMap["K10"] == "play_pause",
+        "runtime config refresh preserves an unsaved GUI field change"
+    )
+    check(
+        group2AfterReturning.rekordboxMode == .performance,
+        "runtime status refresh prevents stale Mode rollback after leaving and returning to Group"
+    )
+    check(
+        group2AfterReturning.rekordboxMode != .export,
+        "GUI will not send its stale EXPORT Mode back after runtime PERFORMANCE save"
+    )
+    check(
+        group2AfterReturning.rekordboxDeck == .deck3,
+        "runtime config refresh adopts remote Deck state"
+    )
+    check(
+        group2AfterReturning.waveformPosition == WaveformPosition(x: 920, y: 280),
+        "runtime config refresh adopts remote waveform position"
+    )
+    check(
+        runtimeReconciliation.configuration.logicalDevices["runtime-added"]?.name
+            == "Runtime Added",
+        "runtime config refresh adopts remote Logical Device state"
+    )
+    check(
+        runtimeReconciliation.persistedConfiguration == runtimeRemote,
+        "runtime config refresh advances the GUI merge baseline without saving"
+    )
+
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent("overcue-persistence-check-\(UUID().uuidString)")
     let configurationURL = temporaryDirectory.appendingPathComponent("config.json")
     defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
     try OverCUEConfigurationFileStore.writeCurrent(base, at: configurationURL)
+    let initialConfigurationRevision = try OverCUEConfigurationFileStore.revision(
+        at: configurationURL
+    )
     check(
         FileManager.default.fileExists(atPath: configurationURL.appendingPathExtension("lock").path),
         "create a stable adjacent config lock file"
@@ -1165,6 +1715,13 @@ do {
         cliGroup.rekordboxMode = .performance
         latest.profiles["default"]!.setMapping(cliGroup, for: 1)
     }
+    let updatedConfigurationRevision = try OverCUEConfigurationFileStore.revision(
+        at: configurationURL
+    )
+    check(
+        updatedConfigurationRevision != initialConfigurationRevision,
+        "detect atomic config replacement before the next HID input"
+    )
     let serialized = try OverCUEConfigurationFileStore.updateCurrent(at: configurationURL) { latest in
         latest = OverCUEConfigurationMerger.merge(
             base: base,
@@ -1182,6 +1739,18 @@ do {
     )
     let serializedReadBack = try OverCUEConfigurationFileStore.readCurrent(at: configurationURL)
     check(serializedReadBack == serialized, "read back the latest serialized configuration")
+    let serializedSnapshot = try OverCUEConfigurationFileStore.readCurrentSnapshot(
+        at: configurationURL
+    )
+    check(
+        serializedSnapshot.configuration == serialized,
+        "read config content and revision as one locked snapshot"
+    )
+    let serializedRevision = try OverCUEConfigurationFileStore.revision(at: configurationURL)
+    check(
+        serializedSnapshot.revision == serializedRevision,
+        "locked config snapshot reports its matching file revision"
+    )
 
     let missingURL = temporaryDirectory.appendingPathComponent("missing/config.json")
     let createdFromFallback = try OverCUEConfigurationFileStore.updateCurrent(
@@ -1219,6 +1788,42 @@ do {
     check(
         configurationAfterRejectedWrite == serialized,
         "failed unsupported write leaves the current config intact"
+    )
+
+    let deviceManagementURL = temporaryDirectory.appendingPathComponent("devices/config.json")
+    var deviceManagementConfiguration = base
+    deviceManagementConfiguration.profiles["alternate"] = OverCUEProfile.defaultValue
+    deviceManagementConfiguration.logicalDevices["managed-logical"] = OverCUELogicalDevice(
+        name: "Managed Logical",
+        profileName: "alternate"
+    )
+    try OverCUEConfigurationFileStore.writeCurrent(
+        deviceManagementConfiguration,
+        at: deviceManagementURL
+    )
+    let reboundOnDisk = try HIDDeviceManagementFileStore.rebind(
+        logicalDeviceID: "managed-logical",
+        to: registryDeviceA,
+        among: [registryDeviceA],
+        at: deviceManagementURL
+    )
+    check(
+        reboundOnDisk.physicalDeviceBindings.first?.logicalDeviceID == "managed-logical",
+        "Device Management file Rebind updates config under the shared lock"
+    )
+    check(
+        reboundOnDisk.logicalDevices["managed-logical"]?.profileName == "alternate",
+        "Device Management file Rebind retains the Logical Device Profile"
+    )
+    let forgottenOnDisk = try HIDDeviceManagementFileStore.forgetBinding(
+        logicalDeviceID: "managed-logical",
+        device: registryDeviceA,
+        at: deviceManagementURL
+    )
+    check(forgottenOnDisk.physicalDeviceBindings.isEmpty, "Device Management file Forget removes binding")
+    check(
+        forgottenOnDisk.logicalDevices["managed-logical"] != nil,
+        "Device Management file Forget remains separate from Logical Device deletion"
     )
 
     let migrationURL = temporaryDirectory.appendingPathComponent("migration/config.json")

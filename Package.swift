@@ -33,6 +33,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "OverCUEProbe",
+            dependencies: ["OverCUECore"],
             linkerSettings: [
                 .linkedFramework("IOKit"),
             ]

@@ -231,7 +231,8 @@ private final class ConfigurationStore {
 
     let url: URL
     private(set) var configuration: OverCUEConfiguration
-    private var connectedDevices: [String: HIDPhysicalDeviceDescriptor] = [:]
+    private var deviceRegistry = HIDDeviceRegistry()
+    private var loadedRevision: OverCUEConfigurationFileRevision?
 
     init(path: String?) throws {
         if let path {
@@ -275,48 +276,72 @@ private final class ConfigurationStore {
             try save()
         }
 
-        try validateCurrentConfiguration(configuration)
+        let snapshot = try OverCUEConfigurationFileStore.readCurrentSnapshot(at: url)
+        try validateCurrentConfiguration(snapshot.configuration)
+        configuration = snapshot.configuration
+        loadedRevision = snapshot.revision
     }
 
     func profileName(for device: HIDPhysicalDeviceDescriptor?) -> String {
         guard let device else { return configuration.defaultProfile }
-        return configuration.profileName(for: device, among: Array(connectedDevices.values))
+        return configuration.profileName(for: device, among: deviceRegistry.connectedDevices)
     }
 
     func bindingResolution(
         for device: HIDPhysicalDeviceDescriptor
     ) -> PhysicalDeviceBindingResolution {
-        configuration.bindingResolution(for: device, among: Array(connectedDevices.values))
+        configuration.bindingResolution(for: device, among: deviceRegistry.connectedDevices)
     }
 
     func deviceConnected(_ device: HIDPhysicalDeviceDescriptor) {
-        connectedDevices[device.sessionIdentifier] = device
+        deviceRegistry.deviceConnected(device)
     }
 
     func deviceDisconnected(_ device: HIDPhysicalDeviceDescriptor) {
-        connectedDevices.removeValue(forKey: device.sessionIdentifier)
+        deviceRegistry.deviceDisconnected(sessionIdentifier: device.sessionIdentifier)
     }
 
     func setConnectedDevices(_ devices: [HIDPhysicalDeviceDescriptor]) {
-        connectedDevices = Dictionary(uniqueKeysWithValues: devices.map {
-            ($0.sessionIdentifier, $0)
-        })
+        let currentIDs = Set(deviceRegistry.connectedDevices.map(\.sessionIdentifier))
+        let nextIDs = Set(devices.map(\.sessionIdentifier))
+        for removedID in currentIDs.subtracting(nextIDs) {
+            deviceRegistry.deviceDisconnected(sessionIdentifier: removedID)
+        }
+        for device in devices {
+            deviceRegistry.deviceConnected(device)
+        }
     }
 
     func connectedDevice(sessionIdentifier: String) -> HIDPhysicalDeviceDescriptor? {
-        connectedDevices[sessionIdentifier]
+        deviceRegistry.device(sessionIdentifier: sessionIdentifier)
     }
 
     func reloadCurrentConfiguration() throws {
         do {
-            let latest = try OverCUEConfigurationFileStore.readCurrent(at: url)
-            try validateCurrentConfiguration(latest)
-            configuration = latest
+            let snapshot = try OverCUEConfigurationFileStore.readCurrentSnapshot(at: url)
+            try validateCurrentConfiguration(snapshot.configuration)
+            configuration = snapshot.configuration
+            loadedRevision = snapshot.revision
         } catch let error as BridgeError {
             throw error
         } catch {
             throw BridgeError.configuration("Could not reload config at \(url.path): \(error)")
         }
+    }
+
+    func reloadCurrentConfigurationIfChanged() throws -> Bool {
+        let revision = try OverCUEConfigurationFileStore.revision(at: url)
+        guard revision != loadedRevision else { return false }
+        try reloadCurrentConfiguration()
+        return true
+    }
+
+    func currentDiskRevision() throws -> OverCUEConfigurationFileRevision {
+        try OverCUEConfigurationFileStore.revision(at: url)
+    }
+
+    var currentLoadedRevision: OverCUEConfigurationFileRevision? {
+        loadedRevision
     }
 
     func profile(named name: String) throws -> OverCUEProfile {
@@ -355,6 +380,10 @@ private final class ConfigurationStore {
             profile.setMapping(mapping, for: group)
             latest.profiles[profileName] = profile
         }
+        let snapshot = try OverCUEConfigurationFileStore.readCurrentSnapshot(at: url)
+        configuration = snapshot.configuration
+        loadedRevision = snapshot.revision
+        OverCUEConfigurationChangedNotification.post()
     }
 
     func waveformPosition(profileName: String, group: Int) throws -> WaveformPosition? {
@@ -374,11 +403,18 @@ private final class ConfigurationStore {
             profile.setMapping(mapping, for: group)
             latest.profiles[profileName] = profile
         }
+        let snapshot = try OverCUEConfigurationFileStore.readCurrentSnapshot(at: url)
+        configuration = snapshot.configuration
+        loadedRevision = snapshot.revision
+        OverCUEConfigurationChangedNotification.post()
     }
 
     private func save() throws {
         do {
             try OverCUEConfigurationFileStore.writeCurrent(configuration, at: url)
+            let snapshot = try OverCUEConfigurationFileStore.readCurrentSnapshot(at: url)
+            configuration = snapshot.configuration
+            loadedRevision = snapshot.revision
         } catch {
             throw BridgeError.configuration("Could not save config at \(url.path): \(error)")
         }
@@ -898,6 +934,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     private var repeatingKey: ACK05Key?
     private var keyRepeatStartedAt: TimeInterval?
     private var keyRepeatTimer: Timer?
+    private var appliedConfigurationRevision: OverCUEConfigurationFileRevision?
 
     init(
         profile: WaveformDragProfile,
@@ -917,6 +954,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         self.keyboardCommandsByMode = keyboardCommandsByMode
         self.mappingsByProfile = mappingsByProfile
         self.configurationStore = configurationStore
+        appliedConfigurationRevision = configurationStore.currentLoadedRevision
         activeProfileName = configurationStore.configuration.defaultProfile
         activeGroup = initialGroup
         activeRekordboxMode = configurationStore.rekordboxMode(
@@ -945,6 +983,12 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
             self,
             selector: #selector(runtimeControlRequested(_:)),
             name: OverCUERuntimeControlNotification.name,
+            object: nil
+        )
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(configurationChanged(_:)),
+            name: OverCUEConfigurationChangedNotification.name,
             object: nil
         )
 
@@ -1010,6 +1054,17 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         switchGroup(to: group, preferredMode: mode, source: "GUI")
     }
 
+    @objc private func configurationChanged(_ notification: Notification) {
+        if let sourceProcessIdentifier = notification.userInfo?[
+            OverCUEConfigurationChangedNotification.sourceProcessIdentifierKey
+        ] as? Int,
+           sourceProcessIdentifier == Int(ProcessInfo.processInfo.processIdentifier) {
+            return
+        }
+        guard reloadConfigurationForRuntimeControl() else { return }
+        switchGroup(to: activeGroup, preferredMode: nil, source: "configuration")
+    }
+
     func deviceConnected(_ device: HIDPhysicalDeviceDescriptor) {
         configurationStore.deviceConnected(device)
         activateProfile(for: device)
@@ -1026,6 +1081,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     }
 
     func handle(device: HIDPhysicalDeviceDescriptor, reportID: UInt32, bytes: [UInt8]) {
+        guard synchronizeConfigurationBeforeInput() else { return }
         activateProfile(for: device)
         if let pressedKeys = decoder.pressedKeys(
             reportID: reportID,
@@ -1197,25 +1253,47 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     private func reloadConfigurationForRuntimeControl() -> Bool {
         do {
             try configurationStore.reloadCurrentConfiguration()
-            var refreshedMappings: [String: [Int: ActionMapping]] = [:]
-            for (name, profileConfiguration) in configurationStore.configuration.profiles {
-                refreshedMappings[name] = try Dictionary(
-                    uniqueKeysWithValues: (1...4).map { group in
-                        (group, try ActionMapping(profile: profileConfiguration, group: group))
-                    }
-                )
-            }
-            mappingsByProfile = refreshedMappings
-            if let activeDeviceID,
-               let activeDevice = configurationStore.connectedDevice(
-                   sessionIdentifier: activeDeviceID
-               ) {
-                activateProfile(for: activeDevice)
-            }
+            try rebuildMappingsFromConfigurationStore()
+            appliedConfigurationRevision = configurationStore.currentLoadedRevision
             return true
         } catch {
             log("ERROR Could not reload configuration before GUI control: \(error)")
             return false
+        }
+    }
+
+    private func synchronizeConfigurationBeforeInput() -> Bool {
+        do {
+            let diskRevision = try configurationStore.currentDiskRevision()
+            guard diskRevision != appliedConfigurationRevision else {
+                return true
+            }
+            _ = try configurationStore.reloadCurrentConfigurationIfChanged()
+            try rebuildMappingsFromConfigurationStore()
+            appliedConfigurationRevision = configurationStore.currentLoadedRevision
+            switchGroup(to: activeGroup, preferredMode: nil, source: "configuration revision")
+            return true
+        } catch {
+            log("ERROR Could not synchronize configuration before HID input: \(error)")
+            return false
+        }
+    }
+
+    private func rebuildMappingsFromConfigurationStore() throws {
+        var refreshedMappings: [String: [Int: ActionMapping]] = [:]
+        for (name, profileConfiguration) in configurationStore.configuration.profiles {
+            refreshedMappings[name] = try Dictionary(
+                uniqueKeysWithValues: (1...4).map { group in
+                    (group, try ActionMapping(profile: profileConfiguration, group: group))
+                }
+            )
+        }
+        mappingsByProfile = refreshedMappings
+        if let activeDeviceID,
+           let activeDevice = configurationStore.connectedDevice(
+               sessionIdentifier: activeDeviceID
+           ) {
+            activateProfile(for: activeDevice)
         }
     }
 
@@ -1748,6 +1826,12 @@ private func hidDeviceDescriptor(_ device: IOHIDDevice) -> HIDPhysicalDeviceDesc
         device,
         kIOHIDSerialNumberKey as CFString
     ) as? String
+    let productName = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String
+    let manufacturerName = IOHIDDeviceGetProperty(
+        device,
+        kIOHIDManufacturerKey as CFString
+    ) as? String
+    let transport = IOHIDDeviceGetProperty(device, kIOHIDTransportKey as CFString) as? String
     let locationID = (
         IOHIDDeviceGetProperty(device, kIOHIDLocationIDKey as CFString) as? NSNumber
     )?.uint32Value
@@ -1758,15 +1842,15 @@ private func hidDeviceDescriptor(_ device: IOHIDDevice) -> HIDPhysicalDeviceDesc
             legacyIdentifiers.insert(value)
         }
     }
-    if let locationID {
-        legacyIdentifiers.insert(String(format: "location:%08X", locationID))
-    }
     let address = UInt(bitPattern: Unmanaged.passUnretained(device).toOpaque())
     return HIDPhysicalDeviceDescriptor(
         kind: .ack05,
         vendorID: vendorID,
         productID: productID,
         serialNumber: serialNumber,
+        productName: productName,
+        manufacturerName: manufacturerName,
+        transport: transport,
         locationID: locationID,
         transportIdentifier: String(address, radix: 16),
         legacyIdentifiers: legacyIdentifiers

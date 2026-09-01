@@ -221,6 +221,10 @@ OverCUEは固定キーやマッピングファイルIDを直接決め打ちせ�
 
 GUIとCLIは同じ`config.json`を正本として共有する。永続更新は`OverCUEConfigurationFileStore`を通し、atomic writeの置換対象とは別の安定した`config.json.lock`を`flock`で排他取得したうえで最新ファイルをread-modify-writeする。CLIのMode変更とwaveform位置保存は最新configの対象fieldだけを更新する。GUIは最後に読み込んだbaseline、GUIローカル変更、lock取得後に読み直した最新disk stateを3-way mergeし、GUIが変更していないProfile / Group / mapping / Logical Device等のfieldは最新disk stateを保持する。同一fieldを双方が変更した場合はGUI localを採用する。version 1〜8 migrationもlock内で最新versionを再判定し、既に別processがcurrentへ移行・更新していた場合はその最新stateを採用する。これにより、通常保存とmigrationのどちらでも古いin-memory snapshot全体を後勝ちで書き戻さない。
 
+CLIがModeやwaveform位置を保存した場合はprocess間変更通知を送り、GUIはdisk stateを新しいpersisted baselineとして取り込み、baselineからのGUI未保存差分だけを再適用する。Group切替時にも同じreconcileを行うため、CLIがGroup 2をEXPORTからPERFORMANCEへ変更した後にGUIがGroupを往復しても古いEXPORTを送り返さない。runtime status受信だけを理由にconfig全体を保存することはない。
+
+CLIはACK05 report処理前にもconfig file revisionを確認する。変更時はPhysical Binding → Logical Device → Profileを再評価し、全Profile / GroupのAction mapping、Deck、Mode、波形位置を再構築してから入力を処理する。config内容とrevisionは同じ`config.json.lock`保持中にsnapshotとして取得し、古い内容に新しいrevisionを対応させて更新を見逃さない。
+
 ```json
 {
   "version": 9,
@@ -322,7 +326,25 @@ CLI bridgeは接続ACK05ごとに独立したcontrollerを生成する。live se
 
 同時接続中の複数deviceが同じVID / PID / Serialを報告した場合、そのpersistent bindingはambiguousとして扱い、どちらも同じLogical Deviceへ自動bindingしない。接続トポロジ変更は既存controllerへ即時通知し、既に押下中のholdを含む状態をdefault Profileへ安全に再評価する。
 
-複数ACK05の状態分離とruntime target / config persistenceは308 Core checksとmacOSローカルbuildで確認済みだが、2台以上を使う同時操作、切断、再接続は実機未検証である。Devices UI、Identify / Rebind、Generic HID Learnは未実装。
+複数ACK05の状態分離とruntime target / config persistenceはCore checksとmacOSローカルbuildで確認するが、2台以上を使う同時操作、切断、再接続は実機未検証である。
+
+### 9.3 Device Management Core
+
+`HIDDeviceRegistry`は接続中Physical HID Deviceをsession identifierで管理し、VID / PID / Serial / Product / Manufacturer / transport / LocationIDと、現在のbinding resolution、ambiguous状態、Logical DeviceのProfileを提供する。Registryはruntime接続状態だけを担当し、永続状態の正本はversion 9 configの`physicalDeviceBindings`と`logicalDevices`である。LocationIDは候補hintとしてのみ公開する。
+
+`HIDIdentifySession`は候補deviceの入力を待ち、最初に操作されたsessionを返して終了する。候補外入力は無視し、選択sourceまたは全候補が切断された場合はcancelする。
+
+RebindはLogical Deviceを残したままPhysical Bindingだけを置換する。現時点で自動永続化できるのは、接続中に一意と確認できるVID / PID / Serialの組み合わせだけである。Serialなし、同じpersistent identityを持つdeviceが複数接続中、または別Logical Deviceへbinding済みの場合は拒否する。ForgetはPhysical Bindingだけを削除し、Logical DeviceとProfileを削除しない。永続更新は共通lock付きfile storeを使用し、bridgeは変更後に古いProfileで入力を継続しないようmappingとbindingを再評価する。
+
+### 9.4 Generic HID Core
+
+Generic HIDはAdvanced / Best-effort機能として扱う。Coreはkeyboard usage、consumer control、button、relative value、absolute valueをdevice session別のeventへ正規化する。press / releaseとrelative deltaを保持し、Koolertron encoderが特定UsageやReportを出すとは仮定しない。
+
+永続候補の入力descriptorはUsage Page、Usage、Report ID、親collection pathで構成する。IOHIDElement cookieは再接続時の安定性を仮定せず、runtime診断にだけ使用する。同一device内に同じdescriptorのelementが複数ある場合は、実機根拠なしに永続bindingへ確定しない。
+
+Generic HID Learnは最初のactivationを送ったPhysical Deviceへsource lockし、別device入力を混在させない。source切断時はcancelする。synthetic Generic HID eventは既存`ActionTarget` / `ActionEvent`へ変換でき、hold、accelerating repeat、relative triggerを既存Action Layerへ渡す。Generic HID層はrekordbox commandIdを保持せず、keyboard shortcutを直接送信しない。
+
+Generic HID mappingはまだconfigへ永続化しないため、schema versionは9を維持する。実機でdescriptorの安定性と重複elementを確認した後、必要な場合だけversion 10 migrationを設計する。Devices / Identify / Rebind / LearnのSwiftUI画面も未実装である。
 
 ## 10. MIDIモード
 
@@ -353,6 +375,14 @@ HID入力確認:
 .build/debug/overcue-probe --seize
 ```
 
+全IOHID deviceをGeneric HID候補として観測:
+
+```sh
+.build/debug/overcue-probe --all
+```
+
+`--all`は接続sessionごとにVID / PID / Serial / Product / Manufacturer / transport / Usage Page / Usageを表示する。value eventではReport ID、runtime cookie、relative属性、同一descriptorの重複数、永続化可否、press / release / relative delta / absolute valueを表示する。複数の同型deviceもsession identifierで区別する。
+
 コアチェック:
 
 ```sh
@@ -365,7 +395,7 @@ macOSでdebug build、Core checks、release Universal Binary app生成、codesig
 ./Scripts/verify-macos.sh
 ```
 
-2026-09-01のruntime target / config persistence再レビュー後、コアチェック308件が全件成功した。`./Scripts/verify-macos.sh`でdebug build、同checks、release Universal Binary app生成、ad-hoc codesignおよび`codesign --verify --deep --strict`が成功した。
+最終検証のCore checks件数とUniversal Binary / codesign結果は、当該commitのAAL historyに記録する。
 
 ## 12. SwiftUI設定画面
 
@@ -408,5 +438,7 @@ swift run OverCUE
 - ACK05からのキー・ダイヤル出力はrekordboxが最前面にある場合だけ行う。
 - 同じ物理キーをコード修飾キーにすると、単体操作は解放時実行になる。
 - 複数ACK05の入力状態は物理deviceごとに分離したが、2台以上での同時操作、再接続、異なるLogical Device / Deckへの割り当ては実機未検証。
-- Devices UI、明示的なIdentify / Rebind / Forget、Generic HIDの入力観測とLearnは未実装。
+- Devices UIとIdentify / Rebind / Forget / Learn UIは未実装。対応する非UI Core/APIは実装済み。
+- Generic HIDの実runtime mappingとconfig永続化は未実装。probe、event normalization、Learn、Action変換Coreまで実装済み。
 - ACK05および候補Generic HIDが固有Serialを公開するか、同型複数台で常に一意かは実機未検証。
+- Koolertron候補機のencoderがrelative axis、keyboard event、vendor-specific Reportのどれとして見えるかは実機未検証。

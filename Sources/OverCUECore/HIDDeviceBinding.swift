@@ -10,6 +10,9 @@ public struct HIDPhysicalDeviceDescriptor: Equatable, Sendable {
     public let vendorID: Int
     public let productID: Int
     public let serialNumber: String?
+    public let productName: String?
+    public let manufacturerName: String?
+    public let transport: String?
     public let locationID: UInt32?
     public let transportIdentifier: String
     public let legacyIdentifiers: Set<String>
@@ -19,6 +22,9 @@ public struct HIDPhysicalDeviceDescriptor: Equatable, Sendable {
         vendorID: Int,
         productID: Int,
         serialNumber: String? = nil,
+        productName: String? = nil,
+        manufacturerName: String? = nil,
+        transport: String? = nil,
         locationID: UInt32? = nil,
         transportIdentifier: String,
         legacyIdentifiers: Set<String> = []
@@ -27,6 +33,9 @@ public struct HIDPhysicalDeviceDescriptor: Equatable, Sendable {
         self.vendorID = vendorID
         self.productID = productID
         self.serialNumber = serialNumber?.nilIfBlank
+        self.productName = productName?.nilIfBlank
+        self.manufacturerName = manufacturerName?.nilIfBlank
+        self.transport = transport?.nilIfBlank
         self.locationID = locationID
         self.transportIdentifier = transportIdentifier
         self.legacyIdentifiers = legacyIdentifiers
@@ -101,6 +110,9 @@ public struct OverCUEPhysicalDeviceBinding: Codable, Equatable, Sendable {
             return serialNumber == device.serialNumber
         }
         if let legacyDeviceIdentifier {
+            guard !legacyDeviceIdentifier.lowercased().hasPrefix("location:") else {
+                return false
+            }
             return device.legacyIdentifiers.contains(legacyDeviceIdentifier)
         }
         return false

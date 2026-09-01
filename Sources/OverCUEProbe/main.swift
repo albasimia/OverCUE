@@ -2,6 +2,7 @@ import CoreFoundation
 import Darwin
 import Foundation
 import IOKit.hid
+import OverCUECore
 
 private enum ACK05 {
     static let vendorID = 0x28BD
@@ -41,10 +42,10 @@ private struct Options {
             """
             Usage: overcue-probe [options]
 
-            Observe HID reports and element values from the XPPen ACK05.
+            Observe HID reports and normalized element values.
 
             Options:
-              --all       Observe every HID device instead of ACK05 only.
+              --all       Observe every HID device, including Generic HID candidates.
               --seize     Open matching devices exclusively and suppress their OS input.
               -h, --help  Show this help.
 
@@ -80,6 +81,7 @@ private final class HIDProbe {
     private let manager: IOHIDManager
     private let options: Options
     private let timestampFormatter = ISO8601DateFormatter()
+    private var registry = HIDDeviceRegistry()
 
     init(options: Options) throws {
         self.options = options
@@ -156,8 +158,9 @@ private final class HIDProbe {
             return
         }
 
-        let identity = deviceIdentity(device)
-        log("CONNECTED \(identity)")
+        let descriptor = physicalDescriptor(device)
+        registry.deviceConnected(descriptor)
+        log("CONNECTED session=\(descriptor.sessionIdentifier) \(deviceIdentity(device))")
         log(
             "  transport=\(propertyString(device, kIOHIDTransportKey)) "
                 + "usagePage=\(propertyNumber(device, kIOHIDPrimaryUsagePageKey)) "
@@ -179,7 +182,9 @@ private final class HIDProbe {
             return
         }
 
-        log("DISCONNECTED \(deviceIdentity(device))")
+        let descriptor = physicalDescriptor(device)
+        registry.deviceDisconnected(sessionIdentifier: descriptor.sessionIdentifier)
+        log("DISCONNECTED session=\(descriptor.sessionIdentifier) \(deviceIdentity(device))")
     }
 
     func didReceiveReport(
@@ -200,7 +205,7 @@ private final class HIDProbe {
             .map { String(format: "%02X", $0) }
             .joined(separator: " ")
         let device = sender.map { Unmanaged<IOHIDDevice>.fromOpaque($0).takeUnretainedValue() }
-        let source = device.map(deviceIdentity) ?? "unknown-device"
+        let source = device.map { physicalDescriptor($0).sessionIdentifier } ?? "unknown-device"
 
         log(
             "REPORT source={\(source)} type=\(reportTypeName(reportType)) "
@@ -220,15 +225,50 @@ private final class HIDProbe {
         let usage = IOHIDElementGetUsage(element)
         let integerValue = IOHIDValueGetIntegerValue(value)
         let label = usageName(page: usagePage, usage: usage)
+        let reportID = UInt32(IOHIDElementGetReportID(element))
+        let cookie = UInt64(IOHIDElementGetCookie(element))
+        let isRelative = IOHIDElementIsRelative(element)
+        let sessionIdentifier = physicalDescriptor(device).sessionIdentifier
+        let input = GenericHIDInputDescriptor(
+            usagePage: usagePage,
+            usage: usage,
+            reportID: reportID == 0 ? nil : reportID,
+            collectionPath: collectionPath(for: element)
+        )
+        let matchingElementCount = matchingElementCount(for: element, input: input)
+        let runtimeElement = GenericHIDRuntimeElementDescriptor(
+            input: input,
+            cookie: cookie,
+            isRelative: isRelative,
+            matchingElementCount: matchingElementCount
+        )
+        let normalized = GenericHIDEventNormalizer.normalize(
+            GenericHIDRawValue(
+                sessionDeviceID: sessionIdentifier,
+                element: runtimeElement,
+                value: integerValue
+            )
+        )
+        let normalizedDescription = normalized.map { eventDescription($0.phase) } ?? "ignored-zero"
 
         log(
             String(
-                format: "VALUE source={%@} page=0x%04X usage=0x%04X (%@) value=%lld",
-                deviceIdentity(device),
+                format: "VALUE session=%@ vid=0x%04X pid=0x%04X page=0x%04X "
+                    + "usage=0x%04X (%@) reportID=%u cookie=%llu relative=%@ duplicates=%d "
+                    + "persistable=%@ value=%lld event=%@",
+                sessionIdentifier,
+                propertyInt(device, kIOHIDVendorIDKey),
+                propertyInt(device, kIOHIDProductIDKey),
                 usagePage,
                 usage,
                 label,
-                Int64(integerValue)
+                reportID,
+                cookie,
+                isRelative ? "true" : "false",
+                matchingElementCount ?? -1,
+                runtimeElement.persistentInput == nil ? "false" : "true",
+                Int64(integerValue),
+                normalizedDescription
             )
         )
     }
@@ -251,6 +291,74 @@ private final class HIDProbe {
             vendorID,
             productID
         )
+    }
+
+    private func physicalDescriptor(_ device: IOHIDDevice) -> HIDPhysicalDeviceDescriptor {
+        let vendorID = propertyInt(device, kIOHIDVendorIDKey)
+        let productID = propertyInt(device, kIOHIDProductIDKey)
+        let address = UInt(bitPattern: Unmanaged.passUnretained(device).toOpaque())
+        return HIDPhysicalDeviceDescriptor(
+            kind: vendorID == ACK05.vendorID && productID == ACK05.productID
+                ? .ack05
+                : .genericHID,
+            vendorID: vendorID,
+            productID: productID,
+            serialNumber: property(device, kIOHIDSerialNumberKey) as? String,
+            productName: property(device, kIOHIDProductKey) as? String,
+            manufacturerName: property(device, kIOHIDManufacturerKey) as? String,
+            transport: property(device, kIOHIDTransportKey) as? String,
+            locationID: (property(device, kIOHIDLocationIDKey) as? NSNumber)?.uint32Value,
+            transportIdentifier: String(address, radix: 16)
+        )
+    }
+}
+
+private func collectionPath(for element: IOHIDElement) -> [HIDUsage] {
+    var path: [HIDUsage] = []
+    var parent = IOHIDElementGetParent(element)
+    while let current = parent {
+        path.append(
+            HIDUsage(
+                page: IOHIDElementGetUsagePage(current),
+                usage: IOHIDElementGetUsage(current)
+            )
+        )
+        parent = IOHIDElementGetParent(current)
+    }
+    return path.reversed()
+}
+
+private func matchingElementCount(
+    for element: IOHIDElement,
+    input: GenericHIDInputDescriptor
+) -> Int? {
+    let device = IOHIDElementGetDevice(element)
+    guard let elements = IOHIDDeviceCopyMatchingElements(
+        device,
+        nil,
+        IOOptionBits(kIOHIDOptionsTypeNone)
+    ) as? [IOHIDElement] else { return nil }
+    return elements.filter { candidate in
+        let reportID = UInt32(IOHIDElementGetReportID(candidate))
+        return GenericHIDInputDescriptor(
+            usagePage: IOHIDElementGetUsagePage(candidate),
+            usage: IOHIDElementGetUsage(candidate),
+            reportID: reportID == 0 ? nil : reportID,
+            collectionPath: collectionPath(for: candidate)
+        ) == input
+    }.count
+}
+
+private func eventDescription(_ phase: GenericHIDEventPhase) -> String {
+    switch phase {
+    case .pressed:
+        "press"
+    case .released:
+        "release"
+    case let .relative(delta):
+        "relative(\(delta))"
+    case let .absolute(value):
+        "absolute(\(value))"
     }
 }
 

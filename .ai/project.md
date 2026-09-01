@@ -6,7 +6,7 @@ OverCUEは、任意の物理入力インターフェースとrekordboxの間を�
 
 ## 現在のフェーズ
 
-PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは成立している。ACK05 1台でGroup/Profileを切り替えながらDeck 1〜3を操作する実地DJも成立済み。複数ACK05向けの物理device別入力状態、Physical / Logical Device binding、およびcommit `3a81b4e`レビューで見つかった4ゲートは実装済み。commit `795e70b`のruntime target / config SSOT修正をmacOS上で再レビューし、target未確定時のglobal送信、切断target残留、Swift 6での`flock`コンパイル不良、migrationのlock外snapshot競合、同一Group reload中のtransient state不整合を追加修正した。308 Core checksと`Scripts/verify-macos.sh`が成功し、2件のP1はコードレビューと自動検証上閉じた。次は複数ACK05実機で境界を確認する。
+PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは成立している。runtime/config同期の残存P1を閉じ、Devices UIなしのDevice Registry、Identify、Rebind、Forget、およびGeneric HID観測・Learn・Action変換Coreまで実装した。configはversion 9を維持し、Generic HID mappingの永続化と実runtime接続は実機identityの証拠待ちである。次は複数ACK05とKoolertron候補機で境界を確認する。
 
 ## 現在地
 
@@ -33,7 +33,13 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは成立している�
 - CLIはGUI runtime controlを処理する直前に最新configをreloadし、Group / Mode / Deck / Action mappingを最新値から再解決する。CLI自身のMode / waveform保存も最新disk stateへ局所更新する。
 - version 9 migrationのlegacy `location:`値は`lastKnownLocationID` hintだけへ移し、persistent match対象へ残さない。
 - ACK05 Learn / Captureは最初のsource physical deviceへ固定し、別ACK05の入力を混在させない。source切断時はcaptureをキャンセルする。
-- 2026-09-01の追加レビュー後、`overcue-checks` 308件、debug build、release Universal Binary app生成、ad-hoc codesign検証がmacOSローカルで成功した。
+- GUIはruntime/config変更時にdiskの最新baselineと未保存local差分をreconcileし、CLI保存済みModeをGroup往復で古い値へ戻さない。
+- CLIはACK05入力前にconfig revisionを確認し、変更時はbinding、Profile、Group mappingを再構築する。config内容とrevisionは同じlock内のsnapshotとして読む。
+- `HIDDeviceRegistry`は接続中Physical Deviceをsession identityで管理し、persistent binding、ambiguous状態、Profile、Location hintを派生する。
+- Identifyは最初の入力sourceへ固定する。Rebindは一意なSerial identityだけを受理し、ForgetはLogical Device / Profileを残してPhysical Bindingだけを削除する。
+- Generic HIDはUsage / Report / collection pathから入力を表現し、cookieはruntime診断専用とする。重複signatureは実機根拠なしに永続化しない。
+- Generic HID eventは既存Action Layerへ変換し、rekordbox commandIdやkeyboard送信をGeneric層へ持ち込まない。
+- `overcue-probe --all`はdevice metadata、Usage / Report、press/release、relative delta、永続化可否をdevice session別に観測できる。
 
 ## 制約
 
@@ -45,6 +51,7 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは成立している�
 - 現在選択中の`Performance 1 (Preset)`ではDeck 1=`30xx`、Deck 2=`31xx`、Deck 3=`32xx`を実データで確認したが、Deck 4の割り当て行は存在しない。Deck 4=`33xx`は未確認事項として扱う。
 - Core checksの成功だけで実機確認済みとは扱わない。
 - Generic HIDはAdvanced / Best-effortとし、任意のvendor-specific HIDを無条件にサポートすると約束しない。
+- Generic HIDの実際のUsage / Report / encoder形式とpersistent descriptorは実機確認前に確定しない。
 
 ## 採用済みの決定
 
@@ -63,6 +70,10 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは成立している�
 - 物理デバイス識別は固有Serialを最優先し、USB topology / locationは補助ヒントに留める。曖昧な場合はユーザーに対象デバイスを操作してもらいIdentify / Rebindする。
 - runtime statusは「現在の画面の編集対象」と「他Profileの演奏状態」を混同しない。default Profile UIはnon-default Profileのstatusでcontrol targetを書き換えない。
 - `config.json`は単一ファイルを正本とし、複数processがそれぞれ古い全体snapshotを後勝ち保存しない。永続更新はlock付き最新read-modify-writeまたはbaseline差分のmergeとして扱う。
+- Device Registryは接続sessionのruntime状態だけを管理し、永続bindingの正本はconfigのPhysical Binding / Logical Deviceとする。
+- Identifyは最初に操作された候補sessionを返し、RebindはPhysical Bindingだけを交換する。LocationIDや曖昧なSerialを自動確定に使わない。
+- Generic HID descriptorはUsage Page / Usage / Report ID / collection pathを候補とし、IOHIDElement cookieをpersistent identityにしない。同一signatureが複数なら永続化を保留する。
+- Generic HIDは必ず既存Action Layerを通し、Generic層からrekordbox commandId解決やkeyboard outputを直接行わない。
 - 標準物理構成は3Deckとし、4Deckはソフトウェア能力とオプション拡張として残す。
 
 ## 変更してよい範囲
@@ -70,7 +81,7 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは成立している�
 - 現行Action Layer、Group構造、migration方針に沿う局所的な実装・テスト・ドキュメント更新。
 - 複数ACK05を物理個体ごとに分離する入力状態管理。
 - config永続化の競合防止、process間runtime scope、Logical Device bindingの安全性改善。
-- Generic HIDのdevice-aware入力、Logical Device binding、Identify / Rebind、Learn、Devices UI。
+- Generic HIDのdevice-aware入力、Logical Device binding、Identify / Rebind、Learn。Devices UIはユーザーの明示があるまで対象外。
 - ローカル検証の再現性、エラー表示、未割り当て時の診断改善。
 - 既存挙動を保持するための可逆なCore checks追加。
 
@@ -133,4 +144,4 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは成立している�
 
 ## 次の行動
 
-ACK05 ×2でlive session分離、default / non-default runtime target、切断・再接続、ambiguous binding、device-scoped control、capture source切断を確認し、その後Generic HID / Devices UIへ進む。
+ACK05 ×2でruntime/binding境界を確認し、`overcue-probe --all`でGeneric HID実機Reportとidentityを採取する。その証拠を基にpersistent mapping schemaとDevices UIを決める。
