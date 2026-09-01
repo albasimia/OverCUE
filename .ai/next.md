@@ -2,32 +2,23 @@
 
 ## 現在のフェーズ
 
-runtime/config同期の残存P1を閉じ、Devices UIなしのDevice Management CoreとGeneric HID観測・Learn・Action変換基盤まで実装した。追加レビューで見つかったAction sourceのACK05依存、relative方向消失、stale descriptor Rebindの3件はソース上修正済み。configはversion 9を維持し、Generic HID mappingの永続schemaとruntime接続は実機で安定identityを確認するまで追加しない。
+Device Management CoreとGeneric HID観測・Learn・Action変換基盤まで実装済み。現行HEADは`c00d608`、config version 9。
 
-## 今回完了したゲート
+2026-09-01のUI/ユースケース再検討で、次のschema変更を採用した。
 
-- [x] CLIが保存したMode等をGUIの`configuration` / `persistedConfiguration`へdisk stateからreconcileし、Group往復で古いModeを送り返さない。
-- [x] GUIの未保存local差分はbaseline / local / remoteの3-way mergeで保持し、remoteの別fieldを吸収しない。
-- [x] config変更通知とGroup切替時のdisk refreshを追加し、Deck / waveformPosition / Profile / Logical Device / Physical Bindingも最新化する。
-- [x] CLIはACK05 report処理前にconfig file revisionを確認し、変更時はProfile / Group mappingとbindingを再構築する。
-- [x] config内容とrevisionを同じ`config.json.lock`取得中に読むsnapshot APIを追加し、古い内容へ新しいrevisionを対応させる競合窓を閉じる。
-- [x] legacy `location:`をpersistent match対象から明示的に除外する。
-- [x] session ID単位の`HIDDeviceRegistry`を追加し、接続・切断・binding / ambiguous / Profile / Location hintを表現する。
-- [x] `HIDIdentifySession`、serial-onlyのRebind、Physical Bindingだけを消すForgetをCore/APIとして追加する。
-- [x] ambiguous serial、serialなし、他Logical Deviceへbinding済みのPhysical DeviceをRebindで自動確定しない。
-- [x] Generic HIDのkeyboard / consumer / button / relative / absolute event正規化、source-lock Learn、既存`ActionEvent`への変換をCoreへ追加する。
-- [x] IOHID cookieを診断専用にし、永続descriptorはUsage Page / Usage / Report ID / collection pathで表す。同一signatureが複数の場合は永続化不可とする。
-- [x] `overcue-probe --all`でsession device ID、VID/PID、Serial、Product、Manufacturer、transport、Usage、Report ID、cookie、relative、duplicate count、press/release/deltaを表示できる。
-- [x] `ActionEvent`の正本source identityをgenericな`ActionSourceID`へ移し、ACK05の`sourceKey`は互換accessorへ限定した。
-- [x] Generic HID mapping keyへ`press / relativePositive / relativeNegative` activationを含め、encoder相当の正負方向を別Actionへ割り当てられるCore構造にした。
-- [x] relative deltaの絶対値を`ActionEvent.activationCount`として保持し、Core境界で回転量を1回へ潰さない。
-- [x] RebindはIdentify済みdescriptorのsessionが現在のconnected setへ残っていることを必須にし、切断後のstale descriptorを拒否する。
-- [x] 上記3件の回帰用に`OverCUECoreTests`を追加した。
-- [x] Devices SwiftUI画面、Learn UI、Koolertron固有処理、Parent Preset / Sceneは追加していない。
+- Group単位の`targetDeck` / `rekordboxDeck`を廃止する。
+- GUIの「対象Deck」selectorも削除する。
+- rekordboxショートカット一覧から選択した項目自体が対象scopeを持つ。Deck scopeを別途指定しない。
+- 4つの番号Groupを、stable ID + name + orderを持つ可変Preset Groupへ移行する。
+- Preset Groupは製品上限24、UIはname付きドロップダウンで選択する。
+- Shortcut画面はACK05デバイスマップ領域を維持し、Device操作用の第3カラムを追加しない。
+- 主要タブは「ショートカット / デバイス / 設定」。Identify / Rebind / Forget / LearnはDevices側に集約する。
 
-## 追加レビュー修正のローカル検証
+詳細はDecision `20260901T201000-91c4e7`を参照。
 
-GitHub connectorから直接修正したため、この新しいHEADについてはmacOSローカル検証前である。親commit `bef4c46`の374 Core checks成功を今回の成功扱いにしない。
+## 先に完了する検証
+
+GitHub connectorから直接追加した`14e3df2` / `c00d608`について、macOSローカル検証が未実施である。親commitの成功を流用しない。
 
 - [ ] `aal context build --mode implementation`
 - [ ] `swift build`
@@ -37,23 +28,78 @@ GitHub connectorから直接修正したため、この新しいHEADについて
 - [ ] `aal doctor`
 - [ ] `git diff --check`
 
-## 次に人間が確認すること
+## 次の実装ゲート: Preset Group / Shortcut Scope v10
 
-- [ ] ACK05 ×2でdefault / non-default Profileを割り当て、non-default操作後もGUI controlがdefault deviceだけへ届くことを確認する。
-- [ ] ACK05の切断・再接続、同一／空Serial、ambiguous binding時のdefault Profile fallbackを確認する。
+### 1. Group-level targetDeckを完全撤去
+
+- [ ] `OverCUEGroupMapping.rekordboxDeck`をmigration後のcurrent schemaから削除する。
+- [ ] GUIの「対象Deck」を削除する。
+- [ ] Runtime Status / ControlからDeck stateを削除し、Group/Preset切替時にDeckを復元しない。
+- [ ] Bridgeの`activeRekordboxDeck`のようなGroup-global Deck stateを廃止する。
+- [ ] Deck依存Actionが一つのPreset内で異なるDeck/scopeを混在できることをchecksで固定する。
+
+### 2. 選択shortcut/action自身にscopeを保持
+
+- [ ] rekordbox一覧で選択された項目が持つ対象scopeをAction Binding側へ保持する。
+- [ ] `Deck 1 / Cue`、`Deck 2 / Cue`、`Deck 3 / Cue`等を別の対象として選択でき、追加Deck selectorなしで正しいcommandIdへ到達する。
+- [ ] All Decks / Browse / Sampler / Recordings / General / View等の非Deckカテゴリを、無理にDeck enumへ押し込まない。
+- [ ] Cue hold / Jump repeat等のsemantic Action behaviorを失わない。
+- [ ] Generic `rekordbox:<commandId>`は明示指定値をそのまま保持し、scope変換しない。
+- [ ] scope付きreferenceの最終型名・永続表現は実装時に決めてよいが、別`targetDeck`を復活させない。
+
+### 3. named Preset Group
+
+- [ ] Profile内のGroupをstable ID + 必須name + orderを持つPreset Groupへ移行する。
+- [ ] Preset Groupは可変個。製品上限24。24固定配列にはしない。
+- [ ] 既存4 Groupはmigrationで4 Preset Groupとして保持する。
+- [ ] migration時の初期nameは既存番号との対応が分かる値を生成する。
+- [ ] UIのGroup 1〜4 segmented controlをname付きドロップダウンへ変更する。
+- [ ] Cycle Preset Groupは存在するPresetをorder順に巡回してwrapする。欠番や未作成slotを巡回しない。
+- [ ] `rekordboxMode`と`waveformPosition`はPreset Group属性として維持する。
+
+### 4. v9 → v10 migration
+
+- [ ] config version 10が必要なら一度だけ上げ、v9 backupを維持する。
+- [ ] v9 Groupの`rekordboxDeck`を、そのGroup内のDeck依存標準Actionをscope付きreferenceへ変換するために使用する。
+- [ ] migration後は旧`rekordboxDeck`をruntime/configへ残さない。
+- [ ] Internal ActionへDeck scopeを付けない。
+- [ ] Generic commandIdを変換しない。
+- [ ] Group 1〜4のMode、waveformPosition、keyMap、chordMap、dialMap、dialChordMapの意味を維持する。
+- [ ] migration concurrency / backup / unsupported version / round-tripを既存file-store checksへ追加する。
+
+### 5. Shortcut / Devices UI責務
+
+- [ ] Shortcut画面は現行の2カラム構成を基本維持し、ACK05実機図を細くしない。
+- [ ] Device管理操作をShortcut画面の第3カラムとして追加しない。
+- [ ] 「ショートカット / デバイス / 設定」の3タブを基本ナビゲーションとする。
+- [ ] DevicesタブでPhysical Device一覧、Logical Device binding、Identify、Rebind、Forget、Generic HID Add/Learnを扱う。
+- [ ] Learnを独立トップレベルタブにしない。
+
+## 完了条件
+
+- [ ] targetDeck / rekordboxDeckがcurrent schema・runtime・Shortcut GUIから消えている。
+- [ ] 1つのPreset Group内でDeck 1 / Deck 2 / Deck 3向けshortcutを混在できる。
+- [ ] Preset Groupをname付きドロップダウンで選択できる。
+- [ ] 既存v9設定が意味を失わずmigrationする。
+- [ ] `swift build`
+- [ ] `swift test`
+- [ ] `swift run overcue-checks`
+- [ ] `./Scripts/verify-macos.sh`
+- [ ] `aal doctor` 0 failures / 0 warnings
+- [ ] `git diff --check`
+
+## 実機確認は並行して進めてよい
+
+- [ ] ACK05 ×2でdefault / non-default Profile、同時入力、切断・再接続、ambiguous bindingを確認する。
 - [ ] `overcue-probe --all`でKoolertron候補機のキー、encoder CW/CCW、encoder pushのUsage / Report / relative deltaを採取する。
 - [ ] 同型Generic HID複数台のSerial有無と再接続時descriptor安定性を確認する。
-- [ ] 実機データを根拠にGeneric HID persistent mapping schema（必要ならconfig v10）を決める。
-- [ ] 実機を見ながらDevices / Identify / Rebind / Forget / Learn UIを設計する。
-
-## 停止理由
-
-非UIで安全に実装できるCore境界は整えた。Generic HID mappingの永続化・実runtime接続には、実機Report、relative delta単位、同一Usage重複時の安定識別情報が必要である。ここから先はKoolertron／複数ACK05実機データまたはUI判断なしでは推測実装になる。
+- [ ] 実機データを根拠にGeneric HID persistent mapping schemaを決める。
 
 ## 保留
 
+- Generic HID mappingの永続schemaとruntime接続。実機identityの証拠待ち。
+- Devices画面の細部レイアウト。責務とタブ分離のみ確定。
 - Parent Preset / Scene。
-- 標準3Deckリグの完全独立物理構成。
 - Deck 4=`33xx`規則の実データ確認。
 - GitHub Actionsの復旧。
 - Developer ID署名とnotarization。

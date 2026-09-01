@@ -2,25 +2,27 @@
 
 ## 目的
 
-OverCUEは、任意の物理入力インターフェースとrekordboxの間をつなぐソフトウェアアダプターである。XPPen ACK05を標準・First-classデバイスとして扱い、macOS版rekordboxのCUE仕込み、波形移動、Deck操作を一貫したAction体系へ変換する。rekordbox Freeプランでも利用できるキーボード・マウス操作を主経路としつつ、将来的なGeneric HIDや他入力アダプターを同じAction Layerへ接続できる構造を維持する。
+OverCUEは、任意の物理入力インターフェースとrekordboxの間をつなぐソフトウェアアダプターである。XPPen ACK05を標準・First-classデバイスとして扱い、macOS版rekordboxのCUE仕込み、波形移動、Deck操作を一貫したAction体系へ変換する。rekordbox Freeプランでも利用できるキーボード・マウス操作を主経路としつつ、Generic HIDや他入力アダプターを同じAction Layerへ接続できる構造を維持する。
 
 ## 現在のフェーズ
 
-PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは成立している。runtime/config同期の残存P1を閉じ、Devices UIなしのDevice Registry、Identify、Rebind、Forget、およびGeneric HID観測・Learn・Action変換Coreまで実装した。configはversion 9を維持し、Generic HID mappingの永続化と実runtime接続は実機identityの証拠待ちである。次は複数ACK05とKoolertron候補機で境界を確認する。
+PERFORMANCE Deck 1〜4対応、複数Physical Deviceのruntime分離、Device Management Core、Generic HID観測・Learn・Action変換Coreまで実装済み。現行configはversion 9である。
+
+2026-09-01のUI/ユースケース再検討により、Group単位の`rekordboxDeck` / GUIの「対象Deck」は廃止する方針へ変更した。rekordboxショートカット一覧自体がDeck 1 / Deck 2 / Deck 3 / All Decks / Browse / Sampler / Recordings / General / View等の対象scopeを既に持つため、対象scopeは選択されたrekordbox action/shortcutの属性として保持し、別のtargetDeck設定を持たせない。既存の4 Groupは、名前と安定IDを持つ可変Preset Groupへ置き換える。実装時は既存設定を保持するmigrationが必要で、config version 10が有力である。
 
 ## 現在地
 
 - Swift Package ManagerでCore、SwiftUIアプリ、CLI bridge、probe、core checksを管理している。
 - ACK05のHID入力、キー／任意数コード、Cue hold、Jump長押しリピート、ダイヤル操作をAction Layerへ変換する。
-- 4つのGroupがあり、各Groupは`rekordboxMode`、`rekordboxDeck`、`waveformPosition`、キー／コード／ダイヤル割り当てを独立して保持する。
-- PERFORMANCEではDeck 1〜4を選択できる。EXPORTではDeck指定を保持するが操作解決には使わない。
+- 現行実装は4 Groupで、各Groupが`rekordboxMode`、`rekordboxDeck`、`waveformPosition`、キー／コード／ダイヤル割り当てを保持する。ただしGroup-level `rekordboxDeck`は採用済み新Decisionで廃止予定。
 - rekordboxの選択中KeyMappings XMLを読み、commandIdから実際のキーボードショートカットを解決する。
+- rekordboxショートカット一覧は対象scopeごとに分類されており、ユーザーがDeck別項目を選択した時点で対象scopeは確定している。別途Deck selectorを要求しない。
 - configはversion 9。version 1〜8からのmigrationとバックアップを持つ。旧`deviceProfiles`はLogical Device + legacy Physical Bindingへ移行する。
 - `Scripts/verify-macos.sh`でdebug build、core checks、Universal Binary app生成、ad-hoc codesign検証を一括実行できる。
 - 2026-08-30時点の4Deck対応はcommit `28631d4de001331d8aceaa96bf57f778cd9c2ac6`、branch `codex/performance-4deck`へpush済み。
 - ACK05 1台のProfile切り替えによるDeck 1〜3操作は、実際のDJ運用で成立済み。
 - DJM-750 original + macOS Tahoe 26.6.2 + DJM-750 driver 4.0.1 + rekordbox PERFORMANCE / External Mixerで、4ch独立出力を実機確認済み。
-- 標準物理リグは3Deckを基本とし、1DeckあたりACK05 + 小型Generic HID（4キー + endless encoder想定）を組み合わせる。ソフトウェア上は4Deckを維持する。
+- 標準物理リグは3Deckを基本とし、1DeckあたりACK05 + 小型Generic HID（4キー + endless encoder想定）を組み合わせる。ソフトウェア上は4Deck能力を維持する。
 - Generic HIDの候補実機としてKoolertron系小型マクロパッドを検証するが、OverCUEのUI・データモデルを特定製品へ依存させない。
 - CLI bridgeのlive session identityはIOHID接続インスタンス由来transport identifierを使い、Serial由来persistent identityと分離する。
 - 同時接続deviceが同じVID / PID / Serialを名乗る場合はbindingをambiguousとしてdefault Profileへ戻し、接続トポロジ変更を既存controllerへ即時通知する。
@@ -30,7 +32,7 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは成立している�
 - default Profile device切断時はGUI targetを解放し、再接続statusで新しいsession targetへ更新する。live default targetがない場合、GUIはglobal controlへフォールバックしない。
 - GUI / CLIによる`config.json`更新は共通`OverCUEConfigurationFileStore`のlock付きread-modify-writeを使う。GUIは最後に読み込んだbaseline、GUIローカル変更、最新disk stateの3-way mergeを行い、CLI由来の無関係な変更を古いin-memory configで上書きしない。
 - version 1〜8 migrationもlock取得後の最新dataを再判定し、別processが既にcurrentへ移行・更新したstateを古いmigration snapshotで上書きしない。
-- CLIはGUI runtime controlを処理する直前に最新configをreloadし、Group / Mode / Deck / Action mappingを最新値から再解決する。CLI自身のMode / waveform保存も最新disk stateへ局所更新する。
+- CLIはGUI runtime controlを処理する直前に最新configをreloadし、Group / Mode / Deck / Action mappingを最新値から再解決する。v10移行ではDeck runtime state自体を削除対象とする。
 - version 9 migrationのlegacy `location:`値は`lastKnownLocationID` hintだけへ移し、persistent match対象へ残さない。
 - ACK05 Learn / Captureは最初のsource physical deviceへ固定し、別ACK05の入力を混在させない。source切断時はcaptureをキャンセルする。
 - GUIはruntime/config変更時にdiskの最新baselineと未保存local差分をreconcileし、CLI保存済みModeをGroup往復で古い値へ戻さない。
@@ -38,7 +40,9 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは成立している�
 - `HIDDeviceRegistry`は接続中Physical Deviceをsession identityで管理し、persistent binding、ambiguous状態、Profile、Location hintを派生する。
 - Identifyは最初の入力sourceへ固定する。Rebindは一意なSerial identityだけを受理し、ForgetはLogical Device / Profileを残してPhysical Bindingだけを削除する。
 - Generic HIDはUsage / Report / collection pathから入力を表現し、cookieはruntime診断専用とする。重複signatureは実機根拠なしに永続化しない。
-- Generic HID eventは既存Action Layerへ変換し、rekordbox commandIdやkeyboard送信をGeneric層へ持ち込まない。
+- `ActionEvent`の正本source identityはadapter非依存の`ActionSourceID`。Generic HID relative入力は正負activationを分離し、delta量を`activationCount`へ保持する。
+- Rebindは対象Physical Deviceのlive sessionが現在接続中であることを必須にし、stale descriptorを拒否する。
+- Generic HID eventは既存Action Layerへ変換し、rekordbox commandId解決やkeyboard送信をGeneric層へ直接持ち込まない。
 - `overcue-probe --all`はdevice metadata、Usage / Report、press/release、relative delta、永続化可否をdevice session別に観測できる。
 
 ## 制約
@@ -52,15 +56,22 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは成立している�
 - Core checksの成功だけで実機確認済みとは扱わない。
 - Generic HIDはAdvanced / Best-effortとし、任意のvendor-specific HIDを無条件にサポートすると約束しない。
 - Generic HIDの実際のUsage / Report / encoder形式とpersistent descriptorは実機確認前に確定しない。
+- Preset Groupはデータ構造として可変個とし、当面の製品上限を24とする。24固定配列として設計しない。
 
 ## 採用済みの決定
 
-- 新しいDeck modeは作らず、既存の4 Groupへ対象Deckを持たせる。
-- Deck依存操作は`ActionID + RekordboxDeck`からcommandIdへ解決し、Deck別Action定義を複製しない。
-- commandIdの操作suffixは`RekordboxActionAdapter`をSingle Source of Truthとする。
-- ユーザーが明示したGeneric `rekordbox:<commandId>`はDeck変換しない。
-- 既存configの意味を優先し、旧既定Group 2だけをDeck 2 + 標準Actionへmigrationする。Group 3のEXPORT用途は変更しない。
-- 波形ドラッグ座標はProfile共通ではなくGroupごとに保存・復元する。
+- 2026-08-30 Decision `20260830T200000-28631d`の「Groupへ対象Deckを持たせる」方針は、2026-09-01 Decision `20260901T201000-91c4e7`で置換した。
+- Group / Preset Groupに`targetDeck` / `rekordboxDeck`を持たせない。GUIの「対象Deck」selectorも削除する。
+- 対象scopeは、ユーザーがrekordboxショートカット一覧から選択したaction/shortcut自身の属性として保持する。Deck scopeを別UI・別runtime stateで二重指定しない。
+- Action LayerはCue hold / Jump repeat等のsemantic behaviorを維持しつつ、選択されたrekordbox actionのscopeを失わない表現へ移行する。Generic `rekordbox:<commandId>`は従来どおりユーザー指定値をそのまま扱う。
+- 現在の4 Groupは、stable ID、必須name、order、`rekordboxMode`、`waveformPosition`、mappingsを持つPreset Groupへ移行する。
+- Preset Groupは可変個、製品上限24。UIは番号ボタン列ではなくname付きドロップダウンで選択する。
+- Cycle Preset Groupは1〜24の番号を機械的に巡回せず、存在するPreset Groupをorder順に巡回して末尾から先頭へwrapする。
+- v9→v10 migrationでは既存Groupの意味を保持する。旧Group-level `rekordboxDeck`は、そのGroup内のDeck依存標準Actionをscope付きaction/shortcut referenceへ変換するためだけに使用し、migration後のruntime/configには残さない。Internal ActionとGeneric commandIdへ不要なDeck scopeを付けない。
+- Shortcut画面は現在のACK05デバイスマップ領域の幅を維持し、Device管理用の第3カラムを追加しない。
+- アプリの主要ナビゲーションは当面「ショートカット / デバイス / 設定」の3タブとする。Identify / Rebind / Forget / Generic HID追加・LearnはDevices側へ集約し、Learnを独立トップレベルタブにしない。
+- commandIdの操作suffixをsemantic Actionへ使う場合は`RekordboxActionAdapter`をSingle Source of Truthとして維持し、scope情報との責務を混同しない。
+- 波形ドラッグ座標はProfile共通ではなくPreset Groupごとに保存・復元する。
 - Freeプラン向けの主運用はマウス／キーボード出力とし、DDJ-SX互換MIDIは補助経路として残す。
 - release appは`dist/OverCUE.app`へ生成し、`OverCUE`と`overcue-cli`の両方をarm64 + x86_64にする。
 - ACK05はOfficial / First-class device、Generic HIDはAdvanced / Best-effortとして扱う。
@@ -78,17 +89,21 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは成立している�
 
 ## 変更してよい範囲
 
-- 現行Action Layer、Group構造、migration方針に沿う局所的な実装・テスト・ドキュメント更新。
+- Preset Groupのnamed/ordered可変構造への移行、Group-level targetDeck廃止、scope付きrekordbox action/shortcut referenceへの移行、およびそのv9→v10 migration。
+- 現行Action Layerのsemantic behaviorを保つための局所的な型変更・テスト・ドキュメント更新。
 - 複数ACK05を物理個体ごとに分離する入力状態管理。
 - config永続化の競合防止、process間runtime scope、Logical Device bindingの安全性改善。
-- Generic HIDのdevice-aware入力、Logical Device binding、Identify / Rebind、Learn。Devices UIはユーザーの明示があるまで対象外。
+- Generic HIDのdevice-aware入力、Logical Device binding、Identify / Rebind、Learn。
+- Shortcut / Devices / Settingsの責務分離に沿ったUI変更。Shortcut画面の既存デバイスマップ表示を圧迫しない。
 - ローカル検証の再現性、エラー表示、未割り当て時の診断改善。
 - 既存挙動を保持するための可逆なCore checks追加。
 
 ## 変更してはいけない範囲
 
-- 明示なしにGroup 3の既定EXPORT用途や既存ユーザー設定の意味を変えない。
-- Generic `rekordbox:<commandId>`を標準Action扱いして勝手にDeck変換しない。
+- Preset GroupやProfileへ`targetDeck` / `rekordboxDeck`を再導入し、選択済みshortcutのscopeと二重管理しない。
+- Shortcut編集UIへ別途Deck selectorを追加しない。対象scopeはショートカット選択自体から決まる。
+- v9→v10 migrationで既存Group 1〜4の入力割当、Mode、waveformPosition、旧Deck意味を失わない。
+- Generic `rekordbox:<commandId>`を標準Action扱いして勝手に変換しない。
 - Generic HID対応をKoolertron固有モデルとして設計しない。
 - 同型デバイスをVID/PIDだけで恒久的に個体識別したことにしない。
 - Serialが存在するという理由だけで、同時接続中の同一Serial deviceを同一live sessionまたは同一Logical Deviceとして無条件に扱わない。
@@ -98,6 +113,7 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは成立している�
 - non-default Profileのruntime statusでdefault Profile用GUIのcontrol targetを置き換えない。
 - GUI / CLIが古い`OverCUEConfiguration`全体をそのまま後勝ち保存し、他processの変更を消さない。
 - Learn / Captureで複数physical deviceの入力を1つのコードへ混在させない。
+- Shortcut画面へDevice操作カラムを追加してACK05デバイスマップ領域を潰さない。
 - 未登録HIDの接続を理由に設定画面へ自動遷移しない。
 - 実データや実機で確認できていない項目を成功済みと記録しない。
 - `.aal/logos/`を直接編集しない。
@@ -106,11 +122,13 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは成立している�
 
 ## 未決事項
 
+- scope付きrekordbox action/shortcut referenceの最終的な永続schema。要件は「選択項目の対象scopeを失わない」「semantic Action behaviorを維持する」「別targetDeckを持たない」。
+- v10でPreset Group stable IDをどの形式にするか。UI表示番号はorderから派生させ、ID自体へ順序意味を持たせない。
 - 複数ACK05実機でのSerial有無、IOHID identity、同時入力・切断・再接続の確認。
 - 同型deviceが同一Serialまたは空Serialを返す場合の再binding UX。
 - Koolertron系Generic HIDのキー、encoder CW/CCW、encoder pushがmacOS IOHID上でどのUsage / Reportとして見えるか。
 - 同型Generic HIDが固有Serialを持たない場合のbinding永続化と再接続UX。
-- Devices画面、Logical Device命名、Profile assignment、Rebind / Forgetの最終UI。
+- Devices画面の詳細レイアウト、Logical Device命名、Profile assignment、Rebind / Forget / Learnの最終UI。
 - Parent Preset / Sceneの名称と実装時期。
 - Deck 4の実際のKeyMapping commandIdを、Deck 4ショートカットが保存されたrekordbox XMLまたは実機動作で直接確認する。
 - GitHub Actionsを復旧する場合、独自手順を重複させず`Scripts/verify-macos.sh`を呼ぶ構造にする。
@@ -127,12 +145,11 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは成立している�
 - `Sources/OverCUEChecks/main.swift`
 - `Scripts/verify-macos.sh`
 - `.ai/decisions/20260830T200000-28631d.md`
+- `.ai/decisions/20260901T201000-91c4e7-targetdeckを廃止しpreset-groupとshortcut-scopeを分離する.md`
 - `.ai/decisions/20260901T110700-c8f4b1.md`
 - `.ai/decisions/20260901T110701-e31a76.md`
 - `.ai/decisions/20260901T125000-8f0c2a.md`
-- `.ai/history/20260901T115131-b701a4.md`
-- `.ai/history/20260901T120837-f34729.md`
-- `.ai/history/20260901T125000-8f0c2a.md`
+- `.ai/history/20260901T201000-91c4e7.md`
 
 ## 有効なモード
 
@@ -144,4 +161,4 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは成立している�
 
 ## 次の行動
 
-ACK05 ×2でruntime/binding境界を確認し、`overcue-probe --all`でGeneric HID実機Reportとidentityを採取する。その証拠を基にpersistent mapping schemaとDevices UIを決める。
+まず現HEAD `c00d608`の未実施macOSローカル検証を完了する。その後、Group-level targetDeck廃止・scope付きshortcut reference・named Preset Group（可変、上限24）を一つの整合したconfig migrationとして実装する。Generic HID実機probeとACK05 ×2のidentity確認はこのschema変更と独立して進めてよい。
