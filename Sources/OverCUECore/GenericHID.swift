@@ -439,7 +439,15 @@ public struct GenericHIDActionResolver: Equatable, Sendable {
         event: GenericHIDEvent,
         mapping: [GenericHIDInputDescriptor: ActionTarget]
     ) -> [ActionEvent] {
-        resolve(event: event, mapping: Self.legacyDirectionalMapping(mapping))
+        resolve(event: event, mapping: Self.legacyDirectionalMapping(mapping)).map { actionEvent in
+            ActionEvent(
+                target: actionEvent.target,
+                phase: actionEvent.phase,
+                sourceID: nil,
+                sourceLabel: event.element.input.label,
+                activationCount: actionEvent.activationCount
+            )
+        }
     }
 
     @available(*, deprecated, message: "Use GenericHIDInputBindingKey so relative direction is explicit.")
@@ -447,9 +455,16 @@ public struct GenericHIDActionResolver: Equatable, Sendable {
         for input: GenericHIDInputDescriptor,
         mapping: [GenericHIDInputDescriptor: ActionTarget]
     ) -> ActionEvent? {
-        repeatedEvent(
+        guard let actionEvent = repeatedEvent(
             for: GenericHIDInputBindingKey(input: input, activation: .press),
             mapping: Self.legacyDirectionalMapping(mapping)
+        ) else { return nil }
+        return ActionEvent(
+            target: actionEvent.target,
+            phase: actionEvent.phase,
+            sourceID: nil,
+            sourceLabel: input.label,
+            activationCount: actionEvent.activationCount
         )
     }
 
@@ -457,7 +472,15 @@ public struct GenericHIDActionResolver: Equatable, Sendable {
     public mutating func reset(
         mapping: [GenericHIDInputDescriptor: ActionTarget]
     ) -> [ActionEvent] {
-        reset(mapping: Self.legacyDirectionalMapping(mapping))
+        reset(mapping: Self.legacyDirectionalMapping(mapping)).map { actionEvent in
+            ActionEvent(
+                target: actionEvent.target,
+                phase: actionEvent.phase,
+                sourceID: nil,
+                sourceLabel: actionEvent.sourceLabel,
+                activationCount: actionEvent.activationCount
+            )
+        }
     }
 
     private static func bindingKey(
