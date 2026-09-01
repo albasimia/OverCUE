@@ -2,7 +2,7 @@
 
 ## 現在のフェーズ
 
-PERFORMANCE 4Deckのソフトウェア構造は成立済み。ACK05 1台のProfile切り替えによる3Deck実地運用と、DJM-750 originalへの4ch独立出力も確認済み。複数ACK05向けcontrollerとconfig version 9 bindingモデル、およびcommit `3a81b4e`レビューの4修正ゲートはcommit `e822d54`でソフトウェア実装・Core checks・ローカルビルドまで完了した。その後の追加レビューでruntime targetとGUI / CLI config競合にP1を2件見つけ、直接修正を入れた。今回の追加修正はGitHub connector環境で実装したため、まずmacOSローカル検証を通してから複数実機確認へ進む。
+PERFORMANCE 4Deckのソフトウェア構造は成立済み。ACK05 1台のProfile切り替えによる3Deck実地運用と、DJM-750 originalへの4ch独立出力も確認済み。commit `795e70b`で修正したruntime targetとGUI / CLI config競合の2件のP1をmacOS上で再レビューし、追加で見つけた5件を修正した。308 Core checks、debug build、release Universal Binary app、ad-hoc codesign検証が成功し、P1はコードレビューと自動検証上閉じた。次は複数ACK05実機確認へ進む。
 
 ## 次の目的
 
@@ -15,6 +15,8 @@ runtime controlの対象deviceと`config.json`の永続状態が複数process / 
 - [x] `ShortcutSettingsModel.applyRuntimeStatus()`は、source Profileが`defaultProfile`と一致する場合だけdefault UIの`runtimeDeviceID` / `runtimeLogicalDeviceID` / `runtimeProfileName`を更新する。
 - [x] non-default Profileのstatusを受けてもdefault Profile用GUIのruntime targetを置き換えない。
 - [x] CLIは通常のACK05キー入力とダイヤル入力でもdevice-scoped runtime statusをpublishし、default Profile UIのtargetを実際に操作したdefault Profile deviceへ追従させる。
+- [x] default Profile device切断時はtargetを解放し、再接続後は新しいsession device IDへ更新する。
+- [x] default Profile targetがない場合はglobal controlへフォールバックせず、non-default deviceへ送らない。
 - [ ] ACK05 ×2でdefault / non-default Profileを割り当て、non-default device操作後もdefault UIからdefault deviceへGroup / Mode controlを送れることを実機確認する。
 
 ### P1 — GUI / CLIの古いconfig全体書き戻しを禁止する
@@ -24,18 +26,19 @@ runtime controlの対象deviceと`config.json`の永続状態が複数process / 
 - [x] CLIのMode / waveform保存は最新disk stateを読み、対象fieldだけ変更して保存する。
 - [x] GUI runtime controlを受信したCLIは処理直前に最新configをreloadし、Group / Mode / Deck / Action mappingを再構築してからcontrolを適用する。
 - [x] 同一GroupへのGUI controlでもreload後のAction mappingを使用する。
-- [ ] GUIでDeckを変更した直後にCLIがModeを保存してもDeckが旧値へ戻らないことをローカル／実機で確認する。
-- [ ] CLIでModeまたは波形位置を変更した後にGUIで別設定を保存してもCLIの変更が消えないことを確認する。
+- [x] GUI Deck変更 + CLI Mode変更、逆順の別field変更、辞書entry変更／削除をCore checksで再現し、双方が残ることを確認する。
+- [x] version 1〜8 migrationをlock内の最新dataから行い、別processが先にcurrentへ移行・更新したstateを古いsnapshotで戻さない。
+- [x] 同一Group reload時もhold / repeat / waveform dragを終了し、最新mapping / Deck / waveform位置へ更新する。
 
 ### 追加ゲート完了条件
 
-- [ ] `aal context build --mode implementation`が成功する。
-- [ ] `swift build`が成功する。
-- [ ] `swift run overcue-checks`が既存273件を含め全件成功する。
-- [ ] `./Scripts/verify-macos.sh`が成功する。
-- [ ] `aal doctor`が0 failures / 0 warningsになる。
-- [ ] `git diff --check`が成功する。
-- [ ] 上記2件の競合再現シナリオをローカルまたはACK05 ×2実機で確認する。
+- [x] `aal context build --mode implementation`が成功する。
+- [x] `swift build`が成功する。
+- [x] `swift run overcue-checks`が308件全件成功する。
+- [x] `./Scripts/verify-macos.sh`が成功する。
+- [x] `aal doctor`が0 failures / 0 warningsになる。
+- [x] `git diff --check`が成功する。
+- [x] 上記2件の競合再現シナリオをCore checksで確認する。
 
 この追加ゲートが閉じるまでは、Generic HID Learn / Devices UIの新規実装を先行させない。
 
@@ -54,8 +57,8 @@ runtime controlの対象deviceと`config.json`の永続状態が複数process / 
 - [x] `OverCUERuntimeStatusNotification` / `OverCUERuntimeControlNotification`へsession device ID、Logical Device ID、Profile名とscopeを追加する。
 - [x] あるACK05のGroup / Mode変更をdevice-scoped controlで対象controllerだけへ届ける。
 - [x] GUIがCLI由来runtime statusを受け取っただけで`defaultProfile`へ保存しない。
-- [x] GUIからのcontrolをdevice / global scopeで明示する。
-- [x] single ACK05時は最初のstatus以降device scopeを使い、接続前だけglobal controlで従来UXを維持する。
+- [x] GUIからのcontrolをlive default Profile deviceへのdevice scopeとして明示する。
+- [x] target未確定時は送信せず、global fallbackで別Profile controllerを操作しない。
 
 ### P1 — legacy `location:` migrationを永続binding扱いしない
 
@@ -86,7 +89,6 @@ commit `e822d54`時点では上記既存ゲートの273 Core checksと`verify-ma
 
 ## ブロッカー / 実機依存
 
-- 今回のruntime target / config persistence追加修正はGitHub connector経由で作成したため、macOS build / checks / AAL doctorは未実行。
 - 追加ACK05とKoolertron系Generic HIDの到着後でないと、同型複数台のSerial有無、IOHID identity、encoder Report形式を直接確認できない。
 - 同型Generic HIDに固有Serialがない場合、再接続時はIdentify / Rebindが必要になる可能性がある。
 - 複数ACK05のsoftware state分離は進んでいるが、2台以上の実機による同時入力・切断・再接続は未検証。

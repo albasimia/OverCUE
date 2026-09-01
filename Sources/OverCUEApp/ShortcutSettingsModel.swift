@@ -173,13 +173,17 @@ final class ShortcutSettingsModel: ObservableObject {
                 let logicalDeviceID = notification.userInfo?[
                     OverCUERuntimeStatusNotification.logicalDeviceIDKey
                 ] as? String
+                let connected = notification.userInfo?[
+                    OverCUERuntimeStatusNotification.connectedKey
+                ] as? Bool ?? true
                 Task { @MainActor in
                     self?.applyRuntimeStatus(
                         mode: mode,
                         group: group,
                         deviceID: deviceID,
                         logicalDeviceID: logicalDeviceID,
-                        profileName: profileName
+                        profileName: profileName,
+                        connected: connected
                     )
                 }
             }
@@ -196,8 +200,11 @@ final class ShortcutSettingsModel: ObservableObject {
                 let keys = Set(rawKeys.compactMap { ACK05Key(rawValue: $0.lowercased()) })
                 let direction = (notification.userInfo?[OverCUEInputStatusNotification.dialDirectionKey]
                     as? String).flatMap(DialDirection.init(rawValue:))
+                let deviceID = notification.userInfo?[OverCUEInputStatusNotification.deviceIDKey]
+                    as? String
                 Task { @MainActor in
                     guard let self else { return }
+                    guard deviceID == nil || deviceID == self.runtimeDeviceID else { return }
                     if includesKeyState {
                         self.pressedDeviceKeys = keys
                     }
@@ -1022,15 +1029,35 @@ final class ShortcutSettingsModel: ObservableObject {
         if let data = try? Data(contentsOf: configurationURL),
            let decoded = try? JSONDecoder().decode(OverCUEConfiguration.self, from: data) {
             if decoded.version < OverCUEConfiguration.currentVersion {
-                let backupURL = configurationURL.deletingLastPathComponent()
-                    .appendingPathComponent("config.v\(decoded.version).backup.json")
-                if !FileManager.default.fileExists(atPath: backupURL.path) {
-                    try? data.write(to: backupURL, options: .atomic)
+                let fallbackMigration = ActionConfigurationMigrator
+                    .migrateToCurrentVersion(decoded).configuration
+                do {
+                    let result = try OverCUEConfigurationFileStore.migrateCurrentIfNeeded(
+                        at: configurationURL
+                    ) { latestData, _ in
+                        let latest = try JSONDecoder().decode(
+                            OverCUEConfiguration.self,
+                            from: latestData
+                        )
+                        return ActionConfigurationMigrator
+                            .migrateToCurrentVersion(latest).configuration
+                    }
+                    configuration = result.configuration
+                    if let originalData = result.originalData,
+                       let sourceVersion = result.sourceVersion {
+                        let backupURL = configurationURL.deletingLastPathComponent()
+                            .appendingPathComponent("config.v\(sourceVersion).backup.json")
+                        if !FileManager.default.fileExists(atPath: backupURL.path) {
+                            try? originalData.write(to: backupURL, options: .atomic)
+                        }
+                    }
+                } catch {
+                    configuration = fallbackMigration
                 }
-                configuration = ActionConfigurationMigrator.migrateToCurrentVersion(decoded).configuration
-                try? OverCUEConfigurationFileStore.writeCurrent(configuration, at: configurationURL)
-            } else {
+            } else if decoded.version == OverCUEConfiguration.currentVersion {
                 configuration = decoded
+            } else {
+                configuration = .defaultValue
             }
         } else {
             configuration = .defaultValue
@@ -1106,20 +1133,42 @@ final class ShortcutSettingsModel: ObservableObject {
         group: Int,
         deviceID: String,
         logicalDeviceID: String?,
-        profileName: String
+        profileName: String,
+        connected: Bool
     ) {
         guard (1...4).contains(group) else { return }
         guard profileName == configuration.defaultProfile else { return }
+        let currentTarget = runtimeDeviceID.map {
+            OverCUERuntimeTarget(
+                deviceID: $0,
+                logicalDeviceID: runtimeLogicalDeviceID,
+                profileName: runtimeProfileName ?? configuration.defaultProfile
+            )
+        }
+        let nextTarget = OverCUERuntimeTargetPolicy.updatedTarget(
+            current: currentTarget,
+            defaultProfileName: configuration.defaultProfile,
+            deviceID: deviceID,
+            logicalDeviceID: logicalDeviceID,
+            profileName: profileName,
+            connected: connected
+        )
+        guard let nextTarget else {
+            if currentTarget != nil {
+                clearRuntimeDeviceScope()
+                pressedDeviceKeys = []
+                activeDialDirection = nil
+            }
+            return
+        }
         let didChange = runtimeMode != newMode
             || runtimeGroup != group
-            || runtimeDeviceID != deviceID
-            || runtimeLogicalDeviceID != logicalDeviceID
-            || runtimeProfileName != profileName
+            || currentTarget != nextTarget
         runtimeMode = newMode
         runtimeGroup = group
-        runtimeDeviceID = deviceID
-        runtimeLogicalDeviceID = logicalDeviceID
-        runtimeProfileName = profileName
+        runtimeDeviceID = nextTarget.deviceID
+        runtimeLogicalDeviceID = nextTarget.logicalDeviceID
+        runtimeProfileName = nextTarget.profileName
         guard didChange else { return }
 
         selectedGroup = group
@@ -1136,21 +1185,25 @@ final class ShortcutSettingsModel: ObservableObject {
 
     private func postRuntimeControl(group: Int, mode: RekordboxMappingMode) {
         guard isBridgeEnabled else { return }
-        let scope: OverCUERuntimeNotificationScope
-        var userInfo: [String: Any] = [
+        let target = runtimeDeviceID.map {
+            OverCUERuntimeTarget(
+                deviceID: $0,
+                logicalDeviceID: runtimeLogicalDeviceID,
+                profileName: runtimeProfileName ?? configuration.defaultProfile
+            )
+        }
+        guard let targetDeviceID = OverCUERuntimeTargetPolicy.controlDeviceID(
+            target: target,
+            defaultProfileName: configuration.defaultProfile
+        ) else { return }
+        let userInfo: [String: Any] = [
             OverCUERuntimeControlNotification.groupKey: group,
             OverCUERuntimeControlNotification.modeKey: mode.rawValue,
+            OverCUERuntimeControlNotification.scopeKey:
+                OverCUERuntimeNotificationScope.device.rawValue,
+            OverCUERuntimeControlNotification.deviceIDKey: targetDeviceID,
+            OverCUERuntimeControlNotification.profileNameKey: configuration.defaultProfile,
         ]
-        if let runtimeDeviceID,
-           runtimeProfileName == nil || runtimeProfileName == configuration.defaultProfile {
-            scope = .device
-            userInfo[OverCUERuntimeControlNotification.deviceIDKey] = runtimeDeviceID
-        } else if runtimeDeviceID == nil {
-            scope = .global
-        } else {
-            return
-        }
-        userInfo[OverCUERuntimeControlNotification.scopeKey] = scope.rawValue
         DistributedNotificationCenter.default().postNotificationName(
             OverCUERuntimeControlNotification.name,
             object: nil,

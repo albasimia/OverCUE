@@ -219,7 +219,7 @@ OverCUEは固定キーやマッピングファイルIDを直接決め打ちせ�
 
 設定形式はversion 9。初回起動時に自動生成する。version 1〜8設定を検出した場合は原本を`config.vN.backup.json`へ保存してversion 9へ自動移行する。version 6以前のプロファイル共通`waveformPosition`はグループ1〜4へコピーし、移行直後の操作位置を維持する。version 7の旧既定Group 2はPERFORMANCE / Deck 2として認識し、直書きDeck 2 commandIdを標準Actionへ置換する。それ以外は従来の標準ActionがDeck 1を操作していた意味を維持するためDeck 1を補完し、ユーザー指定のGeneric `rekordbox:<commandId>`は変更しない。Group 3のEXPORT用途も維持する。version 8の`deviceProfiles`はLogical Deviceとlegacy Physical Bindingへ移行し、既存Profile割り当てを維持する。デフォルトマップは`Sources/OverCUECore/Resources/DefaultKeyMapping.json`から読み込む。
 
-GUIとCLIは同じ`config.json`を正本として共有する。永続更新は`OverCUEConfigurationFileStore`を通し、隣接する`config.json.lock`を`flock`で排他取得したうえで最新ファイルをread-modify-writeする。CLIのMode変更とwaveform位置保存は最新configの対象fieldだけを更新する。GUIは最後に読み込んだbaseline、GUIローカル変更、lock取得後に読み直した最新disk stateを3-way mergeし、GUIが変更していないProfile / Group / mapping / Logical Device等のfieldは最新disk stateを保持する。これにより、別processの更新後に古いin-memory snapshot全体を書き戻して無関係な変更を消すことを禁止する。
+GUIとCLIは同じ`config.json`を正本として共有する。永続更新は`OverCUEConfigurationFileStore`を通し、atomic writeの置換対象とは別の安定した`config.json.lock`を`flock`で排他取得したうえで最新ファイルをread-modify-writeする。CLIのMode変更とwaveform位置保存は最新configの対象fieldだけを更新する。GUIは最後に読み込んだbaseline、GUIローカル変更、lock取得後に読み直した最新disk stateを3-way mergeし、GUIが変更していないProfile / Group / mapping / Logical Device等のfieldは最新disk stateを保持する。同一fieldを双方が変更した場合はGUI localを採用する。version 1〜8 migrationもlock内で最新versionを再判定し、既に別processがcurrentへ移行・更新していた場合はその最新stateを採用する。これにより、通常保存とmigrationのどちらでも古いin-memory snapshot全体を後勝ちで書き戻さない。
 
 ```json
 {
@@ -300,7 +300,7 @@ GUIとCLIは同じ`config.json`を正本として共有する。永続更新は`
 
 GUIのグループPickerとCLIの実行グループは双方向に同期する。GUIからグループを変更した場合はCLIとメニューバーも更新し、ACK05から変更した場合はGUIのPickerも更新する。モードと対象Deckは各グループへ保存し、グループ変更時に復元する。これによりGroup 1〜4をPERFORMANCE / Deck 1〜4へ割り当てられる。波形ドラッグ座標もGroupごとに独立して保存・復元する。ACK05またはGUIからモードを変更した場合は現在グループへ直ちに保存する。
 
-GUIからGroup / Mode / Deckを変更してruntime controlを送る場合、CLIはcontrol適用直前に`config.json`の最新version 9 stateをreloadし、ProfileごとのAction mappingを再構築する。対象Deckはこの最新stateから再取得するため、GUIがDeckを保存した直後にCLIが古いDeckを参照してMode保存で巻き戻すことを避ける。
+GUIからGroup / Mode / Deckを変更してruntime controlを送る場合、CLIはcontrol適用直前に`config.json`の最新version 9 stateをreloadし、Physical Binding / Logical Device / Profileを再評価してProfileごとのAction mappingを再構築する。対象Deckはこの最新stateから再取得するため、GUIがDeckを保存した直後にCLIが古いDeckを参照してMode保存で巻き戻すことを避ける。同一Groupへのcontrolでもhold、key repeat、波形dragを終了してから最新mapping、Deck、waveform位置へ更新する。
 
 表示言語はOverCUEメニューの設定画面から日本語、英語、簡体字中国語を切り替える。翻訳辞書は`Sources/OverCUEApp/Resources/Localization`のJSONファイルとして管理し、選択はUserDefaultsへ保存する。rekordbox由来の機能名はrekordboxマッピングの記述を優先する。
 
@@ -308,7 +308,7 @@ GUIからGroup / Mode / Deckを変更してruntime controlを送る場合、CLI�
 
 デバイスマップのキー選択は単体キー割り当てを同時押しより優先する。CLIはACK05の押下状態をDistributed NotificationでGUIへ通知し、GUIは押下中の物理キーだけを緑でハイライトする。キー解放またはデバイス切断時はハイライトを解除する。
 
-メニューバーはゴーストアイコン、現在のモード頭文字（E/P）、現在の実行グループの順に表示する。CLIはGroup / Mode変更時だけでなく通常のACK05キー／ダイヤル入力時にも、session device ID、Logical Device ID、Profile名を含むdevice-scoped runtime statusをpublishする。default Profile用GUIはsource Profileが`defaultProfile`と一致するstatusだけをruntime control targetとして採用し、non-default Profileのstatusではtargetを置き換えない。したがってGUIからのcontrolは、default Profileを操作するACK05のうち実際に最後に入力したsession deviceへ送信する。接続前だけ明示的なglobal scopeを使う。GUIはruntime status受信だけではconfigへ書き戻さない。
+メニューバーはゴーストアイコン、現在のモード頭文字（E/P）、現在の実行グループの順に表示する。CLIはGroup / Mode変更時だけでなく通常のACK05キー／ダイヤル入力時にも、session device ID、Logical Device ID、Profile名を含むdevice-scoped runtime statusをpublishする。default Profile用GUIはsource Profileが`defaultProfile`と一致するstatusだけをruntime control targetとして採用し、non-default Profileのstatusとinput highlightを無視する。GUIからのcontrolは、default Profileを操作するACK05のうち実際に最後に入力したlive session deviceへProfile名付きdevice scopeで送信する。target device切断時はtargetとinput highlightを解放し、再接続statusで新しいsession IDへ更新する。live default targetがない場合は送信せず、global scopeでnon-default controllerへフォールバックしない。CLIはcontrol前のconfig reloadでdeviceが別Profileへrebindされていた場合もcontrolを拒否する。GUIはruntime status受信だけではconfigへ書き戻さない。
 
 ACK05割り当ての入力取得は、最初にキーまたはダイヤルを入力したphysical deviceへ完了・キャンセルまで固定する。他ACK05のキー状態は同じコードへ混在させない。capture sourceが切断された場合は編集をキャンセルし、別deviceへ暗黙に引き継がない。
 
@@ -322,7 +322,7 @@ CLI bridgeは接続ACK05ごとに独立したcontrollerを生成する。live se
 
 同時接続中の複数deviceが同じVID / PID / Serialを報告した場合、そのpersistent bindingはambiguousとして扱い、どちらも同じLogical Deviceへ自動bindingしない。接続トポロジ変更は既存controllerへ即時通知し、既に押下中のholdを含む状態をdefault Profileへ安全に再評価する。
 
-複数ACK05の状態分離はcommit `e822d54`時点のCore checksで確認済みだが、2台以上を使う同時操作と再接続は実機未検証である。今回追加したruntime target / config persistence修正もmacOSローカル検証前である。Devices UI、Identify / Rebind、Generic HID Learnは未実装。
+複数ACK05の状態分離とruntime target / config persistenceは308 Core checksとmacOSローカルbuildで確認済みだが、2台以上を使う同時操作、切断、再接続は実機未検証である。Devices UI、Identify / Rebind、Generic HID Learnは未実装。
 
 ## 10. MIDIモード
 
@@ -365,7 +365,7 @@ macOSでdebug build、Core checks、release Universal Binary app生成、codesig
 ./Scripts/verify-macos.sh
 ```
 
-commit `e822d54`時点のコアチェック数は273件で全件成功済み。今回の`OverCUEConfigurationFileStore` / `OverCUEConfigurationMerger`およびruntime target追加修正についてはGitHub connector環境で実装したため、`swift build`、core checks、`verify-macos.sh`の再実行を完了するまでは検証済みと扱わない。
+2026-09-01のruntime target / config persistence再レビュー後、コアチェック308件が全件成功した。`./Scripts/verify-macos.sh`でdebug build、同checks、release Universal Binary app生成、ad-hoc codesignおよび`codesign --verify --deep --strict`が成功した。
 
 ## 12. SwiftUI設定画面
 
@@ -408,6 +408,5 @@ swift run OverCUE
 - ACK05からのキー・ダイヤル出力はrekordboxが最前面にある場合だけ行う。
 - 同じ物理キーをコード修飾キーにすると、単体操作は解放時実行になる。
 - 複数ACK05の入力状態は物理deviceごとに分離したが、2台以上での同時操作、再接続、異なるLogical Device / Deckへの割り当ては実機未検証。
-- runtime target / config persistence追加修正はmacOSローカルbuild・checks未実行。
 - Devices UI、明示的なIdentify / Rebind / Forget、Generic HIDの入力観測とLearnは未実装。
 - ACK05および候補Generic HIDが固有Serialを公開するか、同型複数台で常に一意かは実機未検証。

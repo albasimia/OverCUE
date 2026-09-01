@@ -258,10 +258,10 @@ private final class ConfigurationStore {
                             )
                         ]
                     )
-                    try migrateToCurrentVersion(originalData: data, sourceVersion: version)
+                    try migrateToCurrentVersion()
                 } else if (2..<OverCUEConfiguration.currentVersion).contains(version) {
                     configuration = try decoder.decode(OverCUEConfiguration.self, from: data)
-                    try migrateToCurrentVersion(originalData: data, sourceVersion: version)
+                    try migrateToCurrentVersion()
                 } else if version == OverCUEConfiguration.currentVersion {
                     configuration = try decoder.decode(OverCUEConfiguration.self, from: data)
                 } else {
@@ -301,6 +301,10 @@ private final class ConfigurationStore {
         connectedDevices = Dictionary(uniqueKeysWithValues: devices.map {
             ($0.sessionIdentifier, $0)
         })
+    }
+
+    func connectedDevice(sessionIdentifier: String) -> HIDPhysicalDeviceDescriptor? {
+        connectedDevices[sessionIdentifier]
     }
 
     func reloadCurrentConfiguration() throws {
@@ -406,22 +410,46 @@ private final class ConfigurationStore {
         }
     }
 
-    private func migrateToCurrentVersion(originalData: Data, sourceVersion: Int) throws {
-        let backupURL = url.deletingLastPathComponent()
-            .appendingPathComponent("config.v\(sourceVersion).backup.json")
-        if !FileManager.default.fileExists(atPath: backupURL.path) {
-            try originalData.write(to: backupURL, options: .atomic)
+    private func migrateToCurrentVersion() throws {
+        var migrationWarnings: [ActionMigrationWarning] = []
+        let migration = try OverCUEConfigurationFileStore.migrateCurrentIfNeeded(at: url) {
+            latestData, sourceVersion in
+            let decoder = JSONDecoder()
+            let sourceConfiguration: OverCUEConfiguration
+            if sourceVersion == 1 {
+                let legacy = try decoder.decode(LegacyConfiguration.self, from: latestData)
+                sourceConfiguration = OverCUEConfiguration(
+                    version: 1,
+                    profiles: [
+                        "default": OverCUEProfile(
+                            waveformPosition: legacy.waveformPosition,
+                            keyMap: legacy.keyMap,
+                            chordMap: legacy.chordMap
+                        )
+                    ]
+                )
+            } else {
+                sourceConfiguration = try decoder.decode(OverCUEConfiguration.self, from: latestData)
+            }
+            let result = ActionConfigurationMigrator.migrateToCurrentVersion(sourceConfiguration)
+            migrationWarnings = result.warnings
+            return result.configuration
         }
-
-        let result = ActionConfigurationMigrator.migrateToCurrentVersion(configuration)
-        configuration = result.configuration
-        for warning in result.warnings {
+        configuration = migration.configuration
+        for warning in migrationWarnings {
             log(
                 "WARNING Profile '\(warning.profileName)' \(warning.section) \(warning.input): "
                     + "unknown legacy action '\(warning.rawAction)'; disabled."
             )
         }
-        try save()
+        guard let originalData = migration.originalData,
+              let sourceVersion = migration.sourceVersion
+        else { return }
+        let backupURL = url.deletingLastPathComponent()
+            .appendingPathComponent("config.v\(sourceVersion).backup.json")
+        if !FileManager.default.fileExists(atPath: backupURL.path) {
+            try originalData.write(to: backupURL, options: .atomic)
+        }
         log(
             "Migrated configuration from version \(sourceVersion) "
                 + "to version \(OverCUEConfiguration.currentVersion); backup: \(backupURL.path)"
@@ -961,7 +989,10 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
               let rawMode = notification.userInfo?[OverCUERuntimeControlNotification.modeKey] as? String,
               let mode = RekordboxMappingMode(rawValue: rawMode),
               let rawScope = notification.userInfo?[OverCUERuntimeControlNotification.scopeKey] as? String,
-              let scope = OverCUERuntimeNotificationScope(rawValue: rawScope)
+              let scope = OverCUERuntimeNotificationScope(rawValue: rawScope),
+              let targetProfileName = notification.userInfo?[
+                  OverCUERuntimeControlNotification.profileNameKey
+              ] as? String
         else { return }
         let targetDeviceID = notification.userInfo?[OverCUERuntimeControlNotification.deviceIDKey]
             as? String
@@ -969,6 +1000,13 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
               scope.controls(activeDeviceID: activeDeviceID, targetDeviceID: targetDeviceID),
               reloadConfigurationForRuntimeControl()
         else { return }
+        guard activeProfileName == targetProfileName else {
+            log(
+                "Ignoring GUI control for profile '\(targetProfileName)' after device "
+                    + "resolved to '\(activeProfileName)'."
+            )
+            return
+        }
         switchGroup(to: group, preferredMode: mode, source: "GUI")
     }
 
@@ -1088,6 +1126,14 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     func deviceDisconnected(_ device: HIDPhysicalDeviceDescriptor) {
         defer { configurationStore.deviceDisconnected(device) }
         guard activeDeviceID == device.sessionIdentifier else { return }
+        publishRuntimeStatus(
+            mode: activeRekordboxMode,
+            group: activeGroup,
+            deviceID: activeDeviceID,
+            logicalDeviceID: activeLogicalDeviceID,
+            profileName: activeProfileName,
+            connected: false
+        )
         for event in actionResolver.reset(mapping: mappings) {
             route(event)
         }
@@ -1160,6 +1206,12 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
                 )
             }
             mappingsByProfile = refreshedMappings
+            if let activeDeviceID,
+               let activeDevice = configurationStore.connectedDevice(
+                   sessionIdentifier: activeDeviceID
+               ) {
+                activateProfile(for: activeDevice)
+            }
             return true
         } catch {
             log("ERROR Could not reload configuration before GUI control: \(error)")
@@ -1213,7 +1265,23 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
                 log("ERROR \(error)")
             }
         } else {
+            for event in actionResolver.reset(mapping: mappings) {
+                route(event)
+            }
+            stopKeyRepeat()
+            finishDrag(restorePointer: true)
             mappings = nextMappings
+            do {
+                let savedPosition = try configurationStore.waveformPosition(
+                    profileName: activeProfileName,
+                    group: activeGroup
+                )
+                waveformAnchor = savedPosition.map { CGPoint(x: $0.x, y: $0.y) }
+                didWarnAboutMissingAnchor = false
+            } catch {
+                waveformAnchor = nil
+                log("ERROR \(error)")
+            }
         }
 
         let savedMode = preferredMode ?? configurationStore.rekordboxMode(
@@ -1736,7 +1804,8 @@ private func publishRuntimeStatus(
     group: Int,
     deviceID: String?,
     logicalDeviceID: String?,
-    profileName: String
+    profileName: String,
+    connected: Bool = true
 ) {
     guard let deviceID else { return }
     var userInfo: [String: Any] = [
@@ -1745,6 +1814,7 @@ private func publishRuntimeStatus(
         OverCUERuntimeStatusNotification.scopeKey: OverCUERuntimeNotificationScope.device.rawValue,
         OverCUERuntimeStatusNotification.deviceIDKey: deviceID,
         OverCUERuntimeStatusNotification.profileNameKey: profileName,
+        OverCUERuntimeStatusNotification.connectedKey: connected,
     ]
     if let logicalDeviceID {
         userInfo[OverCUERuntimeStatusNotification.logicalDeviceIDKey] = logicalDeviceID

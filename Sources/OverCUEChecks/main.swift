@@ -618,6 +618,69 @@ check(
     ),
     "deliver only explicitly global runtime control to every controller"
 )
+var runtimeTarget: OverCUERuntimeTarget?
+runtimeTarget = OverCUERuntimeTargetPolicy.updatedTarget(
+    current: runtimeTarget,
+    defaultProfileName: "default",
+    deviceID: "ack05-a",
+    logicalDeviceID: "deck-a",
+    profileName: "default",
+    connected: true
+)
+check(runtimeTarget?.deviceID == "ack05-a", "track the operated default Profile device")
+runtimeTarget = OverCUERuntimeTargetPolicy.updatedTarget(
+    current: runtimeTarget,
+    defaultProfileName: "default",
+    deviceID: "ack05-b",
+    logicalDeviceID: "deck-b",
+    profileName: "alternate",
+    connected: true
+)
+check(runtimeTarget?.deviceID == "ack05-a", "non-default Profile status cannot steal runtime target")
+check(
+    OverCUERuntimeTargetPolicy.controlDeviceID(
+        target: runtimeTarget,
+        defaultProfileName: "default"
+    ) == "ack05-a",
+    "runtime control remains scoped to the operated default Profile device"
+)
+runtimeTarget = OverCUERuntimeTargetPolicy.updatedTarget(
+    current: runtimeTarget,
+    defaultProfileName: "default",
+    deviceID: "ack05-b",
+    logicalDeviceID: "deck-b",
+    profileName: "alternate",
+    connected: false
+)
+check(runtimeTarget?.deviceID == "ack05-a", "non-default disconnect cannot clear default runtime target")
+runtimeTarget = OverCUERuntimeTargetPolicy.updatedTarget(
+    current: runtimeTarget,
+    defaultProfileName: "default",
+    deviceID: "ack05-a",
+    logicalDeviceID: "deck-a",
+    profileName: "default",
+    connected: false
+)
+check(runtimeTarget == nil, "clear a disconnected default Profile runtime target")
+check(
+    OverCUERuntimeTargetPolicy.controlDeviceID(
+        target: runtimeTarget,
+        defaultProfileName: "default"
+    ) == nil,
+    "do not fall back to global control without a default Profile target"
+)
+runtimeTarget = OverCUERuntimeTargetPolicy.updatedTarget(
+    current: runtimeTarget,
+    defaultProfileName: "default",
+    deviceID: "ack05-a-reconnected",
+    logicalDeviceID: "deck-a",
+    profileName: "default",
+    connected: true
+)
+check(
+    runtimeTarget?.deviceID == "ack05-a-reconnected",
+    "replace the runtime target with the reconnected default Profile session"
+)
 var globalGroupProfile = OverCUEProfile.defaultValue
 globalGroupProfile.chordMap["K7+K8+K1"] = ActionID.cycleGroup.rawValue
 check(
@@ -972,6 +1035,235 @@ do {
 } catch {
     failureCount += 1
     fputs("FAIL: unexpected rekordbox mapping loader error: \(error)\n", stderr)
+}
+
+do {
+    var base = OverCUEConfiguration.defaultValue
+    base.profiles["alternate"] = OverCUEProfile(
+        groupMappings: [
+            "1": OverCUEGroupMapping(
+                keyMap: ["K1": "hot_cue_1", "K3": "hot_cue_3"],
+                rekordboxMode: .export,
+                rekordboxDeck: .deck1
+            ),
+            "2": OverCUEGroupMapping(rekordboxMode: .export, rekordboxDeck: .deck2),
+        ]
+    )
+    base.profiles["default"] = OverCUEProfile(
+        groupMappings: [
+            "1": OverCUEGroupMapping(
+                keyMap: ["K1": "hot_cue_1", "K2": "hot_cue_2", "K3": "hot_cue_3"],
+                chordMap: ["K7+K1": "delete_hot_cue_1"],
+                rekordboxMode: .export,
+                rekordboxDeck: .deck1
+            ),
+            "2": OverCUEGroupMapping(rekordboxMode: .export, rekordboxDeck: .deck2),
+        ]
+    )
+    base.logicalDevices["removed-device"] = OverCUELogicalDevice(
+        name: "Removed Device",
+        profileName: "default"
+    )
+
+    var local = base
+    local.logicalDevices.removeValue(forKey: "removed-device")
+    var localDefaultGroup1 = local.profiles["default"]!.storedMapping(for: 1)
+    localDefaultGroup1.rekordboxDeck = .deck2
+    localDefaultGroup1.keyMap["K1"] = "cue"
+    localDefaultGroup1.keyMap.removeValue(forKey: "K3")
+    local.profiles["default"]!.setMapping(localDefaultGroup1, for: 1)
+    var localAlternateGroup2 = local.profiles["alternate"]!.storedMapping(for: 2)
+    localAlternateGroup2.rekordboxDeck = .deck4
+    local.profiles["alternate"]!.setMapping(localAlternateGroup2, for: 2)
+
+    var remote = base
+    var remoteDefaultGroup1 = remote.profiles["default"]!.storedMapping(for: 1)
+    remoteDefaultGroup1.rekordboxMode = .performance
+    remoteDefaultGroup1.keyMap["K1"] = "play_pause"
+    remoteDefaultGroup1.keyMap["K2"] = "play_pause"
+    remoteDefaultGroup1.chordMap["K7+K2"] = "delete_hot_cue_2"
+    remote.profiles["default"]!.setMapping(remoteDefaultGroup1, for: 1)
+    var remoteDefaultGroup2 = remote.profiles["default"]!.storedMapping(for: 2)
+    remoteDefaultGroup2.waveformPosition = WaveformPosition(x: 810, y: 240)
+    remote.profiles["default"]!.setMapping(remoteDefaultGroup2, for: 2)
+    var remoteAlternateGroup1 = remote.profiles["alternate"]!.storedMapping(for: 1)
+    remoteAlternateGroup1.rekordboxMode = .performance
+    remote.profiles["alternate"]!.setMapping(remoteAlternateGroup1, for: 1)
+    local.profiles["local-added"] = OverCUEProfile.defaultValue
+    remote.profiles["remote-added"] = OverCUEProfile.defaultValue
+    local.logicalDevices["local-device"] = OverCUELogicalDevice(
+        name: "Local Device",
+        profileName: "default"
+    )
+    remote.logicalDevices["remote-device"] = OverCUELogicalDevice(
+        name: "Remote Device",
+        profileName: "alternate"
+    )
+    remote.logicalDevices["removed-device"]?.name = "Remote Rename"
+
+    let merged = OverCUEConfigurationMerger.merge(base: base, local: local, remote: remote)
+    let mergedDefaultGroup1 = merged.profiles["default"]!.storedMapping(for: 1)
+    check(mergedDefaultGroup1.rekordboxDeck == .deck2, "merge GUI Deck change")
+    check(mergedDefaultGroup1.rekordboxMode == .performance, "preserve remote Mode beside GUI Deck")
+    check(mergedDefaultGroup1.keyMap["K1"] == "cue", "merge local dictionary entry change")
+    check(mergedDefaultGroup1.keyMap["K1"] != "play_pause", "local value wins a same-entry conflict")
+    check(mergedDefaultGroup1.keyMap["K2"] == "play_pause", "preserve remote dictionary entry change")
+    check(mergedDefaultGroup1.keyMap["K3"] == nil, "merge local dictionary entry deletion")
+    check(
+        mergedDefaultGroup1.chordMap["K7+K2"] == "delete_hot_cue_2",
+        "preserve remote dictionary entry addition"
+    )
+    check(
+        merged.profiles["default"]!.storedMapping(for: 2).waveformPosition
+            == WaveformPosition(x: 810, y: 240),
+        "preserve remote change in another Group"
+    )
+    check(
+        merged.profiles["alternate"]!.storedMapping(for: 1).rekordboxMode == .performance,
+        "preserve remote change in another Profile"
+    )
+    check(
+        merged.profiles["alternate"]!.storedMapping(for: 2).rekordboxDeck == .deck4,
+        "merge local change in an independent Profile and Group"
+    )
+    check(merged.profiles["local-added"] != nil, "merge a locally added Profile")
+    check(merged.profiles["remote-added"] != nil, "preserve a remotely added Profile")
+    check(merged.logicalDevices["local-device"]?.name == "Local Device", "merge a local Logical Device")
+    check(
+        merged.logicalDevices["remote-device"]?.name == "Remote Device",
+        "preserve a remote Logical Device"
+    )
+    check(merged.logicalDevices["removed-device"] == nil, "local Logical Device deletion wins its conflict")
+
+    var locallyDeletedProfile = base
+    locallyDeletedProfile.profiles.removeValue(forKey: "alternate")
+    var remotelyChangedProfile = base
+    remotelyChangedProfile.profiles["alternate"]!.waveformPosition = WaveformPosition(x: 1, y: 2)
+    let profileDeletion = OverCUEConfigurationMerger.merge(
+        base: base,
+        local: locallyDeletedProfile,
+        remote: remotelyChangedProfile
+    )
+    check(profileDeletion.profiles["alternate"] == nil, "local Profile deletion wins its conflict")
+
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("overcue-persistence-check-\(UUID().uuidString)")
+    let configurationURL = temporaryDirectory.appendingPathComponent("config.json")
+    defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+    try OverCUEConfigurationFileStore.writeCurrent(base, at: configurationURL)
+    check(
+        FileManager.default.fileExists(atPath: configurationURL.appendingPathExtension("lock").path),
+        "create a stable adjacent config lock file"
+    )
+
+    var guiSnapshot = base
+    var guiGroup = guiSnapshot.profiles["default"]!.storedMapping(for: 1)
+    guiGroup.rekordboxDeck = .deck2
+    guiSnapshot.profiles["default"]!.setMapping(guiGroup, for: 1)
+    _ = try OverCUEConfigurationFileStore.updateCurrent(at: configurationURL) { latest in
+        var cliGroup = latest.profiles["default"]!.storedMapping(for: 1)
+        cliGroup.rekordboxMode = .performance
+        latest.profiles["default"]!.setMapping(cliGroup, for: 1)
+    }
+    let serialized = try OverCUEConfigurationFileStore.updateCurrent(at: configurationURL) { latest in
+        latest = OverCUEConfigurationMerger.merge(
+            base: base,
+            local: guiSnapshot,
+            remote: latest
+        )
+    }
+    check(
+        serialized.profiles["default"]!.storedMapping(for: 1).rekordboxDeck == .deck2,
+        "serialized GUI update keeps its Deck change"
+    )
+    check(
+        serialized.profiles["default"]!.storedMapping(for: 1).rekordboxMode == .performance,
+        "serialized CLI Mode update survives a later GUI save"
+    )
+    let serializedReadBack = try OverCUEConfigurationFileStore.readCurrent(at: configurationURL)
+    check(serializedReadBack == serialized, "read back the latest serialized configuration")
+
+    let missingURL = temporaryDirectory.appendingPathComponent("missing/config.json")
+    let createdFromFallback = try OverCUEConfigurationFileStore.updateCurrent(
+        at: missingURL,
+        fallback: base
+    ) { $0.defaultProfile = "default" }
+    check(createdFromFallback == base, "create a missing config from an explicit fallback")
+    do {
+        _ = try OverCUEConfigurationFileStore.updateCurrent(
+            at: temporaryDirectory.appendingPathComponent("absent/config.json")
+        ) { _ in }
+        check(false, "reject a missing config without fallback")
+    } catch let error as OverCUEConfigurationPersistenceError {
+        if case .missingConfiguration = error {
+            check(true, "reject a missing config without fallback")
+        } else {
+            check(false, "reject a missing config without fallback")
+        }
+    }
+    var unsupported = base
+    unsupported.version = OverCUEConfiguration.currentVersion + 1
+    do {
+        try OverCUEConfigurationFileStore.writeCurrent(unsupported, at: configurationURL)
+        check(false, "reject an unsupported config version before writing")
+    } catch let error as OverCUEConfigurationPersistenceError {
+        if case .unsupportedVersion = error {
+            check(true, "reject an unsupported config version before writing")
+        } else {
+            check(false, "reject an unsupported config version before writing")
+        }
+    }
+    let configurationAfterRejectedWrite = try OverCUEConfigurationFileStore.readCurrent(
+        at: configurationURL
+    )
+    check(
+        configurationAfterRejectedWrite == serialized,
+        "failed unsupported write leaves the current config intact"
+    )
+
+    let migrationURL = temporaryDirectory.appendingPathComponent("migration/config.json")
+    try FileManager.default.createDirectory(
+        at: migrationURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    var version8 = base
+    version8.version = 8
+    try JSONEncoder().encode(version8).write(to: migrationURL, options: .atomic)
+    let firstMigration = try OverCUEConfigurationFileStore.migrateCurrentIfNeeded(
+        at: migrationURL
+    ) { latestData, _ in
+        let latest = try JSONDecoder().decode(OverCUEConfiguration.self, from: latestData)
+        return ActionConfigurationMigrator.migrateToCurrentVersion(latest).configuration
+    }
+    check(firstMigration.sourceVersion == 8, "migrate the latest old-version config under lock")
+    check(
+        FileManager.default.fileExists(
+            atPath: migrationURL.deletingLastPathComponent()
+                .appendingPathComponent("config.v8.backup.json").path
+        ),
+        "back up the old config before replacing it under the migration lock"
+    )
+    _ = try OverCUEConfigurationFileStore.updateCurrent(at: migrationURL) { latest in
+        var group = latest.profiles["default"]!.storedMapping(for: 1)
+        group.rekordboxDeck = .deck4
+        latest.profiles["default"]!.setMapping(group, for: 1)
+    }
+    var staleMigrationClosureRan = false
+    let secondMigration = try OverCUEConfigurationFileStore.migrateCurrentIfNeeded(
+        at: migrationURL
+    ) { _, _ in
+        staleMigrationClosureRan = true
+        return base
+    }
+    check(!staleMigrationClosureRan, "skip a stale migration after another process reached current")
+    check(
+        secondMigration.configuration.profiles["default"]!.storedMapping(for: 1).rekordboxDeck
+            == .deck4,
+        "stale migration cannot overwrite a post-migration update"
+    )
+} catch {
+    failureCount += 1
+    fputs("FAIL: unexpected configuration persistence error: \(error)\n", stderr)
 }
 
 do {

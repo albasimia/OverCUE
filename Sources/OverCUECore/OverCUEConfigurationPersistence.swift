@@ -1,6 +1,9 @@
 import Darwin
 import Foundation
 
+@_silgen_name("flock")
+private func overcueFlock(_ descriptor: Int32, _ operation: Int32) -> Int32
+
 public enum OverCUEConfigurationPersistenceError: Error, LocalizedError, Sendable {
     case missingConfiguration(String)
     case unsupportedVersion(Int)
@@ -22,6 +25,16 @@ public enum OverCUEConfigurationPersistenceError: Error, LocalizedError, Sendabl
 }
 
 public enum OverCUEConfigurationFileStore {
+    public struct MigrationResult: Sendable {
+        public let configuration: OverCUEConfiguration
+        public let originalData: Data?
+        public let sourceVersion: Int?
+    }
+
+    private struct VersionEnvelope: Decodable {
+        let version: Int
+    }
+
     public static func readCurrent(at url: URL) throws -> OverCUEConfiguration {
         let data = try Data(contentsOf: url)
         let configuration = try JSONDecoder().decode(OverCUEConfiguration.self, from: data)
@@ -34,6 +47,38 @@ public enum OverCUEConfigurationFileStore {
     public static func writeCurrent(_ configuration: OverCUEConfiguration, at url: URL) throws {
         try withExclusiveLock(for: url) {
             try writeUnlocked(configuration, to: url)
+        }
+    }
+
+    public static func migrateCurrentIfNeeded(
+        at url: URL,
+        migrate: (_ latestData: Data, _ sourceVersion: Int) throws -> OverCUEConfiguration
+    ) throws -> MigrationResult {
+        try withExclusiveLock(for: url) {
+            let data = try Data(contentsOf: url)
+            let version = try JSONDecoder().decode(VersionEnvelope.self, from: data).version
+            if version == OverCUEConfiguration.currentVersion {
+                return MigrationResult(
+                    configuration: try JSONDecoder().decode(OverCUEConfiguration.self, from: data),
+                    originalData: nil,
+                    sourceVersion: nil
+                )
+            }
+            guard version < OverCUEConfiguration.currentVersion else {
+                throw OverCUEConfigurationPersistenceError.unsupportedVersion(version)
+            }
+            let configuration = try migrate(data, version)
+            let backupURL = url.deletingLastPathComponent()
+                .appendingPathComponent("config.v\(version).backup.json")
+            if !FileManager.default.fileExists(atPath: backupURL.path) {
+                try data.write(to: backupURL, options: .atomic)
+            }
+            try writeUnlocked(configuration, to: url)
+            return MigrationResult(
+                configuration: configuration,
+                originalData: data,
+                sourceVersion: version
+            )
         }
     }
 
@@ -92,13 +137,14 @@ public enum OverCUEConfigurationFileStore {
         }
         defer { Darwin.close(descriptor) }
 
-        guard Darwin.flock(descriptor, LOCK_EX) == 0 else {
-            throw OverCUEConfigurationPersistenceError.lockFailed(
-                path: lockURL.path,
-                code: errno
-            )
+        while overcueFlock(descriptor, LOCK_EX) != 0 {
+            let code = errno
+            if code == EINTR { continue }
+            throw OverCUEConfigurationPersistenceError.lockFailed(path: lockURL.path, code: code)
         }
-        defer { _ = Darwin.flock(descriptor, LOCK_UN) }
+        defer {
+            while overcueFlock(descriptor, LOCK_UN) != 0, errno == EINTR {}
+        }
         return try operation()
     }
 }
