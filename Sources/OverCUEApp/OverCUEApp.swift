@@ -25,9 +25,6 @@ private final class OverCUEApplicationDelegate: NSObject, NSApplicationDelegate 
 
     private func requestAccessibilityPermissionAfterWindowPresentation() {
         guard !AXIsProcessTrusted() else { return }
-        // Request only after SwiftUI has presented the main window. Nothing
-        // brings OverCUE forward after this call, so the system permission UI
-        // remains visible instead of being covered by the app window.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             guard !AXIsProcessTrusted() else { return }
             let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
@@ -41,7 +38,6 @@ private final class OverCUEApplicationDelegate: NSObject, NSApplicationDelegate 
             NSApp.windows.first?.makeKeyAndOrderFront(nil)
         }
     }
-
 }
 
 @main
@@ -134,25 +130,34 @@ private struct MenuBarContent: View {
     }
 }
 
+private enum MainSection: String, CaseIterable, Identifiable {
+    case shortcuts
+    case devices
+    case settings
+
+    var id: String { rawValue }
+
+    var localizationKey: String {
+        switch self {
+        case .shortcuts: "nav.shortcuts"
+        case .devices: "nav.devices"
+        case .settings: "nav.settings"
+        }
+    }
+}
+
 private struct ContentView: View {
     @ObservedObject var model: ShortcutSettingsModel
+    @StateObject private var deviceModel = DeviceManagementModel()
     @EnvironmentObject private var localization: AppLocalization
+    @State private var selectedSection: MainSection = .shortcuts
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             VStack(spacing: 0) {
                 applicationHeader
                 Divider()
-                GeometryReader { geometry in
-                    HStack(spacing: 0) {
-                        DevicePanelView(model: model)
-                            .frame(width: max(480, geometry.size.width * 0.46))
-
-                        Divider()
-
-                        ShortcutListView(model: model)
-                    }
-                }
+                sectionContent
             }
 
             if ToastPresentationConfiguration.isEnabled, let toast = model.toast {
@@ -181,6 +186,25 @@ private struct ContentView: View {
         }
     }
 
+    @ViewBuilder
+    private var sectionContent: some View {
+        switch selectedSection {
+        case .shortcuts:
+            GeometryReader { geometry in
+                HStack(spacing: 0) {
+                    DevicePanelView(model: model)
+                        .frame(width: max(480, geometry.size.width * 0.46))
+                    Divider()
+                    ShortcutListView(model: model)
+                }
+            }
+        case .devices:
+            DevicesView(deviceModel: deviceModel, shortcutModel: model)
+        case .settings:
+            OverCUESettingsTabView(model: model)
+        }
+    }
+
     private var applicationHeader: some View {
         HStack(spacing: 12) {
             Group {
@@ -202,7 +226,18 @@ private struct ContentView: View {
             Text("OverCUE")
                 .font(.system(size: 24, weight: .bold, design: .rounded))
 
-            Spacer()
+            Spacer(minLength: 20)
+
+            Picker("", selection: $selectedSection) {
+                ForEach(MainSection.allCases) { section in
+                    Text(localization.text(section.localizationKey)).tag(section)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .frame(width: 360)
+
+            Spacer(minLength: 20)
 
             HStack(spacing: 7) {
                 Circle()
@@ -213,6 +248,7 @@ private struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+            .frame(minWidth: 160, alignment: .trailing)
         }
         .padding(.horizontal, 22)
         .frame(height: 62)

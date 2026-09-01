@@ -1,0 +1,86 @@
+import XCTest
+import OverCUECore
+
+final class ACK05PairedIdentityTests: XCTestCase {
+    private let firstPairingID = "31100918-88D2-1452-8C2E-563FF9B1C453"
+    private let secondPairingID = "E8A00866-5AC3-4BDE-BE4D-FC42ED747BE0"
+
+    func testACK05UsesPairingUUIDAsPersistentIdentityWithoutSerial() throws {
+        let device = descriptor(pairingID: firstPairingID, session: "session-a")
+
+        XCTAssertNil(device.serialNumber)
+        XCTAssertEqual(device.ack05PairingIdentifier, firstPairingID)
+        XCTAssertEqual(
+            device.persistentIdentifier,
+            "ack05:28BD:0202:pairing:\(firstPairingID)"
+        )
+    }
+
+    func testACK05PairingIdentityCanBindLogicalDevice() throws {
+        var configuration = OverCUEConfiguration.defaultValue
+        configuration.logicalDevices["deck-a"] = OverCUELogicalDevice(
+            name: "Deck A",
+            profileName: configuration.defaultProfile
+        )
+        let device = descriptor(pairingID: firstPairingID, session: "session-a")
+
+        let binding = try ACK05PairedDeviceBindingManager.rebind(
+            logicalDeviceID: "deck-a",
+            to: device,
+            among: [device],
+            configuration: &configuration
+        )
+
+        XCTAssertEqual(binding.legacyDeviceIdentifier, firstPairingID)
+        XCTAssertEqual(
+            configuration.bindingResolution(for: device, among: [device]),
+            .bound(logicalDeviceID: "deck-a")
+        )
+    }
+
+    func testRepairedACK05DoesNotMatchOldPairingBinding() throws {
+        var configuration = OverCUEConfiguration.defaultValue
+        configuration.logicalDevices["deck-a"] = OverCUELogicalDevice(
+            name: "Deck A",
+            profileName: configuration.defaultProfile
+        )
+        let beforeRepair = descriptor(pairingID: firstPairingID, session: "session-a")
+        _ = try ACK05PairedDeviceBindingManager.rebind(
+            logicalDeviceID: "deck-a",
+            to: beforeRepair,
+            among: [beforeRepair],
+            configuration: &configuration
+        )
+
+        let afterRepair = descriptor(pairingID: secondPairingID, session: "session-b")
+        XCTAssertEqual(
+            configuration.bindingResolution(for: afterRepair, among: [afterRepair]),
+            .unbound
+        )
+    }
+
+    func testGenericHIDDoesNotPromoteUUIDLegacyIdentifierToPersistentIdentity() {
+        let device = HIDPhysicalDeviceDescriptor(
+            kind: .genericHID,
+            vendorID: 0x1234,
+            productID: 0x5678,
+            transportIdentifier: "session-a",
+            legacyIdentifiers: [firstPairingID]
+        )
+
+        XCTAssertNil(device.ack05PairingIdentifier)
+        XCTAssertNil(device.persistentIdentifier)
+    }
+
+    private func descriptor(pairingID: String, session: String) -> HIDPhysicalDeviceDescriptor {
+        HIDPhysicalDeviceDescriptor(
+            kind: .ack05,
+            vendorID: 0x28BD,
+            productID: 0x0202,
+            transport: "Bluetooth Low Energy",
+            locationID: 403_247_153,
+            transportIdentifier: session,
+            legacyIdentifiers: [pairingID, "e4-68-c8-e6-9b-f5"]
+        )
+    }
+}

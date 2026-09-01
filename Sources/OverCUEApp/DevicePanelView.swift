@@ -4,6 +4,10 @@ import SwiftUI
 struct DevicePanelView: View {
     @ObservedObject var model: ShortcutSettingsModel
     @EnvironmentObject private var localization: AppLocalization
+    @State private var presetEditor: PresetEditorMode?
+    @State private var presetNameDraft = ""
+    @State private var presetError: String?
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -19,23 +23,68 @@ struct DevicePanelView: View {
                 Spacer()
             }
 
-            HStack {
-                Text(localization.text("device.group"))
-                    .font(.headline)
-                Picker(
-                    localization.text("device.group"),
-                    selection: Binding(
-                        get: { model.selectedGroup },
-                        set: { model.setGroup($0) }
-                    )
-                ) {
-                    ForEach(Array(model.availablePresetGroups.enumerated()), id: \.element.id) { index, preset in
-                        Text(preset.name).tag(index + 1)
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    Text(localization.text("device.group"))
+                        .font(.headline)
+                    Picker(
+                        localization.text("device.group"),
+                        selection: Binding(
+                            get: { model.selectedGroup },
+                            set: { model.setGroup($0) }
+                        )
+                    ) {
+                        ForEach(Array(model.availablePresetGroups.enumerated()), id: \.element.id) { index, preset in
+                            Text(preset.name).tag(index + 1)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 300)
+
+                    Button {
+                        beginAddPreset()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.bordered)
+                    .help(localization.text("preset.add"))
+                    .disabled(model.availablePresetGroups.count >= OverCUEPresetGroup.maximumCount)
+
+                    Menu {
+                        Button(localization.text("preset.rename")) {
+                            beginRenamePreset()
+                        }
+                        .disabled(selectedPreset == nil)
+
+                        Divider()
+
+                        Button(localization.text("preset.delete"), role: .destructive) {
+                            showDeleteConfirmation = true
+                        }
+                        .disabled(
+                            selectedPreset == nil
+                                || model.selectedGroup == 1
+                                || model.availablePresetGroups.count <= 1
+                        )
+                    } label: {
+                        Image(systemName: "ellipsis")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .help(localization.text("preset.manage"))
                 }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(maxWidth: 300)
+
+                if let presetError {
+                    Text(presetError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if model.selectedGroup == 1, model.availablePresetGroups.count > 1 {
+                    Text(localization.text("preset.first.help"))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
             }
 
             ZStack(alignment: .topTrailing) {
@@ -93,8 +142,119 @@ struct DevicePanelView: View {
         }
         .padding(28)
         .background(Color(nsColor: .underPageBackgroundColor).opacity(0.45))
+        .sheet(item: $presetEditor) { editor in
+            presetEditorSheet(editor)
+        }
+        .alert(localization.text("preset.delete.title"), isPresented: $showDeleteConfirmation) {
+            Button(localization.text("common.cancel"), role: .cancel) {}
+            Button(localization.text("preset.delete"), role: .destructive) {
+                deleteSelectedPreset()
+            }
+        } message: {
+            Text(localization.text("preset.delete.message", selectedPreset?.name ?? ""))
+        }
     }
 
+    private var selectedPreset: OverCUEPresetGroup? {
+        guard model.availablePresetGroups.indices.contains(model.selectedGroup - 1) else { return nil }
+        return model.availablePresetGroups[model.selectedGroup - 1]
+    }
+
+    private func beginAddPreset() {
+        presetError = nil
+        presetNameDraft = localization.text("preset.defaultName", model.availablePresetGroups.count + 1)
+        presetEditor = .add
+    }
+
+    private func beginRenamePreset() {
+        guard let selectedPreset else { return }
+        presetError = nil
+        presetNameDraft = selectedPreset.name
+        presetEditor = .rename(id: selectedPreset.id)
+    }
+
+    @ViewBuilder
+    private func presetEditorSheet(_ editor: PresetEditorMode) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(editor.isAdd
+                ? localization.text("preset.add.title")
+                : localization.text("preset.rename.title"))
+                .font(.title2.bold())
+
+            TextField(localization.text("preset.name"), text: $presetNameDraft)
+                .textFieldStyle(.roundedBorder)
+
+            if let presetError {
+                Text(presetError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            HStack {
+                Spacer()
+                Button(localization.text("common.cancel")) {
+                    presetEditor = nil
+                    presetError = nil
+                }
+                Button(editor.isAdd
+                    ? localization.text("preset.add")
+                    : localization.text("common.save")) {
+                    savePresetEditor(editor)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(presetNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(24)
+        .frame(width: 420)
+    }
+
+    private func savePresetEditor(_ editor: PresetEditorMode) {
+        do {
+            switch editor {
+            case .add:
+                let result = try PresetGroupStore.add(name: presetNameDraft, mode: model.mode)
+                presetEditor = nil
+                presetError = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                    model.setGroup(result.index)
+                }
+            case let .rename(id):
+                try PresetGroupStore.rename(id: id, name: presetNameDraft)
+                presetEditor = nil
+                presetError = nil
+            }
+        } catch {
+            presetError = error.localizedDescription
+        }
+    }
+
+    private func deleteSelectedPreset() {
+        guard let selectedPreset else { return }
+        do {
+            _ = try PresetGroupStore.delete(id: selectedPreset.id)
+            presetError = nil
+        } catch {
+            presetError = error.localizedDescription
+        }
+    }
+}
+
+private enum PresetEditorMode: Identifiable {
+    case add
+    case rename(id: String)
+
+    var id: String {
+        switch self {
+        case .add: "add"
+        case let .rename(id): "rename-\(id)"
+        }
+    }
+
+    var isAdd: Bool {
+        if case .add = self { return true }
+        return false
+    }
 }
 
 private struct ACK05DeviceMap: View {
@@ -337,9 +497,6 @@ private struct ACK05BodyShape: Shape {
         let bottom = rect.minY + rect.height * 0.92
         let cornerRadius = min(rect.width * 0.04, rect.height * 0.06)
 
-        // Keep the enclosure contour concentric with the dial. The map is drawn
-        // horizontally and then rotated, so this arc becomes the top/right
-        // shoulder visible around the dial in the normal vertical orientation.
         let dialCenter = CGPoint(
             x: rect.midX - rect.width * (222.0 / 720.0),
             y: rect.midY - rect.height * (72.0 / 430.0)

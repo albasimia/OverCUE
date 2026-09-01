@@ -41,9 +41,38 @@ public struct HIDPhysicalDeviceDescriptor: Equatable, Sendable {
         self.legacyIdentifiers = legacyIdentifiers
     }
 
+    /// ACK05 has no USB/BLE serial number on the verified hardware. macOS exposes
+    /// PhysicalDeviceUniqueID as a UUID that survived ACK05 power cycles and a Mac
+    /// restart, while changing after Bluetooth re-pairing. Treat it as a stable
+    /// *pairing* identity, not an immutable physical-device serial.
+    public var ack05PairingIdentifier: String? {
+        guard kind == .ack05 else { return nil }
+        return legacyIdentifiers
+            .filter { UUID(uuidString: $0) != nil }
+            .sorted()
+            .first
+    }
+
     public var persistentIdentifier: String? {
-        guard let serialNumber else { return nil }
-        return String(format: "%@:%04X:%04X:serial:%@", kind.rawValue, vendorID, productID, serialNumber)
+        if let serialNumber {
+            return String(
+                format: "%@:%04X:%04X:serial:%@",
+                kind.rawValue,
+                vendorID,
+                productID,
+                serialNumber
+            )
+        }
+        if let pairingIdentifier = ack05PairingIdentifier {
+            return String(
+                format: "%@:%04X:%04X:pairing:%@",
+                kind.rawValue,
+                vendorID,
+                productID,
+                pairingIdentifier
+            )
+        }
+        return nil
     }
 
     public var sessionIdentifier: String {
@@ -123,6 +152,7 @@ public struct OverCUEPhysicalDeviceBinding: Codable, Equatable, Sendable {
             && vendorID == device.vendorID
             && productID == device.productID
             && serialNumber == nil
+            && legacyDeviceIdentifier == nil
             && lastKnownLocationID != nil
             && lastKnownLocationID == device.locationID
     }
