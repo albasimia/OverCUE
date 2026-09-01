@@ -275,29 +275,7 @@ private final class ConfigurationStore {
             try save()
         }
 
-        guard configuration.version == OverCUEConfiguration.currentVersion else {
-            throw BridgeError.configuration(
-                "Unsupported config version \(configuration.version) at \(url.path)."
-            )
-        }
-        guard configuration.profiles[configuration.defaultProfile] != nil else {
-            throw BridgeError.configuration(
-                "defaultProfile '\(configuration.defaultProfile)' does not exist in profiles."
-            )
-        }
-        for (logicalDeviceID, logicalDevice) in configuration.logicalDevices
-        where configuration.profiles[logicalDevice.profileName] == nil {
-            throw BridgeError.configuration(
-                "Logical device '\(logicalDeviceID)' references unknown profile "
-                    + "'\(logicalDevice.profileName)'."
-            )
-        }
-        for binding in configuration.physicalDeviceBindings
-        where configuration.logicalDevices[binding.logicalDeviceID] == nil {
-            throw BridgeError.configuration(
-                "Physical binding references unknown logical device '\(binding.logicalDeviceID)'."
-            )
-        }
+        try validateCurrentConfiguration(configuration)
     }
 
     func profileName(for device: HIDPhysicalDeviceDescriptor?) -> String {
@@ -325,6 +303,18 @@ private final class ConfigurationStore {
         })
     }
 
+    func reloadCurrentConfiguration() throws {
+        do {
+            let latest = try OverCUEConfigurationFileStore.readCurrent(at: url)
+            try validateCurrentConfiguration(latest)
+            configuration = latest
+        } catch let error as BridgeError {
+            throw error
+        } catch {
+            throw BridgeError.configuration("Could not reload config at \(url.path): \(error)")
+        }
+    }
+
     func profile(named name: String) throws -> OverCUEProfile {
         guard let profile = configuration.profiles[name] else {
             throw BridgeError.configuration("Unknown profile '\(name)'.")
@@ -349,14 +339,18 @@ private final class ConfigurationStore {
         profileName: String,
         group: Int
     ) throws {
-        guard var profile = configuration.profiles[profileName] else {
-            throw BridgeError.configuration("Unknown profile '\(profileName)'.")
+        configuration = try OverCUEConfigurationFileStore.updateCurrent(
+            at: url,
+            fallback: configuration
+        ) { latest in
+            guard var profile = latest.profiles[profileName] else {
+                throw BridgeError.configuration("Unknown profile '\(profileName)'.")
+            }
+            var mapping = profile.storedMapping(for: group)
+            mapping.rekordboxMode = mode
+            profile.setMapping(mapping, for: group)
+            latest.profiles[profileName] = profile
         }
-        var mapping = profile.storedMapping(for: group)
-        mapping.rekordboxMode = mode
-        profile.setMapping(mapping, for: group)
-        configuration.profiles[profileName] = profile
-        try save()
     }
 
     func waveformPosition(profileName: String, group: Int) throws -> WaveformPosition? {
@@ -364,27 +358,51 @@ private final class ConfigurationStore {
     }
 
     func saveWaveformPosition(_ position: CGPoint, profileName: String, group: Int) throws {
-        guard var profile = configuration.profiles[profileName] else {
-            throw BridgeError.configuration("Unknown profile '\(profileName)'.")
+        configuration = try OverCUEConfigurationFileStore.updateCurrent(
+            at: url,
+            fallback: configuration
+        ) { latest in
+            guard var profile = latest.profiles[profileName] else {
+                throw BridgeError.configuration("Unknown profile '\(profileName)'.")
+            }
+            var mapping = profile.storedMapping(for: group)
+            mapping.waveformPosition = WaveformPosition(x: position.x, y: position.y)
+            profile.setMapping(mapping, for: group)
+            latest.profiles[profileName] = profile
         }
-        var mapping = profile.storedMapping(for: group)
-        mapping.waveformPosition = WaveformPosition(x: position.x, y: position.y)
-        profile.setMapping(mapping, for: group)
-        configuration.profiles[profileName] = profile
-        try save()
     }
 
     private func save() throws {
         do {
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(configuration).write(to: url, options: .atomic)
+            try OverCUEConfigurationFileStore.writeCurrent(configuration, at: url)
         } catch {
             throw BridgeError.configuration("Could not save config at \(url.path): \(error)")
+        }
+    }
+
+    private func validateCurrentConfiguration(_ configuration: OverCUEConfiguration) throws {
+        guard configuration.version == OverCUEConfiguration.currentVersion else {
+            throw BridgeError.configuration(
+                "Unsupported config version \(configuration.version) at \(url.path)."
+            )
+        }
+        guard configuration.profiles[configuration.defaultProfile] != nil else {
+            throw BridgeError.configuration(
+                "defaultProfile '\(configuration.defaultProfile)' does not exist in profiles."
+            )
+        }
+        for (logicalDeviceID, logicalDevice) in configuration.logicalDevices
+        where configuration.profiles[logicalDevice.profileName] == nil {
+            throw BridgeError.configuration(
+                "Logical device '\(logicalDeviceID)' references unknown profile "
+                    + "'\(logicalDevice.profileName)'."
+            )
+        }
+        for binding in configuration.physicalDeviceBindings
+        where configuration.logicalDevices[binding.logicalDeviceID] == nil {
+            throw BridgeError.configuration(
+                "Physical binding references unknown logical device '\(binding.logicalDeviceID)'."
+            )
         }
     }
 
@@ -829,7 +847,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     ]
     private let internalActionHandler = InternalActionHandler()
     private var mappings: ActionMapping
-    private let mappingsByProfile: [String: [Int: ActionMapping]]
+    private var mappingsByProfile: [String: [Int: ActionMapping]]
     private let configurationStore: ConfigurationStore
     private var activeProfileName: String
     private var activeDeviceID: String?
@@ -948,7 +966,8 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         let targetDeviceID = notification.userInfo?[OverCUERuntimeControlNotification.deviceIDKey]
             as? String
         guard let activeDeviceID,
-              scope.controls(activeDeviceID: activeDeviceID, targetDeviceID: targetDeviceID)
+              scope.controls(activeDeviceID: activeDeviceID, targetDeviceID: targetDeviceID),
+              reloadConfigurationForRuntimeControl()
         else { return }
         switchGroup(to: group, preferredMode: mode, source: "GUI")
     }
@@ -983,6 +1002,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
 
         switch event {
         case let .dial(direction):
+            publishActiveRuntimeStatus()
             publishDialTurn(direction, deviceID: activeDeviceID)
             if let chordEvent = actionResolver.dialEvent(for: direction, mapping: mappings) {
                 route(chordEvent)
@@ -1048,13 +1068,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         )
         activeDeviceID = deviceID
         activeLogicalDeviceID = logicalDeviceID
-        publishRuntimeStatus(
-            mode: activeRekordboxMode,
-            group: activeGroup,
-            deviceID: deviceID,
-            logicalDeviceID: logicalDeviceID,
-            profileName: profileName
-        )
+        publishActiveRuntimeStatus()
 
         do {
             let savedPosition = try configurationStore.waveformPosition(
@@ -1084,6 +1098,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     }
 
     private func handlePressedKeys(_ pressedKeys: Set<ACK05Key>) {
+        publishActiveRuntimeStatus()
         publishPressedKeys(pressedKeys, deviceID: activeDeviceID)
         let released = actionResolver.pressedKeys.subtracting(pressedKeys)
         let events = actionResolver.handle(pressedKeys: pressedKeys, mapping: mappings)
@@ -1133,6 +1148,35 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         return command
     }
 
+    private func reloadConfigurationForRuntimeControl() -> Bool {
+        do {
+            try configurationStore.reloadCurrentConfiguration()
+            var refreshedMappings: [String: [Int: ActionMapping]] = [:]
+            for (name, profileConfiguration) in configurationStore.configuration.profiles {
+                refreshedMappings[name] = try Dictionary(
+                    uniqueKeysWithValues: (1...4).map { group in
+                        (group, try ActionMapping(profile: profileConfiguration, group: group))
+                    }
+                )
+            }
+            mappingsByProfile = refreshedMappings
+            return true
+        } catch {
+            log("ERROR Could not reload configuration before GUI control: \(error)")
+            return false
+        }
+    }
+
+    private func publishActiveRuntimeStatus() {
+        publishRuntimeStatus(
+            mode: activeRekordboxMode,
+            group: activeGroup,
+            deviceID: activeDeviceID,
+            logicalDeviceID: activeLogicalDeviceID,
+            profileName: activeProfileName
+        )
+    }
+
     private func cycleGroup(step: Int) {
         let nextGroup = (activeGroup - 1 + step + 4) % 4 + 1
         switchGroup(to: nextGroup, preferredMode: nil, source: "ACK05")
@@ -1168,6 +1212,8 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
                 waveformAnchor = nil
                 log("ERROR \(error)")
             }
+        } else {
+            mappings = nextMappings
         }
 
         let savedMode = preferredMode ?? configurationStore.rekordboxMode(
@@ -1198,13 +1244,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
                 log("ERROR \(error)")
             }
         }
-        publishRuntimeStatus(
-            mode: activeRekordboxMode,
-            group: activeGroup,
-            deviceID: activeDeviceID,
-            logicalDeviceID: activeLogicalDeviceID,
-            profileName: activeProfileName
-        )
+        publishActiveRuntimeStatus()
         log(
             "GROUP switched by \(source) to \(activeGroup) / \(activeRekordboxMode.displayName) "
                 + "for profile '\(activeProfileName)'."
@@ -1228,13 +1268,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         } catch {
             log("ERROR \(error)")
         }
-        publishRuntimeStatus(
-            mode: activeRekordboxMode,
-            group: activeGroup,
-            deviceID: activeDeviceID,
-            logicalDeviceID: activeLogicalDeviceID,
-            profileName: activeProfileName
-        )
+        publishActiveRuntimeStatus()
         log("Rekordbox shortcut mode switched to \(activeRekordboxMode.displayName).")
     }
 

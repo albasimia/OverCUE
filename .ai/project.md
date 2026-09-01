@@ -6,7 +6,7 @@ OverCUEは、任意の物理入力インターフェースとrekordboxの間を�
 
 ## 現在のフェーズ
 
-PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している。ACK05 1台でGroup/Profileを切り替えながらDeck 1〜3を操作する実地DJは成立済み。複数ACK05向けの物理device別入力状態、Physical / Logical Device bindingに加え、commit `3a81b4e`レビューで見つかったlive identity、runtime scope、legacy location migration、GUI capture sourceの4ゲートを修正した。次は複数実機確認後、Generic HID / Devices UIへ進む。
+PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは成立している。ACK05 1台でGroup/Profileを切り替えながらDeck 1〜3を操作する実地DJも成立済み。複数ACK05向けの物理device別入力状態、Physical / Logical Device binding、およびcommit `3a81b4e`レビューで見つかったlive identity、runtime scope、legacy location migration、GUI capture sourceの4ゲートは実装済み。commit `e822d54`の追加レビューで見つかった「non-default ProfileのstatusがGUI control targetを奪う問題」と「GUI / CLIの古いconfig全体書き戻し競合」には直接修正を入れたが、この追加修正はGitHub connector環境で作成したためmacOSローカル検証が未実施である。Generic HID / Devices UIへ進む前にこの追加ゲートをローカル検証し、複数実機で境界を確認する。
 
 ## 現在地
 
@@ -25,9 +25,13 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している�
 - CLI bridgeのlive session identityはIOHID接続インスタンス由来transport identifierを使い、Serial由来persistent identityと分離する。
 - 同時接続deviceが同じVID / PID / Serialを名乗る場合はbindingをambiguousとしてdefault Profileへ戻し、接続トポロジ変更を既存controllerへ即時通知する。
 - Runtime Status / Controlはsession device ID、Logical Device ID、Profile名とdevice / global scopeを保持する。GUIはstatus受信だけで設定を書き戻さない。
+- default Profile用GUIのruntime targetはdefault Profileのdeviceだけで更新する。non-default Profileのstatusはdefault UIのcontrol targetを奪わない。
+- CLIは通常のACK05キー／ダイヤル入力時にもdevice-scoped runtime statusをpublishし、default Profile UIのcontrol targetを実際に操作したdeviceへ追従させる。
+- GUI / CLIによる`config.json`更新は共通`OverCUEConfigurationFileStore`のlock付きread-modify-writeを使う。GUIは最後に読み込んだbaseline、GUIローカル変更、最新disk stateの3-way mergeを行い、CLI由来の無関係な変更を古いin-memory configで上書きしない。
+- CLIはGUI runtime controlを処理する直前に最新configをreloadし、Group / Mode / Deck / Action mappingを最新値から再解決する。CLI自身のMode / waveform保存も最新disk stateへ局所更新する。
 - version 9 migrationのlegacy `location:`値は`lastKnownLocationID` hintだけへ移し、persistent match対象へ残さない。
 - ACK05 Learn / Captureは最初のsource physical deviceへ固定し、別ACK05の入力を混在させない。source切断時はcaptureをキャンセルする。
-- `overcue-checks`は273件。上記4レビューゲートの再現checksを含む。
+- commit `e822d54`時点の`overcue-checks`は273件で全件成功済み。今回のconfig persistence / runtime target追加修正はローカル再検証前なので、成功済み件数を更新しない。
 
 ## 制約
 
@@ -55,12 +59,15 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している�
 - Generic HID入力は可能な限りIOHIDのdevice sourceを保持した状態で扱い、同じキーコードを送る同型デバイス同士を区別できるようにする。
 - 未登録Generic HIDの検出は受動的に行い、勝手に登録・画面遷移しない。登録はDevicesからAdd Generic Device → Identify/Learnで明示的に行う。
 - 物理デバイス識別は固有Serialを最優先し、USB topology / locationは補助ヒントに留める。曖昧な場合はユーザーに対象デバイスを操作してもらいIdentify / Rebindする。
+- runtime statusは「現在の画面の編集対象」と「他Profileの演奏状態」を混同しない。default Profile UIはnon-default Profileのstatusでcontrol targetを書き換えない。
+- `config.json`は単一ファイルを正本とし、複数processがそれぞれ古い全体snapshotを後勝ち保存しない。永続更新はlock付き最新read-modify-writeまたはbaseline差分のmergeとして扱う。
 - 標準物理構成は3Deckとし、4Deckはソフトウェア能力とオプション拡張として残す。
 
 ## 変更してよい範囲
 
 - 現行Action Layer、Group構造、migration方針に沿う局所的な実装・テスト・ドキュメント更新。
 - 複数ACK05を物理個体ごとに分離する入力状態管理。
+- config永続化の競合防止、process間runtime scope、Logical Device bindingの安全性改善。
 - Generic HIDのdevice-aware入力、Logical Device binding、Identify / Rebind、Learn、Devices UI。
 - ローカル検証の再現性、エラー表示、未割り当て時の診断改善。
 - 既存挙動を保持するための可逆なCore checks追加。
@@ -75,6 +82,8 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している�
 - USB topology / locationを永続的なLogical Device IDとして扱わない。
 - legacy `location:`値をpersistent Physical Bindingとして復活させない。
 - Runtime Status / Controlのsource deviceを失ったまま、別controllerや`defaultProfile`へ状態を伝播させない。
+- non-default Profileのruntime statusでdefault Profile用GUIのcontrol targetを置き換えない。
+- GUI / CLIが古い`OverCUEConfiguration`全体をそのまま後勝ち保存し、他processの変更を消さない。
 - Learn / Captureで複数physical deviceの入力を1つのコードへ混在させない。
 - 未登録HIDの接続を理由に設定画面へ自動遷移しない。
 - 実データや実機で確認できていない項目を成功済みと記録しない。
@@ -84,6 +93,7 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している�
 
 ## 未決事項
 
+- 今回追加したlock / 3-way merge / runtime target修正のmacOSローカルbuild、checks、app生成、codesign検証。
 - 複数ACK05実機でのSerial有無、IOHID identity、同時入力・切断・再接続の確認。
 - 同型deviceが同一Serialまたは空Serialを返す場合の再binding UX。
 - Koolertron系Generic HIDのキー、encoder CW/CCW、encoder pushがmacOS IOHID上でどのUsage / Reportとして見えるか。
@@ -99,6 +109,7 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している�
 - `specs/current-spec.md`
 - `Sources/OverCUECore/RekordboxActionAdapter.swift`
 - `Sources/OverCUECore/OverCUEConfiguration.swift`
+- `Sources/OverCUECore/OverCUEConfigurationPersistence.swift`
 - `Sources/OverCUECore/HIDDeviceBinding.swift`
 - `Sources/OverCUECore/Resources/DefaultKeyMapping.json`
 - `Sources/OverCUEChecks/main.swift`
@@ -106,7 +117,10 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している�
 - `.ai/decisions/20260830T200000-28631d.md`
 - `.ai/decisions/20260901T110700-c8f4b1.md`
 - `.ai/decisions/20260901T110701-e31a76.md`
+- `.ai/decisions/20260901T125000-8f0c2a.md`
 - `.ai/history/20260901T115131-b701a4.md`
+- `.ai/history/20260901T120837-f34729.md`
+- `.ai/history/20260901T125000-8f0c2a.md`
 
 ## 有効なモード
 
@@ -118,4 +132,4 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している�
 
 ## 次の行動
 
-複数ACK05実機でlive session分離、ambiguous binding、device-scoped control、capture source切断を確認し、その後Generic HID / Devices UIへ進む。
+今回のruntime target / config SSOT追加修正をmacOSローカルで検証し、問題があれば先に閉じる。その後ACK05 ×2でlive session分離、ambiguous binding、device-scoped control、capture source切断を確認し、Generic HID / Devices UIへ進む。

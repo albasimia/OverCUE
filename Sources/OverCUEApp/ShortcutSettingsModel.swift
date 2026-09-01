@@ -112,6 +112,7 @@ final class ShortcutSettingsModel: ObservableObject {
     private let configurationURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/OverCUE/config.json")
     private var configuration: OverCUEConfiguration = .defaultValue
+    private var persistedConfiguration: OverCUEConfiguration = .defaultValue
     private var inputMonitor: ACK05InputMonitor?
     private var previousCaptureKeys: Set<ACK05Key> = []
     private var capturedKeyOrder: [ACK05Key] = []
@@ -1002,11 +1003,19 @@ final class ShortcutSettingsModel: ObservableObject {
     }
 
     private func saveConfiguration() throws {
-        let directory = configurationURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(configuration).write(to: configurationURL, options: .atomic)
+        let localConfiguration = configuration
+        let baseConfiguration = persistedConfiguration
+        configuration = try OverCUEConfigurationFileStore.updateCurrent(
+            at: configurationURL,
+            fallback: localConfiguration
+        ) { remoteConfiguration in
+            remoteConfiguration = OverCUEConfigurationMerger.merge(
+                base: baseConfiguration,
+                local: localConfiguration,
+                remote: remoteConfiguration
+            )
+        }
+        persistedConfiguration = configuration
     }
 
     private func loadConfiguration() {
@@ -1019,13 +1028,14 @@ final class ShortcutSettingsModel: ObservableObject {
                     try? data.write(to: backupURL, options: .atomic)
                 }
                 configuration = ActionConfigurationMigrator.migrateToCurrentVersion(decoded).configuration
-                try? saveConfiguration()
+                try? OverCUEConfigurationFileStore.writeCurrent(configuration, at: configurationURL)
             } else {
                 configuration = decoded
             }
         } else {
             configuration = .defaultValue
         }
+        persistedConfiguration = configuration
         normalizeGroupSettings(defaultMode: mode)
         mode = configuredMode(for: selectedGroup)
         targetDeck = configuredDeck(for: selectedGroup)
@@ -1099,6 +1109,7 @@ final class ShortcutSettingsModel: ObservableObject {
         profileName: String
     ) {
         guard (1...4).contains(group) else { return }
+        guard profileName == configuration.defaultProfile else { return }
         let didChange = runtimeMode != newMode
             || runtimeGroup != group
             || runtimeDeviceID != deviceID
@@ -1110,7 +1121,6 @@ final class ShortcutSettingsModel: ObservableObject {
         runtimeLogicalDeviceID = logicalDeviceID
         runtimeProfileName = profileName
         guard didChange else { return }
-        guard profileName == configuration.defaultProfile else { return }
 
         selectedGroup = group
         mode = newMode
