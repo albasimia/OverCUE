@@ -52,7 +52,7 @@ public enum ActionConfigurationMigrator {
         }
 
         if result.configuration.groupPresets.isEmpty {
-            let assignments = Dictionary(uniqueKeysWithValues:
+            let assignments: [String: String] = Dictionary(uniqueKeysWithValues:
                 result.configuration.logicalDevices.compactMap { logicalDeviceID, logicalDevice in
                     guard let presetID = result.configuration.profiles[logicalDevice.profileName]?
                         .orderedPresetGroups.first?.id
