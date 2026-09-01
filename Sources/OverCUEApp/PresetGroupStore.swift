@@ -6,7 +6,7 @@ struct PresetGroupMutationResult: Equatable {
     let index: Int
 }
 
-enum PresetGroupStoreError: Error, LocalizedError {
+enum PresetGroupStoreError: @preconcurrency LocalizedError {
     case profileMissing
     case maximumReached
     case invalidName
@@ -14,7 +14,7 @@ enum PresetGroupStoreError: Error, LocalizedError {
     case cannotDeleteFirst
     case cannotDeleteLast
 
-    var errorDescription: String? {
+    @MainActor var errorDescription: String? {
         switch self {
         case .profileMissing:
             return L10n.text("preset.error.profileMissing")

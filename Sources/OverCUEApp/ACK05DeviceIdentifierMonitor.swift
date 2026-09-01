@@ -7,10 +7,10 @@ private enum ACK05DeviceIdentifierHardware {
     static let productID = 0x0202
 }
 
-enum ACK05DeviceIdentifierMonitorError: Error, LocalizedError {
+enum ACK05DeviceIdentifierMonitorError: @preconcurrency LocalizedError {
     case openFailed(IOReturn)
 
-    var errorDescription: String? {
+    @MainActor var errorDescription: String? {
         switch self {
         case let .openFailed(status):
             return L10n.text(
@@ -21,7 +21,7 @@ enum ACK05DeviceIdentifierMonitorError: Error, LocalizedError {
     }
 }
 
-final class ACK05DeviceIdentifierMonitor {
+final class ACK05DeviceIdentifierMonitor: @unchecked Sendable {
     var onDevicesChanged: (([HIDPhysicalDeviceDescriptor]) -> Void)?
     var onIdentified: ((HIDPhysicalDeviceDescriptor, [HIDPhysicalDeviceDescriptor]) -> Void)?
 
