@@ -105,7 +105,8 @@ enum PresetGroupStore {
             at: OverCUEAppConfigurationLocation.url,
             fallback: .defaultValue
         ) { latest in
-            guard var profile = latest.profiles[latest.defaultProfile] else {
+            let profileName = latest.defaultProfile
+            guard var profile = latest.profiles[profileName] else {
                 throw PresetGroupStoreError.profileMissing
             }
             let ordered = profile.orderedPresetGroups
@@ -125,7 +126,24 @@ enum PresetGroupStore {
                 return preset
             }
             profile.presetGroups = normalized
-            latest.profiles[latest.defaultProfile] = profile
+            latest.profiles[profileName] = profile
+
+            // A Group Preset must never keep a dangling Preset reference. Devices
+            // that were included with the deleted Preset stay included and fall
+            // back to the first remaining Preset of the same Profile.
+            if let fallbackPresetID = normalized.first?.id {
+                let affectedDeviceIDs = Set(latest.logicalDevices.compactMap { logicalDeviceID, device in
+                    device.profileName == profileName ? logicalDeviceID : nil
+                })
+                for groupPresetIndex in latest.groupPresets.indices {
+                    for logicalDeviceID in affectedDeviceIDs
+                    where latest.groupPresets[groupPresetIndex]
+                        .devicePresetAssignments[logicalDeviceID] == id {
+                        latest.groupPresets[groupPresetIndex]
+                            .devicePresetAssignments[logicalDeviceID] = fallbackPresetID
+                    }
+                }
+            }
             nextIndex = min(deletedIndex + 1, normalized.count)
         }
         OverCUEConfigurationChangedNotification.post()

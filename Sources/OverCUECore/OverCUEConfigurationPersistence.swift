@@ -244,6 +244,14 @@ public enum OverCUEConfigurationMerger {
         if local.physicalDeviceBindings != base.physicalDeviceBindings {
             result.physicalDeviceBindings = local.physicalDeviceBindings
         }
+        result.groupPresets = mergeGroupPresets(
+            base: base.groupPresets,
+            local: local.groupPresets,
+            remote: remote.groupPresets
+        )
+        if local.activeGroupPresetID != base.activeGroupPresetID {
+            result.activeGroupPresetID = local.activeGroupPresetID
+        }
         return result
     }
 
@@ -315,6 +323,42 @@ public enum OverCUEConfigurationMerger {
                 base: baseValue.mapping,
                 local: localValue.mapping,
                 remote: remoteValue.mapping
+            )
+            resultByID[key] = merged
+        }
+        return resultByID.values.sorted {
+            if $0.order != $1.order { return $0.order < $1.order }
+            return $0.id < $1.id
+        }
+    }
+
+    private static func mergeGroupPresets(
+        base: [OverCUEGroupPreset],
+        local: [OverCUEGroupPreset],
+        remote: [OverCUEGroupPreset]
+    ) -> [OverCUEGroupPreset] {
+        let baseByID = Dictionary(uniqueKeysWithValues: base.map { ($0.id, $0) })
+        let localByID = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
+        var resultByID = Dictionary(uniqueKeysWithValues: remote.map { ($0.id, $0) })
+        for key in Set(baseByID.keys).union(localByID.keys) {
+            let baseValue = baseByID[key]
+            let localValue = localByID[key]
+            guard localValue != baseValue else { continue }
+            guard let localValue else {
+                resultByID.removeValue(forKey: key)
+                continue
+            }
+            guard let baseValue, let remoteValue = resultByID[key] else {
+                resultByID[key] = localValue
+                continue
+            }
+            var merged = remoteValue
+            if localValue.name != baseValue.name { merged.name = localValue.name }
+            if localValue.order != baseValue.order { merged.order = localValue.order }
+            merged.devicePresetAssignments = mergeSimpleDictionary(
+                base: baseValue.devicePresetAssignments,
+                local: localValue.devicePresetAssignments,
+                remote: remoteValue.devicePresetAssignments
             )
             resultByID[key] = merged
         }

@@ -181,7 +181,7 @@ final class DeviceManagementModel: ObservableObject {
             at: OverCUEAppConfigurationLocation.url,
             fallback: configuration
         ) { latest in
-            guard latest.profiles[profileName] != nil else {
+            guard let profile = latest.profiles[profileName] else {
                 throw NSError(
                     domain: "OverCUE.DeviceManagement",
                     code: 2,
@@ -193,6 +193,26 @@ final class DeviceManagementModel: ObservableObject {
             }
             device.profileName = profileName
             latest.logicalDevices[logicalDeviceID] = device
+
+            // Group Preset membership survives a Profile change, but the Preset
+            // reference must belong to the new Profile. Fall back to its first
+            // Preset instead of leaving a dangling reference.
+            if let fallbackPresetID = profile.orderedPresetGroups.first?.id {
+                for groupPresetIndex in latest.groupPresets.indices {
+                    guard let assignedID = latest.groupPresets[groupPresetIndex]
+                        .devicePresetAssignments[logicalDeviceID]
+                    else { continue }
+                    if profile.presetGroup(id: assignedID) == nil {
+                        latest.groupPresets[groupPresetIndex]
+                            .devicePresetAssignments[logicalDeviceID] = fallbackPresetID
+                    }
+                }
+            } else {
+                for groupPresetIndex in latest.groupPresets.indices {
+                    latest.groupPresets[groupPresetIndex]
+                        .devicePresetAssignments.removeValue(forKey: logicalDeviceID)
+                }
+            }
         }
         OverCUEConfigurationChangedNotification.post()
         reload()

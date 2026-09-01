@@ -45,11 +45,13 @@ struct OverCUEApp: App {
     @NSApplicationDelegateAdaptor(OverCUEApplicationDelegate.self) private var applicationDelegate
     @StateObject private var model = ShortcutSettingsModel()
     @StateObject private var localization = AppLocalization.shared
+    @StateObject private var groupPresetRuntimeCoordinator = GroupPresetRuntimeCoordinator()
 
     var body: some Scene {
         WindowGroup("OverCUE", id: "main") {
             ContentView(model: model)
                 .environmentObject(localization)
+                .environmentObject(groupPresetRuntimeCoordinator)
                 .frame(minWidth: 1_080, minHeight: 720)
                 .preferredColorScheme(.dark)
                 .onAppear {

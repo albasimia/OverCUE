@@ -4,6 +4,7 @@ import SwiftUI
 struct DevicesView: View {
     @ObservedObject var deviceModel: DeviceManagementModel
     @ObservedObject var shortcutModel: ShortcutSettingsModel
+    @StateObject private var groupPresetModel = GroupPresetManagementModel()
     @EnvironmentObject private var localization: AppLocalization
     @State private var nameDraft = ""
     @State private var operationError: String?
@@ -20,6 +21,7 @@ struct DevicesView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             deviceModel.reload()
+            groupPresetModel.reload()
             syncNameDraft()
         }
         .onChange(of: deviceModel.selectedLogicalDeviceID) { _ in
@@ -58,6 +60,10 @@ struct DevicesView: View {
                 }
                 Spacer()
             }
+
+            GroupPresetSelectorView(model: groupPresetModel)
+
+            Divider()
 
             Button {
                 beginIdentify { try deviceModel.beginAddACK05() }
@@ -255,6 +261,13 @@ struct DevicesView: View {
                                 Spacer()
                             }
                         }
+                    }
+
+                    detailSection(localization.text("groupPreset.title")) {
+                        GroupPresetDeviceAssignmentView(
+                            model: groupPresetModel,
+                            device: device
+                        )
                     }
 
                     detailSection(localization.text("devices.section.binding")) {

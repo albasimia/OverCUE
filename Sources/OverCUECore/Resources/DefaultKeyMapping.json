@@ -2,7 +2,7 @@
   "presetGroups": [
     {
       "id": "pg-default-main",
-      "name": "Group 1",
+      "name": "Preset 1",
       "order": 10,
       "mapping": {
         "keyMap": {
@@ -40,7 +40,7 @@
     },
     {
       "id": "pg-default-secondary",
-      "name": "Group 2",
+      "name": "Preset 2",
       "order": 20,
       "mapping": {
         "keyMap": {
@@ -76,7 +76,7 @@
     },
     {
       "id": "pg-default-export",
-      "name": "Group 3",
+      "name": "Preset 3",
       "order": 30,
       "mapping": {
         "keyMap": {
@@ -112,7 +112,7 @@
     },
     {
       "id": "pg-default-spare",
-      "name": "Group 4",
+      "name": "Preset 4",
       "order": 40,
       "mapping": {
         "keyMap": {},

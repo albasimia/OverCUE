@@ -17,8 +17,8 @@ public struct OverCUEGroupMapping: Codable, Equatable, Sendable {
     public var dialMap: [String: String]
     public var dialChordMap: [String: String]
     public var rekordboxMode: RekordboxMappingMode?
-    // Decode-only migration state for version 9 and earlier. Version 10 never
-    // encodes a group-global Deck.
+    // Decode-only migration state for version 9 and earlier. Version 10+
+    // configurations never encode a group-global Deck.
     public var legacyRekordboxDeck: RekordboxDeck?
 
     public init(
@@ -68,6 +68,8 @@ public struct OverCUEGroupMapping: Codable, Equatable, Sendable {
     }
 }
 
+// Historical source/API name retained for config/code compatibility. In the UI
+// this object is simply called a Preset.
 public struct OverCUEPresetGroup: Codable, Equatable, Identifiable, Sendable {
     public static let maximumCount = 24
 
@@ -93,6 +95,28 @@ public struct OverCUEPresetGroup: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+/// A Group Preset is the parent assignment for a multi-controller setup.
+/// A Logical Device is included when its ID exists in `devicePresetAssignments`;
+/// the value is the stable Preset ID that device starts from.
+public struct OverCUEGroupPreset: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var name: String
+    public var order: Int
+    public var devicePresetAssignments: [String: String]
+
+    public init(
+        id: String,
+        name: String,
+        order: Int,
+        devicePresetAssignments: [String: String] = [:]
+    ) {
+        self.id = id
+        self.name = name
+        self.order = order
+        self.devicePresetAssignments = devicePresetAssignments
+    }
+}
+
 public enum OverCUEPresetGroupNavigator {
     public static func nextID(
         currentID: String?,
@@ -112,7 +136,7 @@ public enum OverCUEPresetGroupNavigator {
 
 public struct OverCUEProfile: Codable, Equatable, Sendable {
     // Kept only so version 1–6 files can migrate their profile-wide position
-    // into every group. Version 7 configurations leave this value nil.
+    // into every Preset. Version 7+ configurations leave this value nil.
     public var waveformPosition: WaveformPosition?
     public var presetGroups: [OverCUEPresetGroup]
 
@@ -128,14 +152,14 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
         presetGroups = [
             OverCUEPresetGroup(
                 id: OverCUEPresetGroup.migratedID(forLegacyGroup: 1),
-                name: "Group 1",
+                name: "Preset 1",
                 order: 1,
                 mapping: OverCUEGroupMapping(
-                keyMap: keyMap,
-                chordMap: chordMap,
-                dialMap: dialMap,
-                dialChordMap: dialChordMap,
-                rekordboxMode: rekordboxMode
+                    keyMap: keyMap,
+                    chordMap: chordMap,
+                    dialMap: dialMap,
+                    dialChordMap: dialChordMap,
+                    rekordboxMode: rekordboxMode
                 )
             ),
         ]
@@ -226,7 +250,7 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
             presetGroups.append(
                 OverCUEPresetGroup(
                     id: OverCUEPresetGroup.migratedID(forLegacyGroup: group),
-                    name: "Group \(group)",
+                    name: "Preset \(group)",
                     order: group,
                     mapping: mapping
                 )
@@ -296,7 +320,7 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
                 throw DecodingError.dataCorruptedError(
                     forKey: .presetGroups,
                     in: container,
-                    debugDescription: "Preset Groups must have 1...24 unique stable IDs."
+                    debugDescription: "Presets must have 1...24 unique stable IDs."
                 )
             }
             presetGroups = presets
@@ -309,12 +333,12 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
             presetGroups = [
                 OverCUEPresetGroup(
                     id: OverCUEPresetGroup.migratedID(forLegacyGroup: 1),
-                    name: "Group 1",
+                    name: "Preset 1",
                     order: 1,
                     mapping: OverCUEGroupMapping(
-                    keyMap: try container.decodeIfPresent([String: String].self, forKey: .keyMap) ?? [:],
-                    chordMap: try container.decodeIfPresent([String: String].self, forKey: .chordMap) ?? [:],
-                    dialMap: try container.decodeIfPresent([String: String].self, forKey: .dialMap) ?? [:]
+                        keyMap: try container.decodeIfPresent([String: String].self, forKey: .keyMap) ?? [:],
+                        chordMap: try container.decodeIfPresent([String: String].self, forKey: .chordMap) ?? [:],
+                        dialMap: try container.decodeIfPresent([String: String].self, forKey: .dialMap) ?? [:]
                     )
                 ),
             ]
@@ -339,7 +363,7 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
         .map { order, mapping in
             OverCUEPresetGroup(
                 id: OverCUEPresetGroup.migratedID(forLegacyGroup: order),
-                name: "Group \(order)",
+                name: "Preset \(order)",
                 order: order,
                 mapping: mapping
             )
@@ -407,6 +431,8 @@ public struct OverCUEConfiguration: Codable, Equatable, Sendable {
     public var deviceProfiles: [String: String]
     public var logicalDevices: [String: OverCUELogicalDevice]
     public var physicalDeviceBindings: [OverCUEPhysicalDeviceBinding]
+    public var groupPresets: [OverCUEGroupPreset]
+    public var activeGroupPresetID: String?
 
     public init(
         version: Int = currentVersion,
@@ -414,7 +440,9 @@ public struct OverCUEConfiguration: Codable, Equatable, Sendable {
         profiles: [String: OverCUEProfile],
         deviceProfiles: [String: String] = [:],
         logicalDevices: [String: OverCUELogicalDevice] = [:],
-        physicalDeviceBindings: [OverCUEPhysicalDeviceBinding] = []
+        physicalDeviceBindings: [OverCUEPhysicalDeviceBinding] = [],
+        groupPresets: [OverCUEGroupPreset] = [],
+        activeGroupPresetID: String? = nil
     ) {
         self.version = version
         self.defaultProfile = defaultProfile
@@ -422,10 +450,13 @@ public struct OverCUEConfiguration: Codable, Equatable, Sendable {
         self.deviceProfiles = deviceProfiles
         self.logicalDevices = logicalDevices
         self.physicalDeviceBindings = physicalDeviceBindings
+        self.groupPresets = groupPresets
+        self.activeGroupPresetID = activeGroupPresetID
     }
 
     private enum CodingKeys: String, CodingKey {
         case version, defaultProfile, profiles, deviceProfiles, logicalDevices, physicalDeviceBindings
+        case groupPresets, activeGroupPresetID
     }
 
     public init(from decoder: Decoder) throws {
@@ -442,6 +473,65 @@ public struct OverCUEConfiguration: Codable, Equatable, Sendable {
             [OverCUEPhysicalDeviceBinding].self,
             forKey: .physicalDeviceBindings
         ) ?? []
+        groupPresets = try container.decodeIfPresent(
+            [OverCUEGroupPreset].self,
+            forKey: .groupPresets
+        ) ?? []
+        activeGroupPresetID = try container.decodeIfPresent(String.self, forKey: .activeGroupPresetID)
+
+        guard version >= 10 else { return }
+        for profileName in profiles.keys {
+            guard var profile = profiles[profileName] else { continue }
+            for index in profile.presetGroups.indices {
+                profile.presetGroups[index].name = Self.currentPresetDisplayName(
+                    profile.presetGroups[index].name
+                )
+            }
+            profiles[profileName] = profile
+        }
+        if groupPresets.isEmpty {
+            let assignments = Dictionary(uniqueKeysWithValues:
+                logicalDevices.compactMap { logicalDeviceID, logicalDevice in
+                    guard let presetID = profiles[logicalDevice.profileName]?
+                        .orderedPresetGroups.first?.id
+                    else { return nil }
+                    return (logicalDeviceID, presetID)
+                }
+            )
+            groupPresets = [
+                OverCUEGroupPreset(
+                    id: "group-preset-default",
+                    name: "Default",
+                    order: 1,
+                    devicePresetAssignments: assignments
+                ),
+            ]
+            activeGroupPresetID = "group-preset-default"
+        } else if activeGroupPresetID == nil
+                    || !groupPresets.contains(where: { $0.id == activeGroupPresetID }) {
+            activeGroupPresetID = orderedGroupPresets.first?.id
+        }
+    }
+
+    public var orderedGroupPresets: [OverCUEGroupPreset] {
+        groupPresets.sorted {
+            if $0.order != $1.order { return $0.order < $1.order }
+            return $0.id < $1.id
+        }
+    }
+
+    public var activeGroupPreset: OverCUEGroupPreset? {
+        guard let activeGroupPresetID else { return nil }
+        return groupPresets.first { $0.id == activeGroupPresetID }
+    }
+
+    public func assignedPresetID(for logicalDeviceID: String) -> String? {
+        guard let presetID = activeGroupPreset?.devicePresetAssignments[logicalDeviceID],
+              let logicalDevice = logicalDevices[logicalDeviceID],
+              let profile = profiles[logicalDevice.profileName],
+              profile.presetGroup(id: presetID) != nil
+        else { return nil }
+        return presetID
     }
 
     public func logicalDeviceID(for device: HIDPhysicalDeviceDescriptor) -> String? {
@@ -498,7 +588,22 @@ public struct OverCUEConfiguration: Codable, Equatable, Sendable {
         return logicalDevice.profileName
     }
 
+    private static func currentPresetDisplayName(_ name: String) -> String {
+        guard name.hasPrefix("Group "),
+              Int(name.dropFirst("Group ".count)) != nil
+        else { return name }
+        return "Preset \(name.dropFirst("Group ".count))"
+    }
+
     public static let defaultValue = OverCUEConfiguration(
-        profiles: ["default": .defaultValue]
+        profiles: ["default": .defaultValue],
+        groupPresets: [
+            OverCUEGroupPreset(
+                id: "group-preset-default",
+                name: "Default",
+                order: 1
+            ),
+        ],
+        activeGroupPresetID: "group-preset-default"
     )
 }

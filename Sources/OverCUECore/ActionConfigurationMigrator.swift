@@ -50,6 +50,32 @@ public enum ActionConfigurationMigrator {
             }
             result.configuration.profiles[profileName] = profile
         }
+
+        if result.configuration.groupPresets.isEmpty {
+            let assignments = Dictionary(uniqueKeysWithValues:
+                result.configuration.logicalDevices.compactMap { logicalDeviceID, logicalDevice in
+                    guard let presetID = result.configuration.profiles[logicalDevice.profileName]?
+                        .orderedPresetGroups.first?.id
+                    else { return nil }
+                    return (logicalDeviceID, presetID)
+                }
+            )
+            result.configuration.groupPresets = [
+                OverCUEGroupPreset(
+                    id: "group-preset-default",
+                    name: "Default",
+                    order: 1,
+                    devicePresetAssignments: assignments
+                ),
+            ]
+            result.configuration.activeGroupPresetID = "group-preset-default"
+        } else if result.configuration.activeGroupPresetID == nil
+                    || !result.configuration.groupPresets.contains(where: {
+                        $0.id == result.configuration.activeGroupPresetID
+                    }) {
+            result.configuration.activeGroupPresetID = result.configuration.orderedGroupPresets.first?.id
+        }
+
         result.configuration.version = 10
         return result
     }
@@ -131,9 +157,6 @@ public enum ActionConfigurationMigrator {
                     mapping.dialChordMap = replacement.dialChordMap
                     mapping.legacyRekordboxDeck = .deck2
                 } else {
-                    // Standard Actions resolved to Deck 1 before version 8. Generic
-                    // rekordbox:<id> values remain untouched and therefore retain
-                    // any explicitly embedded deck selection.
                     mapping.legacyRekordboxDeck = .deck1
                 }
                 profile.setMapping(mapping, for: group)
