@@ -6,7 +6,7 @@ OverCUEは、任意の物理入力インターフェースとrekordboxの間を�
 
 ## 現在のフェーズ
 
-PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している。ACK05 1台でGroup/Profileを切り替えながらDeck 1〜3を操作する実地DJは成立済み。複数ACK05向けに物理device別の入力状態分離とPhysical Device / Logical Device bindingモデルを導入した。次はDevices UI、Generic HIDのdevice-aware入力とLearn、複数実機検証を進め、3Deck標準物理リグを成立させる。
+PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している。ACK05 1台でGroup/Profileを切り替えながらDeck 1〜3を操作する実地DJは成立済み。複数ACK05向けに物理device別の入力状態分離とPhysical Device / Logical Device bindingモデルを導入したが、commit `3a81b4e`のレビューでdevice identity、runtime notification scope、legacy location migration、GUI capture sourceに修正ゲートが見つかった。Generic HID / Devices UIへ進む前にこのゲートを閉じる。
 
 ## 現在地
 
@@ -22,9 +22,12 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している�
 - DJM-750 original + macOS Tahoe 26.6.2 + DJM-750 driver 4.0.1 + rekordbox PERFORMANCE / External Mixerで、4ch独立出力を実機確認済み。
 - 標準物理リグは3Deckを基本とし、1DeckあたりACK05 + 小型Generic HID（4キー + endless encoder想定）を組み合わせる。ソフトウェア上は4Deckを維持する。
 - Generic HIDの候補実機としてKoolertron系小型マクロパッドを検証するが、OverCUEのUI・データモデルを特定製品へ依存させない。
-- CLI bridgeは接続ACK05ごとに独立controllerを持ち、InputActionResolver、Cue hold、Jump repeat、ダイヤル、波形ドラッグ、Group / Deck / Profile状態を物理device間で共有しない。
-- Physical BindingはVID + PID + Serialで自動一致する。LocationIDはRebind候補のヒントに限定し、未登録deviceはdefault Profileで動作しても自動保存しない。
-- `overcue-checks`は256件。複数deviceのstate分離、Serial binding、LocationID非永続一致、version 9 migrationを含む。
+- CLI bridgeは接続ACK05ごとに独立controllerを持つ構造へ変更済みだが、live session identityがSerial由来persistent identityへフォールバックするため、同一Serialの同型deviceでstate共有が再発し得る。修正ゲートとして扱う。
+- Physical BindingはVID + PID + Serialを永続候補として使うが、同一Serialの同時接続時は曖昧として扱える必要がある。LocationIDはRebind候補のヒントに限定する。
+- Runtime Status / Controlは複数controller間でdevice scopeを保持する必要があり、GUIがruntime statusを`defaultProfile`へ無条件保存してはいけない。
+- version 9 migrationでlegacy `location:`値をpersistent matchへ残さず、LocationID hintだけへ移す必要がある。
+- ACK05 Learn / Captureはsource physical deviceを固定し、別ACK05の入力を1つのコードへ混在させない必要がある。
+- `overcue-checks`は256件だが、上記レビューゲートを再現する追加checksが必要。
 
 ## 制約
 
@@ -68,7 +71,11 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している�
 - Generic `rekordbox:<commandId>`を標準Action扱いして勝手にDeck変換しない。
 - Generic HID対応をKoolertron固有モデルとして設計しない。
 - 同型デバイスをVID/PIDだけで恒久的に個体識別したことにしない。
+- Serialが存在するという理由だけで、同時接続中の同一Serial deviceを同一live sessionまたは同一Logical Deviceとして無条件に扱わない。
 - USB topology / locationを永続的なLogical Device IDとして扱わない。
+- legacy `location:`値をpersistent Physical Bindingとして復活させない。
+- Runtime Status / Controlのsource deviceを失ったまま、別controllerや`defaultProfile`へ状態を伝播させない。
+- Learn / Captureで複数physical deviceの入力を1つのコードへ混在させない。
 - 未登録HIDの接続を理由に設定画面へ自動遷移しない。
 - 実データや実機で確認できていない項目を成功済みと記録しない。
 - `.aal/logos/`を直接編集しない。
@@ -78,6 +85,7 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している�
 ## 未決事項
 
 - 複数ACK05実機でのSerial有無、IOHID identity、同時入力・切断・再接続の確認。
+- 同型deviceが同一Serialまたは空Serialを返す場合の再binding UX。
 - Koolertron系Generic HIDのキー、encoder CW/CCW、encoder pushがmacOS IOHID上でどのUsage / Reportとして見えるか。
 - 同型Generic HIDが固有Serialを持たない場合のbinding永続化と再接続UX。
 - Devices画面、Logical Device命名、Profile assignment、Rebind / Forgetの最終UI。
@@ -91,12 +99,14 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している�
 - `specs/current-spec.md`
 - `Sources/OverCUECore/RekordboxActionAdapter.swift`
 - `Sources/OverCUECore/OverCUEConfiguration.swift`
+- `Sources/OverCUECore/HIDDeviceBinding.swift`
 - `Sources/OverCUECore/Resources/DefaultKeyMapping.json`
 - `Sources/OverCUEChecks/main.swift`
 - `Scripts/verify-macos.sh`
 - `.ai/decisions/20260830T200000-28631d.md`
 - `.ai/decisions/20260901T110700-c8f4b1.md`
 - `.ai/decisions/20260901T110701-e31a76.md`
+- `.ai/history/20260901T115131-b701a4.md`
 
 ## 有効なモード
 
@@ -108,4 +118,4 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している�
 
 ## 次の行動
 
-Devices UIとGeneric HIDのdevice-aware入力／Learnを実装し、複数ACK05・Generic HID実機でPhysical Device → Logical Device → Profile → Actionの経路を検証する。
+commit `3a81b4e`のレビューゲート（P1: live session identity、P1: runtime device scope、P1: legacy location migration、P2: capture source isolation）を先に解消し、追加Core checksとローカル検証を通してからGeneric HID / Devices UIへ進む。
