@@ -152,7 +152,7 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
         presetGroups = [
             OverCUEPresetGroup(
                 id: OverCUEPresetGroup.migratedID(forLegacyGroup: 1),
-                name: "Preset 1",
+                name: "Group 1",
                 order: 1,
                 mapping: OverCUEGroupMapping(
                     keyMap: keyMap,
@@ -250,7 +250,7 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
             presetGroups.append(
                 OverCUEPresetGroup(
                     id: OverCUEPresetGroup.migratedID(forLegacyGroup: group),
-                    name: "Preset \(group)",
+                    name: "Group \(group)",
                     order: group,
                     mapping: mapping
                 )
@@ -333,7 +333,7 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
             presetGroups = [
                 OverCUEPresetGroup(
                     id: OverCUEPresetGroup.migratedID(forLegacyGroup: 1),
-                    name: "Preset 1",
+                    name: "Group 1",
                     order: 1,
                     mapping: OverCUEGroupMapping(
                         keyMap: try container.decodeIfPresent([String: String].self, forKey: .keyMap) ?? [:],
@@ -363,7 +363,7 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
         .map { order, mapping in
             OverCUEPresetGroup(
                 id: OverCUEPresetGroup.migratedID(forLegacyGroup: order),
-                name: "Preset \(order)",
+                name: "Group \(order)",
                 order: order,
                 mapping: mapping
             )
