@@ -490,7 +490,7 @@ public struct OverCUEConfiguration: Codable, Equatable, Sendable {
             profiles[profileName] = profile
         }
         if groupPresets.isEmpty {
-            let assignments = Dictionary(uniqueKeysWithValues:
+            let assignments: [String: String] = Dictionary(uniqueKeysWithValues:
                 logicalDevices.compactMap { logicalDeviceID, logicalDevice in
                     guard let presetID = profiles[logicalDevice.profileName]?
                         .orderedPresetGroups.first?.id
