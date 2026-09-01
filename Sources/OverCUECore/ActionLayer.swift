@@ -125,11 +125,26 @@ public enum ActionPhase: Equatable, Sendable {
     case repeated
 }
 
+public struct ActionSourceID: Equatable, Hashable, Sendable {
+    public let namespace: String
+    public let identifier: String
+
+    public init(namespace: String, identifier: String) {
+        self.namespace = namespace
+        self.identifier = identifier
+    }
+
+    public static func ack05Key(_ key: ACK05Key) -> ActionSourceID {
+        ActionSourceID(namespace: "ack05.key", identifier: key.rawValue)
+    }
+}
+
 public struct ActionEvent: Equatable, Sendable {
     public let target: ActionTarget
     public let phase: ActionPhase
-    public let sourceKey: ACK05Key?
+    public let sourceID: ActionSourceID?
     public let sourceLabel: String
+    public let activationCount: Int
 
     public init(
         action: ActionID,
@@ -137,12 +152,13 @@ public struct ActionEvent: Equatable, Sendable {
         sourceKey: ACK05Key?,
         sourceLabel: String
     ) {
-        target = .action(action)
-        self.phase = phase
-        self.sourceKey = sourceKey
-        self.sourceLabel = sourceLabel
+        self.init(
+            target: .action(action),
+            phase: phase,
+            sourceID: sourceKey.map(ActionSourceID.ack05Key),
+            sourceLabel: sourceLabel
+        )
     }
-
 
     public init(
         target: ActionTarget,
@@ -150,10 +166,34 @@ public struct ActionEvent: Equatable, Sendable {
         sourceKey: ACK05Key?,
         sourceLabel: String
     ) {
+        self.init(
+            target: target,
+            phase: phase,
+            sourceID: sourceKey.map(ActionSourceID.ack05Key),
+            sourceLabel: sourceLabel
+        )
+    }
+
+    public init(
+        target: ActionTarget,
+        phase: ActionPhase,
+        sourceID: ActionSourceID?,
+        sourceLabel: String,
+        activationCount: Int = 1
+    ) {
         self.target = target
         self.phase = phase
-        self.sourceKey = sourceKey
+        self.sourceID = sourceID
         self.sourceLabel = sourceLabel
+        self.activationCount = max(1, activationCount)
+    }
+
+    @available(*, deprecated, message: "Use sourceID. sourceKey is ACK05 compatibility only.")
+    public var sourceKey: ACK05Key? {
+        guard sourceID?.namespace == "ack05.key",
+              let identifier = sourceID?.identifier
+        else { return nil }
+        return ACK05Key(rawValue: identifier)
     }
 
     public var action: ActionID? {

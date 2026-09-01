@@ -53,5 +53,9 @@ let package = Package(
                 .linkedFramework("IOKit"),
             ]
         ),
+        .testTarget(
+            name: "OverCUECoreTests",
+            dependencies: ["OverCUECore"]
+        ),
     ]
 )

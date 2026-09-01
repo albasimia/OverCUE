@@ -54,6 +54,40 @@ public struct GenericHIDInputDescriptor: Codable, Equatable, Hashable, Sendable 
     }
 }
 
+public enum GenericHIDActivation: String, Codable, Equatable, Hashable, Sendable {
+    case press
+    case relativePositive
+    case relativeNegative
+}
+
+public struct GenericHIDInputBindingKey: Codable, Equatable, Hashable, Sendable {
+    public let input: GenericHIDInputDescriptor
+    public let activation: GenericHIDActivation
+
+    public init(input: GenericHIDInputDescriptor, activation: GenericHIDActivation) {
+        self.input = input
+        self.activation = activation
+    }
+
+    public var label: String {
+        let suffix: String
+        switch activation {
+        case .press: suffix = "press"
+        case .relativePositive: suffix = "relative +"
+        case .relativeNegative: suffix = "relative -"
+        }
+        return "\(input.label) \(suffix)"
+    }
+
+    fileprivate var runtimeIdentifier: String {
+        let report = input.reportID.map(String.init) ?? "none"
+        let collection = input.collectionPath.map {
+            String(format: "%04X:%04X", $0.page, $0.usage)
+        }.joined(separator: "/")
+        return "\(input.usage.page):\(input.usage.usage):\(report):\(collection):\(activation.rawValue)"
+    }
+}
+
 public struct GenericHIDRuntimeElementDescriptor: Equatable, Sendable {
     public let input: GenericHIDInputDescriptor
     public let cookie: UInt64?
@@ -165,6 +199,28 @@ public struct GenericHIDLearnCandidate: Equatable, Sendable {
     public var persistentInput: GenericHIDInputDescriptor? {
         runtimeElement.persistentInput
     }
+
+    public var activation: GenericHIDActivation? {
+        Self.learnActivation(for: initialPhase)
+    }
+
+    public var persistentBindingKey: GenericHIDInputBindingKey? {
+        guard let input = persistentInput, let activation else { return nil }
+        return GenericHIDInputBindingKey(input: input, activation: activation)
+    }
+
+    private static func learnActivation(for phase: GenericHIDEventPhase) -> GenericHIDActivation? {
+        switch phase {
+        case .pressed:
+            .press
+        case let .relative(delta) where delta > 0:
+            .relativePositive
+        case let .relative(delta) where delta < 0:
+            .relativeNegative
+        case .relative, .released, .absolute:
+            nil
+        }
+    }
 }
 
 public enum GenericHIDLearnCancellationReason: Equatable, Sendable {
@@ -199,13 +255,24 @@ public enum GenericHIDLearnError: Error, Equatable, LocalizedError, Sendable {
 }
 
 public struct GenericHIDLogicalInputBinding: Equatable, Sendable {
-    public let input: GenericHIDInputDescriptor
+    public let key: GenericHIDInputBindingKey
     public let target: ActionTarget
 
-    public init(input: GenericHIDInputDescriptor, target: ActionTarget) {
-        self.input = input
+    public init(key: GenericHIDInputBindingKey, target: ActionTarget) {
+        self.key = key
         self.target = target
     }
+
+    @available(*, deprecated, message: "Use key so relative direction remains part of the binding.")
+    public init(input: GenericHIDInputDescriptor, target: ActionTarget) {
+        self.init(
+            key: GenericHIDInputBindingKey(input: input, activation: .press),
+            target: target
+        )
+    }
+
+    public var input: GenericHIDInputDescriptor { key.input }
+    public var activation: GenericHIDActivation { key.activation }
 }
 
 public struct GenericHIDLearnSession: Equatable, Sendable {
@@ -250,16 +317,18 @@ public struct GenericHIDLearnSession: Equatable, Sendable {
         guard case let .captured(candidate) = state else {
             throw GenericHIDLearnError.noCandidate
         }
-        guard let input = candidate.persistentInput else {
+        guard let key = candidate.persistentBindingKey else {
             throw GenericHIDLearnError.ambiguousPersistentInput
         }
-        return GenericHIDLogicalInputBinding(input: input, target: target)
+        return GenericHIDLogicalInputBinding(key: key, target: target)
     }
 
     private static func isLearnActivation(_ phase: GenericHIDEventPhase) -> Bool {
         switch phase {
-        case .pressed, .relative:
+        case .pressed:
             true
+        case let .relative(delta):
+            delta != 0
         case .released, .absolute:
             false
         }
@@ -267,57 +336,55 @@ public struct GenericHIDLearnSession: Equatable, Sendable {
 }
 
 public struct GenericHIDActionResolver: Equatable, Sendable {
-    private var activeHoldInputs: Set<GenericHIDInputDescriptor> = []
-    private var activeRepeatInputs: Set<GenericHIDInputDescriptor> = []
+    private var activeHoldSources: [ActionSourceID: GenericHIDInputBindingKey] = [:]
+    private var activeRepeatSources: [ActionSourceID: GenericHIDInputBindingKey] = [:]
 
     public init() {}
 
     public mutating func resolve(
         event: GenericHIDEvent,
-        mapping: [GenericHIDInputDescriptor: ActionTarget]
+        mapping: [GenericHIDInputBindingKey: ActionTarget]
     ) -> [ActionEvent] {
         guard let input = event.element.persistentInput,
-              let target = mapping[input]
+              let key = Self.bindingKey(for: event.phase, input: input),
+              let target = mapping[key]
         else { return [] }
-        let sourceLabel = input.label
+
+        let sourceID = Self.sourceID(for: event.sessionDeviceID, key: key)
+        let sourceLabel = key.label
         switch event.phase {
         case .pressed:
             if target.behavior == .hold {
-                activeHoldInputs.insert(input)
-                return [ActionEvent(
-                    target: target,
-                    phase: .pressed,
-                    sourceKey: nil,
-                    sourceLabel: sourceLabel
-                )]
+                activeHoldSources[sourceID] = key
             }
             if target.behavior == .acceleratingRepeat {
-                activeRepeatInputs.insert(input)
+                activeRepeatSources[sourceID] = key
             }
-            let phase: ActionPhase = target.behavior == .acceleratingRepeat
+            let phase: ActionPhase = target.behavior == .hold || target.behavior == .acceleratingRepeat
                 ? .pressed
                 : .triggered
             return [ActionEvent(
                 target: target,
                 phase: phase,
-                sourceKey: nil,
+                sourceID: sourceID,
                 sourceLabel: sourceLabel
             )]
         case .released:
-            activeRepeatInputs.remove(input)
-            guard activeHoldInputs.remove(input) != nil else { return [] }
+            activeRepeatSources.removeValue(forKey: sourceID)
+            guard activeHoldSources.removeValue(forKey: sourceID) != nil else { return [] }
             return [ActionEvent(
                 target: target,
                 phase: .released,
-                sourceKey: nil,
+                sourceID: sourceID,
                 sourceLabel: sourceLabel
             )]
-        case .relative:
+        case let .relative(delta):
             return [ActionEvent(
                 target: target,
                 phase: .triggered,
-                sourceKey: nil,
-                sourceLabel: sourceLabel
+                sourceID: sourceID,
+                sourceLabel: sourceLabel,
+                activationCount: Self.magnitude(of: delta)
             )]
         case .absolute:
             return []
@@ -325,35 +392,116 @@ public struct GenericHIDActionResolver: Equatable, Sendable {
     }
 
     public func repeatedEvent(
-        for input: GenericHIDInputDescriptor,
-        mapping: [GenericHIDInputDescriptor: ActionTarget]
+        for sourceID: ActionSourceID,
+        mapping: [GenericHIDInputBindingKey: ActionTarget]
     ) -> ActionEvent? {
-        guard activeRepeatInputs.contains(input),
-              let target = mapping[input],
+        guard let key = activeRepeatSources[sourceID],
+              let target = mapping[key],
               target.behavior == .acceleratingRepeat
         else { return nil }
         return ActionEvent(
             target: target,
             phase: .repeated,
-            sourceKey: nil,
-            sourceLabel: input.label
+            sourceID: sourceID,
+            sourceLabel: key.label
         )
     }
 
+    public func repeatedEvent(
+        for key: GenericHIDInputBindingKey,
+        mapping: [GenericHIDInputBindingKey: ActionTarget]
+    ) -> ActionEvent? {
+        guard let sourceID = activeRepeatSources.first(where: { $0.value == key })?.key else {
+            return nil
+        }
+        return repeatedEvent(for: sourceID, mapping: mapping)
+    }
+
     public mutating func reset(
-        mapping: [GenericHIDInputDescriptor: ActionTarget]
+        mapping: [GenericHIDInputBindingKey: ActionTarget]
     ) -> [ActionEvent] {
-        let releases = activeHoldInputs.compactMap { input -> ActionEvent? in
-            guard let target = mapping[input] else { return nil }
+        let releases = activeHoldSources.compactMap { sourceID, key -> ActionEvent? in
+            guard let target = mapping[key] else { return nil }
             return ActionEvent(
                 target: target,
                 phase: .released,
-                sourceKey: nil,
-                sourceLabel: input.label
+                sourceID: sourceID,
+                sourceLabel: key.label
             )
         }
-        activeHoldInputs = []
-        activeRepeatInputs = []
+        activeHoldSources = [:]
+        activeRepeatSources = [:]
         return releases
+    }
+
+    @available(*, deprecated, message: "Use GenericHIDInputBindingKey so relative direction is explicit.")
+    public mutating func resolve(
+        event: GenericHIDEvent,
+        mapping: [GenericHIDInputDescriptor: ActionTarget]
+    ) -> [ActionEvent] {
+        resolve(event: event, mapping: Self.legacyDirectionalMapping(mapping))
+    }
+
+    @available(*, deprecated, message: "Use GenericHIDInputBindingKey so relative direction is explicit.")
+    public func repeatedEvent(
+        for input: GenericHIDInputDescriptor,
+        mapping: [GenericHIDInputDescriptor: ActionTarget]
+    ) -> ActionEvent? {
+        repeatedEvent(
+            for: GenericHIDInputBindingKey(input: input, activation: .press),
+            mapping: Self.legacyDirectionalMapping(mapping)
+        )
+    }
+
+    @available(*, deprecated, message: "Use GenericHIDInputBindingKey so relative direction is explicit.")
+    public mutating func reset(
+        mapping: [GenericHIDInputDescriptor: ActionTarget]
+    ) -> [ActionEvent] {
+        reset(mapping: Self.legacyDirectionalMapping(mapping))
+    }
+
+    private static func bindingKey(
+        for phase: GenericHIDEventPhase,
+        input: GenericHIDInputDescriptor
+    ) -> GenericHIDInputBindingKey? {
+        let activation: GenericHIDActivation
+        switch phase {
+        case .pressed, .released:
+            activation = .press
+        case let .relative(delta) where delta > 0:
+            activation = .relativePositive
+        case let .relative(delta) where delta < 0:
+            activation = .relativeNegative
+        case .relative, .absolute:
+            return nil
+        }
+        return GenericHIDInputBindingKey(input: input, activation: activation)
+    }
+
+    private static func sourceID(
+        for sessionDeviceID: String,
+        key: GenericHIDInputBindingKey
+    ) -> ActionSourceID {
+        ActionSourceID(
+            namespace: "generic-hid",
+            identifier: "\(sessionDeviceID)|\(key.runtimeIdentifier)"
+        )
+    }
+
+    private static func magnitude(of delta: Int) -> Int {
+        let magnitude = delta.magnitude
+        return magnitude > UInt(Int.max) ? Int.max : max(1, Int(magnitude))
+    }
+
+    private static func legacyDirectionalMapping(
+        _ mapping: [GenericHIDInputDescriptor: ActionTarget]
+    ) -> [GenericHIDInputBindingKey: ActionTarget] {
+        var result: [GenericHIDInputBindingKey: ActionTarget] = [:]
+        for (input, target) in mapping {
+            result[GenericHIDInputBindingKey(input: input, activation: .press)] = target
+            result[GenericHIDInputBindingKey(input: input, activation: .relativePositive)] = target
+            result[GenericHIDInputBindingKey(input: input, activation: .relativeNegative)] = target
+        }
+        return result
     }
 }

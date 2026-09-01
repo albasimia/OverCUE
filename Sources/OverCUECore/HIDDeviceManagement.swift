@@ -128,6 +128,7 @@ public struct HIDIdentifySession: Equatable, Sendable {
 
 public enum HIDDeviceBindingManagementError: Error, Equatable, LocalizedError, Sendable {
     case unknownLogicalDevice(String)
+    case deviceNotConnected(String)
     case missingPersistentIdentity(String)
     case ambiguousPersistentIdentity(String)
     case alreadyBound(logicalDeviceIDs: [String])
@@ -136,6 +137,8 @@ public enum HIDDeviceBindingManagementError: Error, Equatable, LocalizedError, S
         switch self {
         case let .unknownLogicalDevice(identifier):
             return "Unknown Logical Device '\(identifier)'."
+        case let .deviceNotConnected(sessionIdentifier):
+            return "Physical Device session '\(sessionIdentifier)' is no longer connected. Identify it again."
         case let .missingPersistentIdentity(sessionIdentifier):
             return "Physical Device '\(sessionIdentifier)' has no verified persistent identity."
         case let .ambiguousPersistentIdentity(identifier):
@@ -157,6 +160,11 @@ public enum HIDDeviceBindingManager {
         guard configuration.logicalDevices[logicalDeviceID] != nil else {
             throw HIDDeviceBindingManagementError.unknownLogicalDevice(logicalDeviceID)
         }
+        guard let connectedDevice = connectedDevices.first(where: {
+            $0.sessionIdentifier == device.sessionIdentifier
+        }), connectedDevice == device else {
+            throw HIDDeviceBindingManagementError.deviceNotConnected(device.sessionIdentifier)
+        }
         guard let persistentIdentifier = device.persistentIdentifier,
               let serialNumber = device.serialNumber
         else {
@@ -169,7 +177,7 @@ public enum HIDDeviceBindingManager {
                 ? candidate.sessionIdentifier
                 : nil
         })
-        guard matchingSessions.count <= 1 else {
+        guard matchingSessions == Set([device.sessionIdentifier]) else {
             throw HIDDeviceBindingManagementError.ambiguousPersistentIdentity(
                 persistentIdentifier
             )

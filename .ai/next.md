@@ -2,7 +2,7 @@
 
 ## 現在のフェーズ
 
-runtime/config同期の残存P1を閉じ、Devices UIなしのDevice Management CoreとGeneric HID観測・Learn・Action変換基盤まで実装した。configはversion 9を維持し、Generic HID mappingの永続schemaは実機で安定identityを確認するまで追加しない。
+runtime/config同期の残存P1を閉じ、Devices UIなしのDevice Management CoreとGeneric HID観測・Learn・Action変換基盤まで実装した。追加レビューで見つかったAction sourceのACK05依存、relative方向消失、stale descriptor Rebindの3件はソース上修正済み。configはversion 9を維持し、Generic HID mappingの永続schemaとruntime接続は実機で安定identityを確認するまで追加しない。
 
 ## 今回完了したゲート
 
@@ -16,9 +16,26 @@ runtime/config同期の残存P1を閉じ、Devices UIなしのDevice Management 
 - [x] `HIDIdentifySession`、serial-onlyのRebind、Physical Bindingだけを消すForgetをCore/APIとして追加する。
 - [x] ambiguous serial、serialなし、他Logical Deviceへbinding済みのPhysical DeviceをRebindで自動確定しない。
 - [x] Generic HIDのkeyboard / consumer / button / relative / absolute event正規化、source-lock Learn、既存`ActionEvent`への変換をCoreへ追加する。
-- [x] IOHID cookieを診断専用にし、永続descriptorはUsage Page / Usage / Report ID / collection pathで表す。同一signatureが複数ある場合は永続化不可とする。
+- [x] IOHID cookieを診断専用にし、永続descriptorはUsage Page / Usage / Report ID / collection pathで表す。同一signatureが複数の場合は永続化不可とする。
 - [x] `overcue-probe --all`でsession device ID、VID/PID、Serial、Product、Manufacturer、transport、Usage、Report ID、cookie、relative、duplicate count、press/release/deltaを表示できる。
+- [x] `ActionEvent`の正本source identityをgenericな`ActionSourceID`へ移し、ACK05の`sourceKey`は互換accessorへ限定した。
+- [x] Generic HID mapping keyへ`press / relativePositive / relativeNegative` activationを含め、encoder相当の正負方向を別Actionへ割り当てられるCore構造にした。
+- [x] relative deltaの絶対値を`ActionEvent.activationCount`として保持し、Core境界で回転量を1回へ潰さない。
+- [x] RebindはIdentify済みdescriptorのsessionが現在のconnected setへ残っていることを必須にし、切断後のstale descriptorを拒否する。
+- [x] 上記3件の回帰用に`OverCUECoreTests`を追加した。
 - [x] Devices SwiftUI画面、Learn UI、Koolertron固有処理、Parent Preset / Sceneは追加していない。
+
+## 追加レビュー修正のローカル検証
+
+GitHub connectorから直接修正したため、この新しいHEADについてはmacOSローカル検証前である。親commit `bef4c46`の374 Core checks成功を今回の成功扱いにしない。
+
+- [ ] `aal context build --mode implementation`
+- [ ] `swift build`
+- [ ] `swift test`
+- [ ] `swift run overcue-checks`
+- [ ] `./Scripts/verify-macos.sh`
+- [ ] `aal doctor`
+- [ ] `git diff --check`
 
 ## 次に人間が確認すること
 
@@ -31,7 +48,7 @@ runtime/config同期の残存P1を閉じ、Devices UIなしのDevice Management 
 
 ## 停止理由
 
-非UIで安全に実装できる境界までは完了した。次にGeneric HID mappingを永続化・runtime接続するには、実機Reportと同一Usage重複時の安定識別情報が必要である。ここから先はKoolertron／複数ACK05実機データまたはUI判断なしでは推測実装になる。
+非UIで安全に実装できるCore境界は整えた。Generic HID mappingの永続化・実runtime接続には、実機Report、relative delta単位、同一Usage重複時の安定識別情報が必要である。ここから先はKoolertron／複数ACK05実機データまたはUI判断なしでは推測実装になる。
 
 ## 保留
 
