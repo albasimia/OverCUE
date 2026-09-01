@@ -80,7 +80,6 @@ private final class SendableObserverToken: @unchecked Sendable {
 @MainActor
 final class ShortcutSettingsModel: ObservableObject {
     @Published private(set) var mode: RekordboxMappingMode = .export
-    @Published private(set) var targetDeck: RekordboxDeck = .deck1
     @Published var searchText = ""
     @Published var mappingName = L10n.text("message.loading")
     @Published var mappingURL: URL?
@@ -107,6 +106,10 @@ final class ShortcutSettingsModel: ObservableObject {
     @Published private(set) var pressedDeviceKeys: Set<ACK05Key> = []
     @Published private(set) var activeDialDirection: DialDirection?
 
+    var availablePresetGroups: [OverCUEPresetGroup] {
+        configuration.profiles[configuration.defaultProfile]?.orderedPresetGroups ?? []
+    }
+
     private let loader = RekordboxKeyMappingLoader()
     private let runtimeBridge = OverCUECLIRuntime()
     private let configurationURL = FileManager.default.homeDirectoryForCurrentUser
@@ -123,6 +126,7 @@ final class ShortcutSettingsModel: ObservableObject {
     private var inputStatusObserver: SendableObserverToken?
     private var configurationChangedObserver: SendableObserverToken?
     private var pendingAssignment: PendingAssignment?
+    private var selectedPresetGroupID: String?
 
     var internalEntries: [RekordboxShortcutEntry] {
         [
@@ -177,10 +181,14 @@ final class ShortcutSettingsModel: ObservableObject {
                 let connected = notification.userInfo?[
                     OverCUERuntimeStatusNotification.connectedKey
                 ] as? Bool ?? true
+                let presetGroupID = notification.userInfo?[
+                    OverCUERuntimeStatusNotification.presetGroupIDKey
+                ] as? String
                 Task { @MainActor in
                     self?.applyRuntimeStatus(
                         mode: mode,
                         group: group,
+                        presetGroupID: presetGroupID,
                         deviceID: deviceID,
                         logicalDeviceID: logicalDeviceID,
                         profileName: profileName,
@@ -224,7 +232,6 @@ final class ShortcutSettingsModel: ObservableObject {
                 Task { @MainActor in
                     guard let self, self.refreshConfigurationFromDisk() else { return }
                     self.mode = self.configuredMode(for: self.selectedGroup)
-                    self.targetDeck = self.configuredDeck(for: self.selectedGroup)
                     self.rebuildBindings()
                     self.reload()
                 }
@@ -389,15 +396,6 @@ final class ShortcutSettingsModel: ObservableObject {
         showToast(L10n.text("message.modeUpdated", newMode.displayName), style: .success)
     }
 
-    func setTargetDeck(_ newDeck: RekordboxDeck) {
-        guard targetDeck != newDeck else { return }
-        targetDeck = newDeck
-        saveDeck(newDeck, for: selectedGroup)
-        rebuildBindings()
-        postRuntimeControl(group: selectedGroup, mode: mode)
-        showToast(L10n.text("message.deckUpdated", newDeck.displayName), style: .success)
-    }
-
     func setBridgeEnabled(_ enabled: Bool) {
         guard isBridgeEnabled != enabled else { return }
         isBridgeEnabled = enabled
@@ -454,13 +452,17 @@ final class ShortcutSettingsModel: ObservableObject {
     }
 
     func setGroup(_ group: Int) {
-        guard (1...4).contains(group), selectedGroup != group else { return }
+        guard availablePresetGroups.indices.contains(group - 1), selectedGroup != group else { return }
         let wasCapturing = isCapturing
         if wasCapturing { stopCaptureMonitor() }
         refreshConfigurationFromDisk()
+        guard availablePresetGroups.indices.contains(group - 1) else {
+            if wasCapturing { startRuntimeIfEnabled() }
+            return
+        }
         selectedGroup = group
+        selectedPresetGroupID = availablePresetGroups[group - 1].id
         mode = configuredMode(for: group)
-        targetDeck = configuredDeck(for: group)
         runtimeGroup = group
         runtimeMode = mode
         UserDefaults.standard.set(mode.rawValue, forKey: "rekordboxMappingMode")
@@ -471,7 +473,10 @@ final class ShortcutSettingsModel: ObservableObject {
         reload()
         if wasCapturing { startRuntimeIfEnabled() }
         postRuntimeControl(group: group, mode: mode)
-        showToast(L10n.text("message.groupSwitched", group, mode.displayName), style: .info)
+        showToast(
+            L10n.text("message.groupSwitched", presetName(for: group), mode.displayName),
+            style: .info
+        )
     }
 
     func rotateDevice() {
@@ -978,8 +983,7 @@ final class ShortcutSettingsModel: ObservableObject {
     }
 
     private func isGroupCycle(_ target: ActionTarget) -> Bool {
-        guard case let .action(action) = target else { return false }
-        return action.isGroupCycle
+        target.semanticAction?.isGroupCycle == true
     }
 
     private func cancelCaptureKeepingError() {
@@ -1048,6 +1052,10 @@ final class ShortcutSettingsModel: ObservableObject {
     @discardableResult
     private func refreshConfigurationFromDisk() -> Bool {
         do {
+            let currentPresetID = availablePresetGroups.indices.contains(selectedGroup - 1)
+                ? availablePresetGroups[selectedGroup - 1].id
+                : nil
+            let preservedPresetID = selectedPresetGroupID ?? currentPresetID
             let remote = try OverCUEConfigurationFileStore.readCurrent(at: configurationURL)
             let reconciled = OverCUEConfigurationSnapshotSynchronizer.reconcile(
                 configuration: configuration,
@@ -1056,6 +1064,14 @@ final class ShortcutSettingsModel: ObservableObject {
             )
             configuration = reconciled.configuration
             persistedConfiguration = reconciled.persistedConfiguration
+            if let preservedPresetID,
+               let index = availablePresetGroups.firstIndex(where: { $0.id == preservedPresetID }) {
+                selectedGroup = index + 1
+                selectedPresetGroupID = preservedPresetID
+            } else {
+                selectedGroup = 1
+                selectedPresetGroupID = availablePresetGroups.first?.id
+            }
             return true
         } catch {
             return false
@@ -1101,8 +1117,8 @@ final class ShortcutSettingsModel: ObservableObject {
         }
         persistedConfiguration = configuration
         normalizeGroupSettings(defaultMode: mode)
+        selectedPresetGroupID = availablePresetGroups.first?.id
         mode = configuredMode(for: selectedGroup)
-        targetDeck = configuredDeck(for: selectedGroup)
         runtimeMode = mode
         runtimeGroup = selectedGroup
         rebuildBindings()
@@ -1112,14 +1128,10 @@ final class ShortcutSettingsModel: ObservableObject {
         var changed = false
         for profileName in configuration.profiles.keys.sorted() {
             guard var profile = configuration.profiles[profileName] else { continue }
-            for group in 1...4 {
+            for group in profile.presetGroups.indices.map({ $0 + 1 }) {
                 var mapping = profile.storedMapping(for: group)
                 if mapping.rekordboxMode == nil {
                     mapping.rekordboxMode = defaultMode
-                    changed = true
-                }
-                if mapping.rekordboxDeck == nil {
-                    mapping.rekordboxDeck = .deck1
                     changed = true
                 }
                 profile.setMapping(mapping, for: group)
@@ -1134,9 +1146,9 @@ final class ShortcutSettingsModel: ObservableObject {
             .mapping(for: group).rekordboxMode ?? mode
     }
 
-    private func configuredDeck(for group: Int) -> RekordboxDeck {
-        configuration.profiles[configuration.defaultProfile]?
-            .mapping(for: group).rekordboxDeck ?? .deck1
+    private func presetName(for group: Int) -> String {
+        guard availablePresetGroups.indices.contains(group - 1) else { return "Preset" }
+        return availablePresetGroups[group - 1].name
     }
 
     private func saveMode(_ newMode: RekordboxMappingMode, for group: Int) {
@@ -1152,28 +1164,15 @@ final class ShortcutSettingsModel: ObservableObject {
         }
     }
 
-    private func saveDeck(_ newDeck: RekordboxDeck, for group: Int) {
-        guard var profile = configuration.profiles[configuration.defaultProfile] else { return }
-        var mapping = profile.storedMapping(for: group)
-        mapping.rekordboxDeck = newDeck
-        profile.setMapping(mapping, for: group)
-        configuration.profiles[configuration.defaultProfile] = profile
-        do {
-            try saveConfiguration()
-        } catch {
-            showToast(L10n.text("message.deckSaveFailed", error.localizedDescription), style: .error)
-        }
-    }
-
     private func applyRuntimeStatus(
         mode newMode: RekordboxMappingMode,
         group: Int,
+        presetGroupID: String?,
         deviceID: String,
         logicalDeviceID: String?,
         profileName: String,
         connected: Bool
     ) {
-        guard (1...4).contains(group) else { return }
         let currentTarget = runtimeDeviceID.map {
             OverCUERuntimeTarget(
                 deviceID: $0,
@@ -1192,6 +1191,15 @@ final class ShortcutSettingsModel: ObservableObject {
             guard refreshConfigurationFromDisk() else { return }
         }
         guard profileName == configuration.defaultProfile else { return }
+        let resolvedGroup: Int
+        if let presetGroupID {
+            guard let index = availablePresetGroups.firstIndex(where: { $0.id == presetGroupID })
+            else { return }
+            resolvedGroup = index + 1
+        } else {
+            resolvedGroup = group
+        }
+        guard availablePresetGroups.indices.contains(resolvedGroup - 1) else { return }
         let nextTarget = OverCUERuntimeTargetPolicy.updatedTarget(
             current: currentTarget,
             defaultProfileName: configuration.defaultProfile,
@@ -1209,25 +1217,28 @@ final class ShortcutSettingsModel: ObservableObject {
             return
         }
         let didChange = runtimeMode != newMode
-            || runtimeGroup != group
+            || runtimeGroup != resolvedGroup
             || currentTarget != nextTarget
         runtimeMode = newMode
-        runtimeGroup = group
+        runtimeGroup = resolvedGroup
         runtimeDeviceID = nextTarget.deviceID
         runtimeLogicalDeviceID = nextTarget.logicalDeviceID
         runtimeProfileName = nextTarget.profileName
         guard didChange else { return }
 
-        selectedGroup = group
+        selectedGroup = resolvedGroup
+        selectedPresetGroupID = availablePresetGroups[resolvedGroup - 1].id
         mode = newMode
-        targetDeck = configuredDeck(for: group)
         UserDefaults.standard.set(newMode.rawValue, forKey: "rekordboxMappingMode")
         selectedDeviceKey = nil
         selectedDialDirection = nil
         selectedEntryID = nil
         rebuildBindings()
         reload()
-        showToast(L10n.text("message.runtimeState", newMode.displayName, group), style: .info)
+        showToast(
+            L10n.text("message.runtimeState", newMode.displayName, presetName(for: resolvedGroup)),
+            style: .info
+        )
     }
 
     private func postRuntimeControl(group: Int, mode: RekordboxMappingMode) {
@@ -1243,7 +1254,7 @@ final class ShortcutSettingsModel: ObservableObject {
             target: target,
             defaultProfileName: configuration.defaultProfile
         ) else { return }
-        let userInfo: [String: Any] = [
+        var userInfo: [String: Any] = [
             OverCUERuntimeControlNotification.groupKey: group,
             OverCUERuntimeControlNotification.modeKey: mode.rawValue,
             OverCUERuntimeControlNotification.scopeKey:
@@ -1251,6 +1262,10 @@ final class ShortcutSettingsModel: ObservableObject {
             OverCUERuntimeControlNotification.deviceIDKey: targetDeviceID,
             OverCUERuntimeControlNotification.profileNameKey: configuration.defaultProfile,
         ]
+        if availablePresetGroups.indices.contains(group - 1) {
+            userInfo[OverCUERuntimeControlNotification.presetGroupIDKey]
+                = availablePresetGroups[group - 1].id
+        }
         DistributedNotificationCenter.default().postNotificationName(
             OverCUERuntimeControlNotification.name,
             object: nil,

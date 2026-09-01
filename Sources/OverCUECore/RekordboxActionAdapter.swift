@@ -41,6 +41,7 @@ public enum RekordboxActionAdapter {
     ) -> String? {
         switch target {
         case let .action(action): commandID(for: action, deck: deck)
+        case let .rekordboxAction(_, commandID): commandID
         case let .rekordboxCommand(commandID): commandID
         }
     }
@@ -59,8 +60,13 @@ public enum RekordboxActionAdapter {
 
     public static func target(for commandID: String) -> ActionTarget {
         if let action = action(for: commandID) {
-            return .action(action)
+            return .rekordboxAction(action, commandID: commandID.lowercased())
         }
         return .rekordboxCommand(commandID)
+    }
+
+    public static func scopedTarget(for action: ActionID, deck: RekordboxDeck) -> ActionTarget {
+        guard let commandID = commandID(for: action, deck: deck) else { return .action(action) }
+        return .rekordboxAction(action, commandID: commandID)
     }
 }

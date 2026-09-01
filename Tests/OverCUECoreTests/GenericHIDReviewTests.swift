@@ -30,7 +30,7 @@ final class GenericHIDReviewTests: XCTestCase {
         let positiveEvent = try XCTUnwrap(resolver.resolve(event: positive, mapping: mapping).first)
         XCTAssertEqual(positiveEvent.action, .jumpForward)
         XCTAssertEqual(positiveEvent.activationCount, 3)
-        XCTAssertNil(positiveEvent.sourceKey)
+        XCTAssertNil(positiveEvent.sourceID?.ack05Key)
         XCTAssertNotNil(positiveEvent.sourceID)
 
         let negativeEvent = try XCTUnwrap(resolver.resolve(event: negative, mapping: mapping).first)
@@ -66,7 +66,7 @@ final class GenericHIDReviewTests: XCTestCase {
         XCTAssertEqual(pressedEvent.phase, .pressed)
         XCTAssertEqual(releasedEvent.phase, .released)
         XCTAssertEqual(pressedEvent.sourceID, releasedEvent.sourceID)
-        XCTAssertNil(pressedEvent.sourceKey)
+        XCTAssertNil(pressedEvent.sourceID?.ack05Key)
     }
 
     func testRebindRejectsDisconnectedIdentifyDescriptor() {

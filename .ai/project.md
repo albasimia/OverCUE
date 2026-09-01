@@ -6,18 +6,18 @@ OverCUEは、任意の物理入力インターフェースとrekordboxの間を�
 
 ## 現在のフェーズ
 
-PERFORMANCE Deck 1〜4対応、複数Physical Deviceのruntime分離、Device Management Core、Generic HID観測・Learn・Action変換Coreまで実装済み。現行configはversion 9である。
+PERFORMANCE Deck 1〜4対応、複数Physical Deviceのruntime分離、Device Management Core、Generic HID観測・Learn・Action変換Coreに加え、Preset Group / shortcut scope schemaまで実装済み。現行configはversion 10である。
 
-2026-09-01のUI/ユースケース再検討により、Group単位の`rekordboxDeck` / GUIの「対象Deck」は廃止する方針へ変更した。rekordboxショートカット一覧自体がDeck 1 / Deck 2 / Deck 3 / All Decks / Browse / Sampler / Recordings / General / View等の対象scopeを既に持つため、対象scopeは選択されたrekordbox action/shortcutの属性として保持し、別のtargetDeck設定を持たせない。既存の4 Groupは、名前と安定IDを持つ可変Preset Groupへ置き換える。実装時は既存設定を保持するmigrationが必要で、config version 10が有力である。
+2026-09-01のUI/ユースケース再検討に基づき、Group単位の`rekordboxDeck` / GUIの「対象Deck」を廃止した。対象scopeは選択されたrekordbox action/shortcut自身へ保持し、別のtargetDeck設定を持たせない。既存の4 Groupは、名前と安定IDを持つ可変Preset Groupへversion 10 migrationで置き換えた。
 
 ## 現在地
 
 - Swift Package ManagerでCore、SwiftUIアプリ、CLI bridge、probe、core checksを管理している。
 - ACK05のHID入力、キー／任意数コード、Cue hold、Jump長押しリピート、ダイヤル操作をAction Layerへ変換する。
-- 現行実装は4 Groupで、各Groupが`rekordboxMode`、`rekordboxDeck`、`waveformPosition`、キー／コード／ダイヤル割り当てを保持する。ただしGroup-level `rekordboxDeck`は採用済み新Decisionで廃止予定。
+- 現行実装は1〜24個のPreset Groupで、各Presetがstable ID、name、order、`rekordboxMode`、`waveformPosition`、キー／コード／ダイヤル割り当てを保持する。
 - rekordboxの選択中KeyMappings XMLを読み、commandIdから実際のキーボードショートカットを解決する。
 - rekordboxショートカット一覧は対象scopeごとに分類されており、ユーザーがDeck別項目を選択した時点で対象scopeは確定している。別途Deck selectorを要求しない。
-- configはversion 9。version 1〜8からのmigrationとバックアップを持つ。旧`deviceProfiles`はLogical Device + legacy Physical Bindingへ移行する。
+- configはversion 10。version 1〜9からのmigrationとバックアップを持つ。旧`deviceProfiles`はLogical Device + legacy Physical Bindingへ移行し、v9 Groupはnamed Presetへ移行する。
 - `Scripts/verify-macos.sh`でdebug build、core checks、Universal Binary app生成、ad-hoc codesign検証を一括実行できる。
 - 2026-08-30時点の4Deck対応はcommit `28631d4de001331d8aceaa96bf57f778cd9c2ac6`、branch `codex/performance-4deck`へpush済み。
 - ACK05 1台のProfile切り替えによるDeck 1〜3操作は、実際のDJ運用で成立済み。
@@ -32,7 +32,7 @@ PERFORMANCE Deck 1〜4対応、複数Physical Deviceのruntime分離、Device Ma
 - default Profile device切断時はGUI targetを解放し、再接続statusで新しいsession targetへ更新する。live default targetがない場合、GUIはglobal controlへフォールバックしない。
 - GUI / CLIによる`config.json`更新は共通`OverCUEConfigurationFileStore`のlock付きread-modify-writeを使う。GUIは最後に読み込んだbaseline、GUIローカル変更、最新disk stateの3-way mergeを行い、CLI由来の無関係な変更を古いin-memory configで上書きしない。
 - version 1〜8 migrationもlock取得後の最新dataを再判定し、別processが既にcurrentへ移行・更新したstateを古いmigration snapshotで上書きしない。
-- CLIはGUI runtime controlを処理する直前に最新configをreloadし、Group / Mode / Deck / Action mappingを最新値から再解決する。v10移行ではDeck runtime state自体を削除対象とする。
+- CLIはGUI runtime controlを処理する直前に最新configをreloadし、stable Preset ID / Mode / Action mappingを最新値から再解決する。Deckのruntime stateは持たない。
 - version 9 migrationのlegacy `location:`値は`lastKnownLocationID` hintだけへ移し、persistent match対象へ残さない。
 - ACK05 Learn / Captureは最初のsource physical deviceへ固定し、別ACK05の入力を混在させない。source切断時はcaptureをキャンセルする。
 - GUIはruntime/config変更時にdiskの最新baselineと未保存local差分をreconcileし、CLI保存済みModeをGroup往復で古い値へ戻さない。
@@ -122,8 +122,7 @@ PERFORMANCE Deck 1〜4対応、複数Physical Deviceのruntime分離、Device Ma
 
 ## 未決事項
 
-- scope付きrekordbox action/shortcut referenceの最終的な永続schema。要件は「選択項目の対象scopeを失わない」「semantic Action behaviorを維持する」「別targetDeckを持たない」。
-- v10でPreset Group stable IDをどの形式にするか。UI表示番号はorderから派生させ、ID自体へ順序意味を持たせない。
+- scope付きrekordbox action/shortcut referenceは`rekordbox-action:<semantic-action-id>:<commandId>`、Preset Group IDは順序意味を持たないopaque stringとして実装済み。v9 migration IDは決定的に生成し、既定値は明示IDを持つ。
 - 複数ACK05実機でのSerial有無、IOHID identity、同時入力・切断・再接続の確認。
 - 同型deviceが同一Serialまたは空Serialを返す場合の再binding UX。
 - Koolertron系Generic HIDのキー、encoder CW/CCW、encoder pushがmacOS IOHID上でどのUsage / Reportとして見えるか。
@@ -161,4 +160,4 @@ PERFORMANCE Deck 1〜4対応、複数Physical Deviceのruntime分離、Device Ma
 
 ## 次の行動
 
-まず現HEAD `c00d608`の未実施macOSローカル検証を完了する。その後、Group-level targetDeck廃止・scope付きshortcut reference・named Preset Group（可変、上限24）を一つの整合したconfig migrationとして実装する。Generic HID実機probeとACK05 ×2のidentity確認はこのschema変更と独立して進めてよい。
+version 10実装のmacOSローカル検証と実機回帰を行う。次のUI実装はDevices画面の詳細判断後に行い、Generic HID実機probeとACK05 ×2のidentity確認から得た証拠なしにpersistent mapping schemaを確定しない。

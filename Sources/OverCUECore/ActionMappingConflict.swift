@@ -39,7 +39,9 @@ public enum ActionMappingConflictDetector {
         profile: OverCUEProfile,
         selectedGroup: Int
     ) -> ActionMappingConflict? {
-        let groups = isGroupCycle(target) ? Array(1...4) : [selectedGroup]
+        let groups = isGroupCycle(target)
+            ? profile.presetGroups.indices.map { $0 + 1 }
+            : [selectedGroup]
         for group in groups {
             let mapping = profile.mapping(for: group)
             if let existing = existingTarget(for: input, mapping: mapping, group: group),
@@ -107,8 +109,7 @@ public enum ActionMappingConflictDetector {
     }
 
     private static func isGroupCycle(_ target: ActionTarget) -> Bool {
-        guard case let .action(action) = target else { return false }
-        return action.isGroupCycle
+        target.semanticAction?.isGroupCycle == true
     }
 
     private static func existingTarget(

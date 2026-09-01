@@ -2,105 +2,51 @@
 
 ## 現在のフェーズ
 
-Device Management CoreとGeneric HID観測・Learn・Action変換基盤まで実装済み。現行HEADは`c00d608`、config version 9。
+Preset Group / Shortcut Scope version 10を実装した。Group-level `targetDeck` / `rekordboxDeck`、GUI Deck selector、Bridgeのactive Deck stateはcurrent schema/runtimeから削除済み。
 
-2026-09-01のUI/ユースケース再検討で、次のschema変更を採用した。
+## 完了した実装
 
-- Group単位の`targetDeck` / `rekordboxDeck`を廃止する。
-- GUIの「対象Deck」selectorも削除する。
-- rekordboxショートカット一覧から選択した項目自体が対象scopeを持つ。Deck scopeを別途指定しない。
-- 4つの番号Groupを、stable ID + name + orderを持つ可変Preset Groupへ移行する。
-- Preset Groupは製品上限24、UIはname付きドロップダウンで選択する。
-- Shortcut画面はACK05デバイスマップ領域を維持し、Device操作用の第3カラムを追加しない。
-- 主要タブは「ショートカット / デバイス / 設定」。Identify / Rebind / Forget / LearnはDevices側に集約する。
+- [x] `aal context build --mode implementation`で最新Decisionを確認。
+- [x] `ActionTarget.rekordboxAction`へsemantic Action IDと選択shortcut commandIdを保持。
+- [x] Generic `rekordbox:<commandId>`とInternal Actionを無変換で維持。
+- [x] Cue hold / Jump repeat等のsemantic behaviorをscope付きtargetでも維持。
+- [x] 1〜24個の`OverCUEPresetGroup`（opaque stable ID、必須name、order、mapping）を導入。
+- [x] Preset cycleを存在するPresetのorder順・双方向wrapへ変更。
+- [x] GUIの4分割segmentをPreset名menuへ変更し、Deck selectorを削除。
+- [x] Runtime Status / Controlへstable Preset IDを追加し、並べ替え・削除時の誤送信を防止。
+- [x] GUI選択中Presetをstable IDで維持し、remote reorder後も同じPresetを参照。
+- [x] BridgeのProfile mappingを実在Preset数から構築し、固定4 Group依存を撤去。
+- [x] v9→v10 migrationで旧GroupのMode、waveformPosition、mapping、EXPORT用途を維持。
+- [x] 旧`rekordboxDeck`を標準Actionのscope付きreference変換だけに使用し、v10 encodeから除外。
+- [x] v10の3-way mergeをPreset stable ID単位・mapping field/entry単位へ更新。
+- [x] DefaultKeyMappingをv10 Preset / scoped shortcut表現へ更新。
+- [x] Core checksを397件へ拡張。
 
-詳細はDecision `20260901T201000-91c4e7`を参照。
+## commit前の最終検証
 
-## 先に完了する検証
+- [x] `swift build`
+- [x] `swift test`（3件成功）
+- [x] `swift run overcue-checks`（397件成功）
+- [x] `./Scripts/verify-macos.sh`
+- [x] `aal doctor`（0 failures / 0 warnings）
+- [x] `git diff --check`
+- [x] `OverCUE` / `overcue-cli`のarm64 + x86_64とad-hoc codesignを確認。
+- [x] Universal Binary / ad-hoc codesign結果をhistoryへ記録。
 
-GitHub connectorから直接追加した`14e3df2` / `c00d608`について、macOSローカル検証が未実施である。親commitの成功を流用しない。
+## 次の実機ゲート
 
-- [ ] `aal context build --mode implementation`
-- [ ] `swift build`
-- [ ] `swift test`
-- [ ] `swift run overcue-checks`
-- [ ] `./Scripts/verify-macos.sh`
-- [ ] `aal doctor`
-- [ ] `git diff --check`
+- [ ] ACK05 2台以上で同時操作、切断、再接続、異なるLogical Device / Profileを確認。
+- [ ] `overcue-probe --all`でKoolertron候補のVID / PID / Serial / Usage / Report ID / press-release / relative deltaを採取。
+- [ ] 同型Generic HID複数台のSerial有無と再接続時descriptor安定性を確認。
+- [ ] Deck 4 shortcutを含むrekordbox KeyMappings XMLで`33xx`を直接確認。
 
-## 次の実装ゲート: Preset Group / Shortcut Scope v10
+## UI待ち
 
-### 1. Group-level targetDeckを完全撤去
-
-- [ ] `OverCUEGroupMapping.rekordboxDeck`をmigration後のcurrent schemaから削除する。
-- [ ] GUIの「対象Deck」を削除する。
-- [ ] Runtime Status / ControlからDeck stateを削除し、Group/Preset切替時にDeckを復元しない。
-- [ ] Bridgeの`activeRekordboxDeck`のようなGroup-global Deck stateを廃止する。
-- [ ] Deck依存Actionが一つのPreset内で異なるDeck/scopeを混在できることをchecksで固定する。
-
-### 2. 選択shortcut/action自身にscopeを保持
-
-- [ ] rekordbox一覧で選択された項目が持つ対象scopeをAction Binding側へ保持する。
-- [ ] `Deck 1 / Cue`、`Deck 2 / Cue`、`Deck 3 / Cue`等を別の対象として選択でき、追加Deck selectorなしで正しいcommandIdへ到達する。
-- [ ] All Decks / Browse / Sampler / Recordings / General / View等の非Deckカテゴリを、無理にDeck enumへ押し込まない。
-- [ ] Cue hold / Jump repeat等のsemantic Action behaviorを失わない。
-- [ ] Generic `rekordbox:<commandId>`は明示指定値をそのまま保持し、scope変換しない。
-- [ ] scope付きreferenceの最終型名・永続表現は実装時に決めてよいが、別`targetDeck`を復活させない。
-
-### 3. named Preset Group
-
-- [ ] Profile内のGroupをstable ID + 必須name + orderを持つPreset Groupへ移行する。
-- [ ] Preset Groupは可変個。製品上限24。24固定配列にはしない。
-- [ ] 既存4 Groupはmigrationで4 Preset Groupとして保持する。
-- [ ] migration時の初期nameは既存番号との対応が分かる値を生成する。
-- [ ] UIのGroup 1〜4 segmented controlをname付きドロップダウンへ変更する。
-- [ ] Cycle Preset Groupは存在するPresetをorder順に巡回してwrapする。欠番や未作成slotを巡回しない。
-- [ ] `rekordboxMode`と`waveformPosition`はPreset Group属性として維持する。
-
-### 4. v9 → v10 migration
-
-- [ ] config version 10が必要なら一度だけ上げ、v9 backupを維持する。
-- [ ] v9 Groupの`rekordboxDeck`を、そのGroup内のDeck依存標準Actionをscope付きreferenceへ変換するために使用する。
-- [ ] migration後は旧`rekordboxDeck`をruntime/configへ残さない。
-- [ ] Internal ActionへDeck scopeを付けない。
-- [ ] Generic commandIdを変換しない。
-- [ ] Group 1〜4のMode、waveformPosition、keyMap、chordMap、dialMap、dialChordMapの意味を維持する。
-- [ ] migration concurrency / backup / unsupported version / round-tripを既存file-store checksへ追加する。
-
-### 5. Shortcut / Devices UI責務
-
-- [ ] Shortcut画面は現行の2カラム構成を基本維持し、ACK05実機図を細くしない。
-- [ ] Device管理操作をShortcut画面の第3カラムとして追加しない。
-- [ ] 「ショートカット / デバイス / 設定」の3タブを基本ナビゲーションとする。
-- [ ] DevicesタブでPhysical Device一覧、Logical Device binding、Identify、Rebind、Forget、Generic HID Add/Learnを扱う。
-- [ ] Learnを独立トップレベルタブにしない。
-
-## 完了条件
-
-- [ ] targetDeck / rekordboxDeckがcurrent schema・runtime・Shortcut GUIから消えている。
-- [ ] 1つのPreset Group内でDeck 1 / Deck 2 / Deck 3向けshortcutを混在できる。
-- [ ] Preset Groupをname付きドロップダウンで選択できる。
-- [ ] 既存v9設定が意味を失わずmigrationする。
-- [ ] `swift build`
-- [ ] `swift test`
-- [ ] `swift run overcue-checks`
-- [ ] `./Scripts/verify-macos.sh`
-- [ ] `aal doctor` 0 failures / 0 warnings
-- [ ] `git diff --check`
-
-## 実機確認は並行して進めてよい
-
-- [ ] ACK05 ×2でdefault / non-default Profile、同時入力、切断・再接続、ambiguous bindingを確認する。
-- [ ] `overcue-probe --all`でKoolertron候補機のキー、encoder CW/CCW、encoder pushのUsage / Report / relative deltaを採取する。
-- [ ] 同型Generic HID複数台のSerial有無と再接続時descriptor安定性を確認する。
-- [ ] 実機データを根拠にGeneric HID persistent mapping schemaを決める。
+- Devices画面の詳細レイアウト、Logical Device命名、Profile assignment、Identify / Rebind / Forget / Learn。
+- Parent Preset / Scene。
 
 ## 保留
 
 - Generic HID mappingの永続schemaとruntime接続。実機identityの証拠待ち。
-- Devices画面の細部レイアウト。責務とタブ分離のみ確定。
-- Parent Preset / Scene。
-- Deck 4=`33xx`規則の実データ確認。
 - GitHub Actionsの復旧。
 - Developer ID署名とnotarization。
-- Ableton Live / Launchpad Xの統合検討。

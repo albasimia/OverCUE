@@ -2,7 +2,7 @@
 
 - Change ID: `20260901T201000-91c4e7`
 - 状態: 採用
-- 置換するDecision: `20260830T200000-28631d`
+- Supersedes: `20260830T200000-28631d`
 
 ## 背景
 
@@ -30,7 +30,7 @@
 - Deck以外のBrowse / All Decks / Sampler / Recordings / General / View等を無理に`RekordboxDeck`へ変換しない。
 - Action LayerはCue hold、Jump repeat等のsemantic behaviorを維持する。scopeを持たせるために全部を生commandId passthroughへ退化させない。
 - Generic `rekordbox:<commandId>`は従来どおり明示指定値をそのまま使用する。
-- 永続表現の型名・field名は実装時に決めてよいが、別の`targetDeck` fieldを追加しない。
+- 永続表現は`ActionTarget.rekordboxAction`を`rekordbox-action:<semantic-action-id>:<commandId>`としてencodeする。別の`targetDeck` fieldは追加しない。
 
 ### Preset Group
 
@@ -49,7 +49,7 @@
 
 ### Migration
 
-- この変更はcurrent config schemaを変えるため、実装時はversion 10を基本方針とする。
+- この変更はcurrent config schemaを変えるため、version 10とする。
 - v9→v10では既存Group 1〜4をPreset Groupへ変換し、Mode、waveformPosition、key/chord/dial/dialChord mappingを保持する。
 - 旧Groupの`rekordboxDeck`は、そのGroup内のDeck依存標準Actionをscope付きrekordbox action/shortcut referenceへ変換するためだけに使用する。
 - migration後のcurrent config/runtimeから`rekordboxDeck`を削除する。
@@ -68,16 +68,17 @@
 ## 影響
 
 - 旧Decision `20260830T200000-28631d`は置換済みとなる。
-- `OverCUEGroupMapping.rekordboxDeck`、GUI `targetDeck`、BridgeのGroup-global active deck、Deckを含むruntime status/controlは削除候補になる。
+- `OverCUEGroupMapping.rekordboxDeck`、GUI `targetDeck`、BridgeのGroup-global active deckはcurrent model/runtimeから削除した。旧JSON fieldはmigration decode専用とする。
 - `RekordboxActionAdapter`はsemantic Actionとrekordbox command familyのSSOTとして残しつつ、scope付きshortcut referenceとの責務境界を整理する必要がある。
 - Preset Group stable ID導入により、将来のParent Preset / Rigから番号ではなく安定IDで参照できる。
 - config v10 migration、GUI、Core checks、runtime/config concurrency mergeの更新が必要になる。
 
-## 未決
+## 実装確定事項
 
-- scope付きrekordbox action/shortcut referenceの正確なSwift型・JSON schema。
-- Preset Group stable IDの生成形式。
-- migration時の初期name表記。ただし既存Group番号との対応が分かる値にする。
+- scope付きreferenceはSwift型`ActionTarget.rekordboxAction(ActionID, commandID:)`、JSON文字列表現`rekordbox-action:<semantic-action-id>:<commandId>`とする。
+- Preset Group IDは順序意味を持たないopaque stringとする。v9 migrationでは旧Group番号から決定的IDを生成し、再migrationでも同じIDを得る。
+- migration時の初期nameは既存対応が分かる`Group N`とし、orderには旧Group番号を保持する。
+- Runtime Status / Controlは互換用order番号に加えてstable Preset IDを送る。current同士はstable IDを優先し、削除済みIDへのcontrolを無視する。
 
 ## 不採用
 

@@ -16,7 +16,57 @@ public enum ActionConfigurationMigrator {
     public static func migrateToCurrentVersion(
         _ source: OverCUEConfiguration
     ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
-        migrateToVersion9(source)
+        migrateToVersion10(source)
+    }
+
+    public static func migrateToVersion10(
+        _ source: OverCUEConfiguration
+    ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
+        var result = source.version < 9
+            ? migrateToVersion9(source)
+            : (configuration: source, warnings: [])
+
+        for profileName in result.configuration.profiles.keys.sorted() {
+            guard var profile = result.configuration.profiles[profileName] else { continue }
+            if profile.presetGroups.isEmpty {
+                profile.presetGroups = [
+                    OverCUEPresetGroup(
+                        id: OverCUEPresetGroup.migratedID(forLegacyGroup: 1),
+                        name: "Group 1",
+                        order: 1,
+                        mapping: OverCUEGroupMapping()
+                    ),
+                ]
+            }
+            for group in profile.presetGroups.indices.map({ $0 + 1 }) {
+                var mapping = profile.storedMapping(for: group)
+                let deck = mapping.legacyRekordboxDeck ?? .deck1
+                mapping.keyMap = scopedMappings(mapping.keyMap, deck: deck)
+                mapping.chordMap = scopedMappings(mapping.chordMap, deck: deck)
+                mapping.dialMap = scopedMappings(mapping.dialMap, deck: deck)
+                mapping.dialChordMap = scopedMappings(mapping.dialChordMap, deck: deck)
+                mapping.legacyRekordboxDeck = nil
+                profile.setMapping(mapping, for: group)
+            }
+            result.configuration.profiles[profileName] = profile
+        }
+        result.configuration.version = 10
+        return result
+    }
+
+    private static func scopedMappings(
+        _ mappings: [String: String],
+        deck: RekordboxDeck
+    ) -> [String: String] {
+        mappings.mapValues { rawValue in
+            guard let target = ActionTarget(configurationValue: rawValue),
+                  let action = target.semanticAction,
+                  !action.behavior.isInternal
+            else { return rawValue }
+            if case .rekordboxAction = target { return rawValue }
+            if case .rekordboxCommand = target { return rawValue }
+            return RekordboxActionAdapter.scopedTarget(for: action, deck: deck).configurationValue
+        }
     }
 
     public static func migrateToVersion9(
@@ -71,7 +121,7 @@ public enum ActionConfigurationMigrator {
             guard var profile = result.configuration.profiles[profileName] else { continue }
             for group in 1...4 {
                 var mapping = profile.storedMapping(for: group)
-                guard mapping.rekordboxDeck == nil else { continue }
+                guard mapping.legacyRekordboxDeck == nil else { continue }
 
                 if group == 2, isLegacyDeck2Default(mapping) {
                     let replacement = defaults.storedMapping(for: 2)
@@ -79,12 +129,12 @@ public enum ActionConfigurationMigrator {
                     mapping.chordMap = replacement.chordMap
                     mapping.dialMap = replacement.dialMap
                     mapping.dialChordMap = replacement.dialChordMap
-                    mapping.rekordboxDeck = .deck2
+                    mapping.legacyRekordboxDeck = .deck2
                 } else {
                     // Standard Actions resolved to Deck 1 before version 8. Generic
                     // rekordbox:<id> values remain untouched and therefore retain
                     // any explicitly embedded deck selection.
-                    mapping.rekordboxDeck = .deck1
+                    mapping.legacyRekordboxDeck = .deck1
                 }
                 profile.setMapping(mapping, for: group)
             }

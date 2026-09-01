@@ -45,8 +45,8 @@ public enum ActionID: String, Codable, CaseIterable, Equatable, Hashable, Sendab
         case .captureWaveformPosition: "Capture Waveform Position"
         case .jogSearchLeft: "Jog Search Left"
         case .jogSearchRight: "Jog Search Right"
-        case .cycleGroup: "Cycle Group Ascending 1–4"
-        case .cycleGroupBackward: "Cycle Group Descending 4–1"
+        case .cycleGroup: "Next Preset Group"
+        case .cycleGroupBackward: "Previous Preset Group"
         case .toggleRekordboxMode: "Toggle EXPORT / PERFORMANCE"
         }
     }
@@ -78,14 +78,27 @@ public enum ActionBehavior: Equatable, Sendable {
     case hold
     case acceleratingRepeat
     case internalCommand
+
+    public var isInternal: Bool { self == .internalCommand }
 }
 
 public enum ActionTarget: Equatable, Hashable, Sendable {
     case action(ActionID)
+    case rekordboxAction(ActionID, commandID: String)
     case rekordboxCommand(String)
 
+    private static let scopedPrefix = "rekordbox-action:"
+
     public init?(configurationValue: String) {
-        if let action = ActionID(rawValue: configurationValue) {
+        if configurationValue.hasPrefix(Self.scopedPrefix) {
+            let payload = configurationValue.dropFirst(Self.scopedPrefix.count)
+            let fields = payload.split(separator: ":", maxSplits: 1).map(String.init)
+            guard fields.count == 2,
+                  let action = ActionID(rawValue: fields[0]),
+                  !fields[1].isEmpty
+            else { return nil }
+            self = .rekordboxAction(action, commandID: fields[1])
+        } else if let action = ActionID(rawValue: configurationValue) {
             self = .action(action)
         } else if configurationValue.hasPrefix("rekordbox:") {
             let commandID = String(configurationValue.dropFirst("rekordbox:".count))
@@ -99,6 +112,8 @@ public enum ActionTarget: Equatable, Hashable, Sendable {
     public var configurationValue: String {
         switch self {
         case let .action(action): action.rawValue
+        case let .rekordboxAction(action, commandID):
+            "\(Self.scopedPrefix)\(action.rawValue):\(commandID)"
         case let .rekordboxCommand(commandID): "rekordbox:\(commandID)"
         }
     }
@@ -106,6 +121,7 @@ public enum ActionTarget: Equatable, Hashable, Sendable {
     public var behavior: ActionBehavior {
         switch self {
         case let .action(action): action.behavior
+        case let .rekordboxAction(action, _): action.behavior
         case .rekordboxCommand: .trigger
         }
     }
@@ -113,7 +129,15 @@ public enum ActionTarget: Equatable, Hashable, Sendable {
     public var displayName: String {
         switch self {
         case let .action(action): action.displayName
+        case let .rekordboxAction(action, _): action.displayName
         case let .rekordboxCommand(commandID): "rekordbox \(commandID)"
+        }
+    }
+
+    public var semanticAction: ActionID? {
+        switch self {
+        case let .action(action), let .rekordboxAction(action, _): action
+        case .rekordboxCommand: nil
         }
     }
 }
@@ -136,6 +160,11 @@ public struct ActionSourceID: Equatable, Hashable, Sendable {
 
     public static func ack05Key(_ key: ACK05Key) -> ActionSourceID {
         ActionSourceID(namespace: "ack05.key", identifier: key.rawValue)
+    }
+
+    public var ack05Key: ACK05Key? {
+        guard namespace == "ack05.key" else { return nil }
+        return ACK05Key(rawValue: identifier)
     }
 }
 
@@ -190,15 +219,11 @@ public struct ActionEvent: Equatable, Sendable {
 
     @available(*, deprecated, message: "Use sourceID. sourceKey is ACK05 compatibility only.")
     public var sourceKey: ACK05Key? {
-        guard sourceID?.namespace == "ack05.key",
-              let identifier = sourceID?.identifier
-        else { return nil }
-        return ACK05Key(rawValue: identifier)
+        sourceID?.ack05Key
     }
 
     public var action: ActionID? {
-        guard case let .action(action) = target else { return nil }
-        return action
+        target.semanticAction
     }
 }
 

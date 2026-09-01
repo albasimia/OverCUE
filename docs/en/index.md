@@ -67,7 +67,7 @@ Follow the first-launch guide to grant both permissions to OverCUE, then quit an
 
 1. Start rekordbox.
 2. Connect the ACK05 and launch OverCUE.
-3. Select an OverCUE group, EXPORT or PERFORMANCE mode, and a PERFORMANCE target Deck from 1 through 4.
+3. Select an OverCUE Preset Group and EXPORT or PERFORMANCE mode. Choose the rekordbox shortcut already categorized for Deck 1–4 or another scope; there is no separate target-Deck setting.
 4. To use waveform control, place the pointer over the enlarged waveform and press `K8+K1` to save its location.
 5. Bring rekordbox to the front and operate the ACK05.
 
@@ -82,7 +82,7 @@ Keyboard and mouse output is enabled only while rekordbox is frontmost. Closing 
 | 3 | EXPORT | Deck 1 |
 | 4 | EXPORT | Available for custom mappings |
 
-Each group remembers its last EXPORT or PERFORMANCE mode and target Deck. The Deck setting selects Deck 1 through 4 for standard Actions in PERFORMANCE mode and is not used in EXPORT mode. Group and mode state stay synchronized between the GUI, ACK05, CLI bridge, and menu bar.
+Each Preset Group has a stable ID, name, and order, and remembers its mode, waveform position, and input mappings. A single Preset may mix Deck 1–4 and All Decks shortcut scopes. Preset and mode state stay synchronized between the GUI, ACK05, CLI bridge, and menu bar.
 
 The waveform position captured with `K8+K1` is also stored independently for each group. Switching groups activates the position last saved for that group.
 

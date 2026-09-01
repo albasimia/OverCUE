@@ -53,9 +53,22 @@ check(ActionTarget(configurationValue: "rekordbox:42ff") == .rekordboxCommand("4
 check(ActionTarget(configurationValue: "rekordbox:") == nil, "empty generic rekordbox target is rejected")
 check(RekordboxActionAdapter.commandID(for: .rekordboxCommand("42ff")) == "42ff", "generic target keeps command ID")
 check(RekordboxActionAdapter.commandID(for: .rekordboxCommand("42ff"), deck: .deck4) == "42ff", "generic target is not Deck-transformed")
-check(RekordboxActionAdapter.target(for: "301e") == .action(.hotCue1), "known command ID maps to built-in Action")
+check(
+    RekordboxActionAdapter.target(for: "301e")
+        == .rekordboxAction(.hotCue1, commandID: "301e"),
+    "known command ID maps to a scoped semantic Action"
+)
 check(RekordboxActionAdapter.target(for: "42ff") == .rekordboxCommand("42ff"), "unknown command ID maps to generic target")
-check(RekordboxActionAdapter.target(for: "331e") == .action(.hotCue1), "Deck 4 command maps to shared Action")
+check(
+    RekordboxActionAdapter.target(for: "331e")
+        == .rekordboxAction(.hotCue1, commandID: "331e"),
+    "Deck 4 command keeps its scope and shared Action behavior"
+)
+check(
+    ActionTarget(configurationValue: "rekordbox-action:cue:3107")
+        == .rekordboxAction(.cue, commandID: "3107"),
+    "scoped rekordbox Action round-trips through configuration"
+)
 
 let genericMapping = ActionMapping(
     keys: [.k2: .rekordboxCommand("42ff")],
@@ -151,7 +164,9 @@ let occupiedConflict = ActionMappingConflictDetector.conflict(
     selectedGroup: 1
 )
 check(
-    occupiedConflict?.kind == .occupied(existing: .action(.hotCue3)),
+    occupiedConflict?.kind == .occupied(
+        existing: RekordboxActionAdapter.scopedTarget(for: .hotCue3, deck: .deck1)
+    ),
     "detect an existing physical shortcut collision"
 )
 let longModifierChord = KeyChord(keys: [.k9, .k1])!
@@ -162,7 +177,10 @@ let modifierConflict = ActionMappingConflictDetector.conflict(
     selectedGroup: 1
 )
 check(
-    modifierConflict?.kind == .chordUsesLongPressModifier(key: .k9, existing: .action(.cue)),
+    modifierConflict?.kind == .chordUsesLongPressModifier(
+        key: .k9,
+        existing: RekordboxActionAdapter.scopedTarget(for: .cue, deck: .deck1)
+    ),
     "detect a chord modifier assigned to a hold Action"
 )
 var longTargetProfile = OverCUEProfile.defaultValue
@@ -176,7 +194,7 @@ let longTargetConflict = ActionMappingConflictDetector.conflict(
 check(
     longTargetConflict?.kind == .longPressTargetUsesChord(
         chord: KeyChord(modifier: .k7, trigger: .k1),
-        chordTarget: .action(.deleteHotCue3)
+        chordTarget: RekordboxActionAdapter.scopedTarget(for: .deleteHotCue3, deck: .deck1)
     ),
     "detect a hold Action assigned to an existing chord modifier"
 )
@@ -199,7 +217,10 @@ check(
         target: .action(.cycleGroup),
         profile: .defaultValue,
         selectedGroup: 1
-    )?.kind == .dialChordUsesLongPressModifier(key: .k9, existing: .action(.cue)),
+    )?.kind == .dialChordUsesLongPressModifier(
+        key: .k9,
+        existing: RekordboxActionAdapter.scopedTarget(for: .cue, deck: .deck1)
+    ),
     "detect a held dial modifier assigned to a hold Action"
 )
 
@@ -261,16 +282,19 @@ check(
     "default group 2 uses Performance mode"
 )
 check(
-    OverCUEProfile.defaultValue.storedMapping(for: 1).rekordboxDeck == .deck1,
-    "default group 1 targets Deck 1"
+    OverCUEProfile.defaultValue.storedMapping(for: 1).legacyRekordboxDeck == nil,
+    "current default Preset has no group-global Deck"
 )
 check(
-    OverCUEProfile.defaultValue.storedMapping(for: 2).rekordboxDeck == .deck2,
-    "default group 2 targets Deck 2"
+    OverCUEProfile.defaultValue.storedMapping(for: 2).keyMap["K10"]
+        == RekordboxActionAdapter.scopedTarget(for: .playPause, deck: .deck2).configurationValue,
+    "default Preset 2 keeps Deck 2 scope on the selected Action"
 )
 check(
-    OverCUEProfile.defaultValue.storedMapping(for: 2).keyMap["K10"] == "play_pause",
-    "default group 2 uses the shared Play/Pause Action"
+    ActionTarget(
+        configurationValue: OverCUEProfile.defaultValue.storedMapping(for: 2).keyMap["K10"]!
+    )?.semanticAction == .playPause,
+    "default Preset 2 keeps shared Play/Pause behavior"
 )
 check(
     OverCUEProfile.defaultValue.storedMapping(for: 3).rekordboxMode == .export,
@@ -278,13 +302,19 @@ check(
 )
 check(
     OverCUEProfile.defaultValue.storedMapping(for: 1).dialChordMap["K7+DIAL_LEFT"]
-        == ActionID.pitchBendDecrease.rawValue,
-    "default group 1 uses the shared Pitch Bend minus Action"
+        == RekordboxActionAdapter.scopedTarget(
+            for: .pitchBendDecrease,
+            deck: .deck1
+        ).configurationValue,
+    "default Preset 1 scopes Pitch Bend minus to Deck 1"
 )
 check(
     OverCUEProfile.defaultValue.storedMapping(for: 2).dialChordMap["K7+DIAL_RIGHT"]
-        == ActionID.pitchBendIncrease.rawValue,
-    "default group 2 uses the shared Pitch Bend plus Action"
+        == RekordboxActionAdapter.scopedTarget(
+            for: .pitchBendIncrease,
+            deck: .deck2
+        ).configurationValue,
+    "default Preset 2 scopes Pitch Bend plus to Deck 2"
 )
 check(
     OverCUEProfile.defaultValue.storedMapping(for: 1).chordMap["K7+K2"]
@@ -316,7 +346,11 @@ check(
 )
 check(
     version5Migration.configuration.profiles["default"]?.storedMapping(for: 1)
-        .dialChordMap["K7+DIAL_RIGHT"] == ActionID.pitchBendIncrease.rawValue,
+        .dialChordMap["K7+DIAL_RIGHT"]
+        == RekordboxActionAdapter.scopedTarget(
+            for: .pitchBendIncrease,
+            deck: .deck1
+        ).configurationValue,
     "version 5 migration adds Deck 1 Pitch Bend mapping"
 )
 check(
@@ -326,7 +360,8 @@ check(
 )
 check(
     version5Migration.configuration.profiles["default"]?.storedMapping(for: 2)
-        .keyMap["K10"] == "play_pause",
+        .keyMap["K10"]
+        == RekordboxActionAdapter.scopedTarget(for: .playPause, deck: .deck2).configurationValue,
     "version 5 migration seeds Deck 2 defaults"
 )
 var previousVersion5Profile = version5Migration.configuration.profiles["default"]!
@@ -374,7 +409,8 @@ let makeLegacyDeckMappings: ([String: String], RekordboxDeck) -> [String: String
     mappings, deck in
     mappings.mapValues { value in
         guard let target = ActionTarget(configurationValue: value),
-              let commandID = RekordboxActionAdapter.commandID(for: target, deck: deck)
+              let action = target.semanticAction,
+              let commandID = RekordboxActionAdapter.commandID(for: action, deck: deck)
         else { return value }
         return "rekordbox:\(commandID)"
     }
@@ -382,7 +418,7 @@ let makeLegacyDeckMappings: ([String: String], RekordboxDeck) -> [String: String
 var legacyVersion7Profile = OverCUEProfile.defaultValue
 for group in 1...4 {
     var mapping = legacyVersion7Profile.storedMapping(for: group)
-    mapping.rekordboxDeck = nil
+    mapping.legacyRekordboxDeck = nil
     legacyVersion7Profile.setMapping(mapping, for: group)
 }
 var legacyDeck2 = legacyVersion7Profile.storedMapping(for: 2)
@@ -404,14 +440,14 @@ let version8Migration = ActionConfigurationMigrator.migrateToVersion8(
 )
 check(version8Migration.configuration.version == 8, "migration updates configuration to version 8")
 check(
-    version8Migration.configuration.profiles["default"]?.storedMapping(for: 2).rekordboxDeck
+    version8Migration.configuration.profiles["default"]?.storedMapping(for: 2).legacyRekordboxDeck
         == .deck2,
     "version 8 migration identifies the legacy default Deck 2 group"
 )
 check(
     version8Migration.configuration.profiles["default"]?.storedMapping(for: 2).keyMap["K10"]
-        == ActionID.playPause.rawValue,
-    "version 8 migration replaces legacy Deck 2 IDs with standard Actions"
+        == RekordboxActionAdapter.scopedTarget(for: .playPause, deck: .deck2).configurationValue,
+    "version 8 compatibility migration identifies the Deck 2 semantic Action"
 )
 check(
     version8Migration.configuration.profiles["default"]?.storedMapping(for: 3).rekordboxMode
@@ -433,7 +469,7 @@ legacyDeviceConfiguration.deviceProfiles = ["location:0012ABCD": "generic"]
 let version9Migration = ActionConfigurationMigrator.migrateToCurrentVersion(
     legacyDeviceConfiguration
 )
-check(version9Migration.configuration.version == 9, "migration updates configuration to version 9")
+check(version9Migration.configuration.version == 10, "migration updates configuration to version 10")
 check(
     version9Migration.configuration.logicalDevices["legacy:location:0012ABCD"]?.profileName
         == "generic",
@@ -455,6 +491,149 @@ check(
     version9Migration.configuration.deviceProfiles.isEmpty,
     "version 9 migration removes the duplicated legacy device profile map"
 )
+
+do {
+    let version9JSON = Data("""
+    {
+      "version": 9,
+      "defaultProfile": "default",
+      "profiles": {
+        "default": {
+          "groupMappings": {
+            "1": {
+              "rekordboxMode": "performance",
+              "rekordboxDeck": 2,
+              "waveformPosition": {"x": 10, "y": 20},
+              "keyMap": {
+                "K1": "hot_cue_1",
+                "K2": "rekordbox:42ff"
+              },
+              "chordMap": {"K8+K1": "capture_waveform_position"},
+              "dialMap": {},
+              "dialChordMap": {}
+            },
+            "4": {
+              "rekordboxMode": "export",
+              "rekordboxDeck": 1,
+              "keyMap": {},
+              "chordMap": {},
+              "dialMap": {},
+              "dialChordMap": {}
+            }
+          }
+        }
+      }
+    }
+    """.utf8)
+    let version9Source = try JSONDecoder().decode(OverCUEConfiguration.self, from: version9JSON)
+    let version10 = ActionConfigurationMigrator.migrateToCurrentVersion(version9Source).configuration
+    let presets = version10.profiles["default"]!.orderedPresetGroups
+    check(version10.version == 10, "v9 to v10 migration advances the schema once")
+    check(presets.count == 2, "v9 to v10 migration keeps only existing Groups as Presets")
+    check(presets.map(\.name) == ["Group 1", "Group 4"], "v9 migration creates recognizable Preset names")
+    check(
+        presets.map(\.id) == [
+            OverCUEPresetGroup.migratedID(forLegacyGroup: 1),
+            OverCUEPresetGroup.migratedID(forLegacyGroup: 4),
+        ],
+        "v9 migration creates deterministic opaque Preset IDs"
+    )
+    check(
+        presets[0].mapping.keyMap["K1"]
+            == RekordboxActionAdapter.scopedTarget(for: .hotCue1, deck: .deck2)
+                .configurationValue,
+        "v9 group Deck scopes each semantic Action during migration"
+    )
+    check(
+        presets[0].mapping.keyMap["K2"] == "rekordbox:42ff",
+        "v9 migration does not transform an explicit Generic command"
+    )
+    check(
+        presets[0].mapping.chordMap["K8+K1"] == "capture_waveform_position",
+        "v9 migration does not scope an Internal Action"
+    )
+    check(
+        presets[0].mapping.waveformPosition == WaveformPosition(x: 10, y: 20),
+        "v9 migration preserves waveform coordinates"
+    )
+    let version10Data = try JSONEncoder().encode(version10)
+    let version10Text = String(decoding: version10Data, as: UTF8.self)
+    check(version10Text.contains("presetGroups"), "v10 persists named Preset Groups")
+    check(!version10Text.contains("groupMappings"), "v10 no longer persists numbered Group maps")
+    check(!version10Text.contains("rekordboxDeck"), "v10 no longer persists group-global Deck")
+    var emptyLegacy = OverCUEConfiguration(
+        version: 9,
+        profiles: ["default": OverCUEProfile(presetGroups: [])]
+    )
+    emptyLegacy.defaultProfile = "default"
+    let repairedEmpty = ActionConfigurationMigrator
+        .migrateToCurrentVersion(emptyLegacy).configuration
+    check(
+        repairedEmpty.profiles["default"]?.presetGroups.count == 1,
+        "v10 migration repairs an empty legacy Group collection without a range failure"
+    )
+
+    var mixedMapping = presets[0].mapping
+    mixedMapping.keyMap = [
+        "K1": RekordboxActionAdapter.scopedTarget(for: .cue, deck: .deck1).configurationValue,
+        "K2": RekordboxActionAdapter.scopedTarget(for: .cue, deck: .deck2).configurationValue,
+        "K3": RekordboxActionAdapter.scopedTarget(for: .cue, deck: .deck3).configurationValue,
+    ]
+    var mixedProfile = OverCUEProfile(
+        presetGroups: [
+            OverCUEPresetGroup(id: "pg-mixed", name: "Mixed Decks", order: 40, mapping: mixedMapping),
+        ]
+    )
+    let resolvedMixed = ActionMapping(
+        keys: [
+            .k1: ActionTarget(configurationValue: mixedMapping.keyMap["K1"]!)!,
+            .k2: ActionTarget(configurationValue: mixedMapping.keyMap["K2"]!)!,
+            .k3: ActionTarget(configurationValue: mixedMapping.keyMap["K3"]!)!,
+        ],
+        chords: [:]
+    )
+    check(
+        resolvedMixed.keys[.k1]?.behavior == .hold
+            && RekordboxActionAdapter.commandID(for: resolvedMixed.keys[.k1]!) == "3007",
+        "Deck 1 scoped Cue preserves hold behavior and command"
+    )
+    check(
+        RekordboxActionAdapter.commandID(for: resolvedMixed.keys[.k2]!) == "3107"
+            && RekordboxActionAdapter.commandID(for: resolvedMixed.keys[.k3]!) == "3207",
+        "one Preset can mix Deck 1, Deck 2, and Deck 3 shortcuts"
+    )
+    mixedProfile.presetGroups.append(
+        OverCUEPresetGroup(
+            id: "pg-first",
+            name: "First",
+            order: 10,
+            mapping: OverCUEGroupMapping()
+        )
+    )
+    check(
+        OverCUEPresetGroupNavigator.nextID(currentID: "pg-mixed", step: 1, in: mixedProfile)
+            == "pg-first",
+        "Preset cycle follows order and wraps without fixed slots"
+    )
+    check(
+        OverCUEPresetGroupNavigator.nextID(currentID: "pg-first", step: -1, in: mixedProfile)
+            == "pg-mixed",
+        "Preset reverse cycle wraps through existing Presets"
+    )
+    check(
+        OverCUEPresetGroupNavigator.nextID(currentID: "removed", step: 1, in: mixedProfile)
+            == "pg-first"
+            && OverCUEPresetGroupNavigator.nextID(
+                currentID: "removed",
+                step: -1,
+                in: mixedProfile
+            ) == "pg-mixed",
+        "Preset cycle recovers safely after the current stable ID is removed"
+    )
+} catch {
+    failureCount += 1
+    fputs("FAIL: unexpected v9 to v10 migration error: \(error)\n", stderr)
+}
 
 let serialDevice = HIDPhysicalDeviceDescriptor(
     kind: .ack05,
@@ -1036,19 +1215,20 @@ do {
 }
 
 var genericActionResolver = GenericHIDActionResolver()
-let genericActionMapping: [GenericHIDInputDescriptor: ActionTarget] = [
-    keyboardInput: .action(.cue),
-    consumerInput: .action(.jumpBackward),
-    relativeInput: .action(.jumpForward),
+let keyboardBindingKey = GenericHIDInputBindingKey(input: keyboardInput, activation: .press)
+let consumerBindingKey = GenericHIDInputBindingKey(input: consumerInput, activation: .press)
+let relativeBindingKey = GenericHIDInputBindingKey(
+    input: relativeInput,
+    activation: .relativeNegative
+)
+let genericActionMapping: [GenericHIDInputBindingKey: ActionTarget] = [
+    keyboardBindingKey: .action(.cue),
+    consumerBindingKey: .action(.jumpBackward),
+    relativeBindingKey: .action(.jumpForward),
 ]
 check(
-    genericActionResolver.resolve(event: learnedPress, mapping: genericActionMapping).first
-        == ActionEvent(
-            action: .cue,
-            phase: .pressed,
-            sourceKey: nil,
-            sourceLabel: keyboardInput.label
-        ),
+    genericActionResolver.resolve(event: learnedPress, mapping: genericActionMapping).first?.action
+        == .cue,
     "synthetic Generic HID press reaches the existing ActionEvent layer"
 )
 check(
@@ -1075,19 +1255,23 @@ let consumerReleaseEvent = GenericHIDEvent(
     element: consumerElement,
     phase: .released
 )
+let consumerStart = genericActionResolver.resolve(
+    event: consumerPressEvent,
+    mapping: genericActionMapping
+).first
 check(
-    genericActionResolver.resolve(event: consumerPressEvent, mapping: genericActionMapping)
-        .first?.phase == .pressed,
+    consumerStart?.phase == .pressed,
     "Generic HID accelerating Action starts with pressed phase"
 )
 check(
-    genericActionResolver.repeatedEvent(for: consumerInput, mapping: genericActionMapping)?.phase
-        == .repeated,
+    consumerStart?.sourceID.flatMap {
+        genericActionResolver.repeatedEvent(for: $0, mapping: genericActionMapping)
+    }?.phase == .repeated,
     "Generic HID accelerating Action exposes repeat events"
 )
 _ = genericActionResolver.resolve(event: consumerReleaseEvent, mapping: genericActionMapping)
 check(
-    genericActionResolver.repeatedEvent(for: consumerInput, mapping: genericActionMapping) == nil,
+    genericActionResolver.repeatedEvent(for: consumerBindingKey, mapping: genericActionMapping) == nil,
     "Generic HID accelerating Action stops repeating on release"
 )
 
@@ -1225,7 +1409,7 @@ do {
     let group = try JSONDecoder().decode(OverCUEGroupMapping.self, from: legacyGroupJSON)
     check(group.dialChordMap.isEmpty, "decode group mapping without dialChordMap")
     check(group.rekordboxMode == nil, "decode group mapping without rekordboxMode")
-    check(group.rekordboxDeck == nil, "decode group mapping without rekordboxDeck")
+    check(group.legacyRekordboxDeck == nil, "decode group mapping without rekordboxDeck")
 
     let invalidDeckJSON = Data("""
     {"keyMap":{},"chordMap":{},"dialMap":{},"rekordboxDeck":5}
@@ -1538,9 +1722,9 @@ do {
             "1": OverCUEGroupMapping(
                 keyMap: ["K1": "hot_cue_1", "K3": "hot_cue_3"],
                 rekordboxMode: .export,
-                rekordboxDeck: .deck1
+                legacyRekordboxDeck: .deck1
             ),
-            "2": OverCUEGroupMapping(rekordboxMode: .export, rekordboxDeck: .deck2),
+            "2": OverCUEGroupMapping(rekordboxMode: .export, legacyRekordboxDeck: .deck2),
         ]
     )
     base.profiles["default"] = OverCUEProfile(
@@ -1549,9 +1733,9 @@ do {
                 keyMap: ["K1": "hot_cue_1", "K2": "hot_cue_2", "K3": "hot_cue_3"],
                 chordMap: ["K7+K1": "delete_hot_cue_1"],
                 rekordboxMode: .export,
-                rekordboxDeck: .deck1
+                legacyRekordboxDeck: .deck1
             ),
-            "2": OverCUEGroupMapping(rekordboxMode: .export, rekordboxDeck: .deck2),
+            "2": OverCUEGroupMapping(rekordboxMode: .export, legacyRekordboxDeck: .deck2),
         ]
     )
     base.logicalDevices["removed-device"] = OverCUELogicalDevice(
@@ -1561,13 +1745,13 @@ do {
 
     var local = base
     local.logicalDevices.removeValue(forKey: "removed-device")
+    local.profiles["default"]!.presetGroups[0].name = "Local Main"
     var localDefaultGroup1 = local.profiles["default"]!.storedMapping(for: 1)
-    localDefaultGroup1.rekordboxDeck = .deck2
     localDefaultGroup1.keyMap["K1"] = "cue"
     localDefaultGroup1.keyMap.removeValue(forKey: "K3")
     local.profiles["default"]!.setMapping(localDefaultGroup1, for: 1)
     var localAlternateGroup2 = local.profiles["alternate"]!.storedMapping(for: 2)
-    localAlternateGroup2.rekordboxDeck = .deck4
+    localAlternateGroup2.waveformPosition = WaveformPosition(x: 444, y: 222)
     local.profiles["alternate"]!.setMapping(localAlternateGroup2, for: 2)
 
     var remote = base
@@ -1597,8 +1781,8 @@ do {
 
     let merged = OverCUEConfigurationMerger.merge(base: base, local: local, remote: remote)
     let mergedDefaultGroup1 = merged.profiles["default"]!.storedMapping(for: 1)
-    check(mergedDefaultGroup1.rekordboxDeck == .deck2, "merge GUI Deck change")
-    check(mergedDefaultGroup1.rekordboxMode == .performance, "preserve remote Mode beside GUI Deck")
+    check(merged.profiles["default"]!.orderedPresetGroups[0].name == "Local Main", "merge GUI Preset name change")
+    check(mergedDefaultGroup1.rekordboxMode == .performance, "preserve remote Mode beside GUI Preset name")
     check(mergedDefaultGroup1.keyMap["K1"] == "cue", "merge local dictionary entry change")
     check(mergedDefaultGroup1.keyMap["K1"] != "play_pause", "local value wins a same-entry conflict")
     check(mergedDefaultGroup1.keyMap["K2"] == "play_pause", "preserve remote dictionary entry change")
@@ -1617,11 +1801,41 @@ do {
         "preserve remote change in another Profile"
     )
     check(
-        merged.profiles["alternate"]!.storedMapping(for: 2).rekordboxDeck == .deck4,
+        merged.profiles["alternate"]!.storedMapping(for: 2).waveformPosition
+            == WaveformPosition(x: 444, y: 222),
         "merge local change in an independent Profile and Group"
     )
     check(merged.profiles["local-added"] != nil, "merge a locally added Profile")
     check(merged.profiles["remote-added"] != nil, "preserve a remotely added Profile")
+    let presetBase = base
+    var presetLocal = presetBase
+    var presetRemote = presetBase
+    presetLocal.profiles["default"]!.presetGroups.append(
+        OverCUEPresetGroup(
+            id: "pg-local-added",
+            name: "Local Added",
+            order: 80,
+            mapping: OverCUEGroupMapping()
+        )
+    )
+    presetRemote.profiles["default"]!.presetGroups.append(
+        OverCUEPresetGroup(
+            id: "pg-remote-added",
+            name: "Remote Added",
+            order: 90,
+            mapping: OverCUEGroupMapping()
+        )
+    )
+    let presetMerged = OverCUEConfigurationMerger.merge(
+        base: presetBase,
+        local: presetLocal,
+        remote: presetRemote
+    )
+    check(
+        Set(presetMerged.profiles["default"]!.presetGroups.map(\.id))
+            .isSuperset(of: ["pg-local-added", "pg-remote-added"]),
+        "merge independently added Preset Groups by stable ID"
+    )
     check(merged.logicalDevices["local-device"]?.name == "Local Device", "merge a local Logical Device")
     check(
         merged.logicalDevices["remote-device"]?.name == "Remote Device",
@@ -1647,7 +1861,6 @@ do {
     var runtimeRemote = base
     var runtimeRemoteGroup2 = runtimeRemote.profiles["default"]!.storedMapping(for: 2)
     runtimeRemoteGroup2.rekordboxMode = .performance
-    runtimeRemoteGroup2.rekordboxDeck = .deck3
     runtimeRemoteGroup2.waveformPosition = WaveformPosition(x: 920, y: 280)
     runtimeRemote.profiles["default"]!.setMapping(runtimeRemoteGroup2, for: 2)
     runtimeRemote.logicalDevices["runtime-added"] = OverCUELogicalDevice(
@@ -1674,10 +1887,6 @@ do {
     check(
         group2AfterReturning.rekordboxMode != .export,
         "GUI will not send its stale EXPORT Mode back after runtime PERFORMANCE save"
-    )
-    check(
-        group2AfterReturning.rekordboxDeck == .deck3,
-        "runtime config refresh adopts remote Deck state"
     )
     check(
         group2AfterReturning.waveformPosition == WaveformPosition(x: 920, y: 280),
@@ -1707,8 +1916,9 @@ do {
     )
 
     var guiSnapshot = base
+    guiSnapshot.profiles["default"]!.presetGroups[0].name = "GUI Main"
     var guiGroup = guiSnapshot.profiles["default"]!.storedMapping(for: 1)
-    guiGroup.rekordboxDeck = .deck2
+    guiGroup.keyMap["K4"] = "rekordbox-action:hot_cue_2:311f"
     guiSnapshot.profiles["default"]!.setMapping(guiGroup, for: 1)
     _ = try OverCUEConfigurationFileStore.updateCurrent(at: configurationURL) { latest in
         var cliGroup = latest.profiles["default"]!.storedMapping(for: 1)
@@ -1730,8 +1940,8 @@ do {
         )
     }
     check(
-        serialized.profiles["default"]!.storedMapping(for: 1).rekordboxDeck == .deck2,
-        "serialized GUI update keeps its Deck change"
+        serialized.profiles["default"]!.orderedPresetGroups[0].name == "GUI Main",
+        "serialized GUI update keeps its Preset name change"
     )
     check(
         serialized.profiles["default"]!.storedMapping(for: 1).rekordboxMode == .performance,
@@ -1849,9 +2059,7 @@ do {
         "back up the old config before replacing it under the migration lock"
     )
     _ = try OverCUEConfigurationFileStore.updateCurrent(at: migrationURL) { latest in
-        var group = latest.profiles["default"]!.storedMapping(for: 1)
-        group.rekordboxDeck = .deck4
-        latest.profiles["default"]!.setMapping(group, for: 1)
+        latest.profiles["default"]!.presetGroups[0].name = "Post Migration"
     }
     var staleMigrationClosureRan = false
     let secondMigration = try OverCUEConfigurationFileStore.migrateCurrentIfNeeded(
@@ -1862,9 +2070,42 @@ do {
     }
     check(!staleMigrationClosureRan, "skip a stale migration after another process reached current")
     check(
-        secondMigration.configuration.profiles["default"]!.storedMapping(for: 1).rekordboxDeck
-            == .deck4,
+        secondMigration.configuration.profiles["default"]!.orderedPresetGroups[0].name
+            == "Post Migration",
         "stale migration cannot overwrite a post-migration update"
+    )
+
+    let version9URL = temporaryDirectory.appendingPathComponent("migration-v9/config.json")
+    try FileManager.default.createDirectory(
+        at: version9URL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    let version9DiskJSON = Data("""
+    {"version":9,"profiles":{"default":{"groupMappings":{"1":{
+      "keyMap":{"K9":"cue"},"chordMap":{},"dialMap":{},"dialChordMap":{},
+      "rekordboxMode":"performance","rekordboxDeck":3
+    }}}}}
+    """.utf8)
+    try version9DiskJSON.write(to: version9URL, options: .atomic)
+    let migratedVersion9File = try OverCUEConfigurationFileStore.migrateCurrentIfNeeded(
+        at: version9URL
+    ) { latestData, _ in
+        ActionConfigurationMigrator.migrateToCurrentVersion(
+            try JSONDecoder().decode(OverCUEConfiguration.self, from: latestData)
+        ).configuration
+    }
+    check(migratedVersion9File.sourceVersion == 9, "migrate a version 9 file under the shared lock")
+    check(
+        FileManager.default.fileExists(
+            atPath: version9URL.deletingLastPathComponent()
+                .appendingPathComponent("config.v9.backup.json").path
+        ),
+        "back up version 9 before writing version 10"
+    )
+    check(
+        migratedVersion9File.configuration.profiles["default"]!.keyMap["K9"]
+            == RekordboxActionAdapter.scopedTarget(for: .cue, deck: .deck3).configurationValue,
+        "file migration preserves Deck 3 Cue scope"
     )
 } catch {
     failureCount += 1
@@ -1877,7 +2118,6 @@ do {
     configuration.profiles["alternate"] = OverCUEProfile.defaultValue
     var group2 = configuration.profiles["default"]!.storedMapping(for: 2)
     group2.rekordboxMode = .performance
-    group2.rekordboxDeck = .deck3
     group2.waveformPosition = WaveformPosition(x: 840.5, y: 312.25)
     configuration.profiles["default"]!.setMapping(group2, for: 2)
     var group1 = configuration.profiles["default"]!.storedMapping(for: 1)
@@ -1891,7 +2131,7 @@ do {
     let data = try JSONEncoder().encode(configuration)
     let decoded = try JSONDecoder().decode(OverCUEConfiguration.self, from: data)
     check(decoded == configuration, "round-trip external configuration")
-    check(decoded.version == 9, "persist profile configuration version")
+    check(decoded.version == 10, "persist profile configuration version")
     check(
         decoded.profiles["default"]?.storedMapping(for: 1).waveformPosition
             == WaveformPosition(x: 640.5, y: 212.25),
@@ -1902,17 +2142,29 @@ do {
             == WaveformPosition(x: 840.5, y: 312.25),
         "persist group 2 waveform position independently"
     )
-    check(decoded.profiles["default"]?.keyMap["K1"] == "hot_cue_1", "persist profile Action ID")
+    check(decoded.profiles["default"]?.keyMap["K1"] == "hot_cue_1", "persist explicit profile Action ID")
     check(
-        decoded.profiles["default"]?.chordMap["K7+K8"] == "delete_hot_cue_1",
+        decoded.profiles["default"]?.chordMap["K7+K8"]
+            == RekordboxActionAdapter.scopedTarget(
+                for: .deleteHotCue1,
+                deck: .deck1
+            ).configurationValue,
         "persist profile chord mapping"
     )
     check(
-        decoded.profiles["default"]?.chordMap["K7+K3"] == "call_next_memory_cue",
+        decoded.profiles["default"]?.chordMap["K7+K3"]
+            == RekordboxActionAdapter.scopedTarget(
+                for: .callNextMemoryCue,
+                deck: .deck1
+            ).configurationValue,
         "persist next Memory Cue chord"
     )
     check(
-        decoded.profiles["default"]?.chordMap["K7+K6"] == "call_previous_memory_cue",
+        decoded.profiles["default"]?.chordMap["K7+K6"]
+            == RekordboxActionAdapter.scopedTarget(
+                for: .callPreviousMemoryCue,
+                deck: .deck1
+            ).configurationValue,
         "persist previous Memory Cue chord"
     )
     check(
@@ -1932,9 +2184,44 @@ do {
         "persist rekordbox mode independently for group 2"
     )
     check(
-        decoded.profiles["default"]?.mapping(for: 2).rekordboxDeck == .deck3,
-        "persist target Deck independently for group 2"
+        decoded.profiles["default"]?.orderedPresetGroups.map(\.id)
+            == configuration.profiles["default"]?.orderedPresetGroups.map(\.id),
+        "persist stable Preset Group IDs"
     )
+
+    var tooMany = configuration
+    tooMany.profiles["default"]!.presetGroups = (1...25).map { index in
+        OverCUEPresetGroup(
+            id: "pg-limit-\(index)",
+            name: "Preset \(index)",
+            order: index,
+            mapping: OverCUEGroupMapping()
+        )
+    }
+    do {
+        _ = try JSONDecoder().decode(
+            OverCUEConfiguration.self,
+            from: JSONEncoder().encode(tooMany)
+        )
+        check(false, "reject more than 24 Preset Groups")
+    } catch {
+        check(true, "reject more than 24 Preset Groups")
+    }
+
+    var duplicatePresetIDs = configuration
+    duplicatePresetIDs.profiles["default"]!.presetGroups = [
+        OverCUEPresetGroup(id: "duplicate", name: "One", order: 1, mapping: .init()),
+        OverCUEPresetGroup(id: "duplicate", name: "Two", order: 2, mapping: .init()),
+    ]
+    do {
+        _ = try JSONDecoder().decode(
+            OverCUEConfiguration.self,
+            from: JSONEncoder().encode(duplicatePresetIDs)
+        )
+        check(false, "reject duplicate Preset Group stable IDs")
+    } catch {
+        check(true, "reject duplicate Preset Group stable IDs")
+    }
 } catch {
     failureCount += 1
     fputs("FAIL: unexpected configuration error: \(error)\n", stderr)

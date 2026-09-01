@@ -93,8 +93,8 @@ private struct BridgeOptions {
         guard (1...4).contains(options.deck) else {
             throw BridgeError.invalidValue("--deck must be between 1 and 4")
         }
-        guard (1...4).contains(options.group) else {
-            throw BridgeError.invalidValue("--group must be between 1 and 4")
+        guard (1...OverCUEPresetGroup.maximumCount).contains(options.group) else {
+            throw BridgeError.invalidValue("--group must be between 1 and 24")
         }
         guard (10...5_000).contains(options.touchOffMilliseconds) else {
             throw BridgeError.invalidValue("--touch-off-ms must be between 10 and 5000")
@@ -125,7 +125,7 @@ private struct BridgeOptions {
             Options:
               --output <midi|mouse>  Output mode. Default: midi.
               --rekordbox-mode <mode> Shortcut mode: export or performance. Default: export.
-              --group <1-4>          Initial OverCUE input group. Default: 1.
+              --group <1-24>         Initial Preset Group order. Default: 1.
               --deck <1-4>           Target deck/MIDI channel. Default: 1.
               --touch-off-ms <ms>    JogTouch release delay. Default: 150.
               --idle-ms <ms>         Alias used as mouse drag release delay.
@@ -359,8 +359,15 @@ private final class ConfigurationStore {
         configuration.profiles[profileName]?.mapping(for: group).rekordboxMode ?? fallback
     }
 
-    func rekordboxDeck(profileName: String, group: Int) -> RekordboxDeck {
-        configuration.profiles[profileName]?.mapping(for: group).rekordboxDeck ?? .deck1
+    func presetGroupID(profileName: String, group: Int) -> String? {
+        let presets = configuration.profiles[profileName]?.orderedPresetGroups ?? []
+        guard presets.indices.contains(group - 1) else { return nil }
+        return presets[group - 1].id
+    }
+
+    func group(profileName: String, presetGroupID: String) -> Int? {
+        configuration.profiles[profileName]?.orderedPresetGroups
+            .firstIndex(where: { $0.id == presetGroupID }).map { $0 + 1 }
     }
 
     func saveRekordboxMode(
@@ -430,6 +437,18 @@ private final class ConfigurationStore {
             throw BridgeError.configuration(
                 "defaultProfile '\(configuration.defaultProfile)' does not exist in profiles."
             )
+        }
+        for (profileName, profile) in configuration.profiles {
+            let presets = profile.presetGroups
+            guard !presets.isEmpty,
+                  presets.count <= OverCUEPresetGroup.maximumCount,
+                  Set(presets.map(\.id)).count == presets.count,
+                  Set(presets.map(\.order)).count == presets.count
+            else {
+                throw BridgeError.configuration(
+                    "Profile '\(profileName)' must contain 1...24 uniquely identified Preset Groups."
+                )
+            }
         }
         for (logicalDeviceID, logicalDevice) in configuration.logicalDevices
         where configuration.profiles[logicalDevice.profileName] == nil {
@@ -686,7 +705,6 @@ private struct ResolvedKeyboardCommand {
 
 private struct RekordboxCommandLookupKey: Hashable {
     let target: ActionTarget
-    let deck: RekordboxDeck
 }
 
 private struct RekordboxAdapter {
@@ -700,10 +718,8 @@ private struct RekordboxAdapter {
         var actions: [RekordboxCommandLookupKey: ResolvedKeyboardCommand] = [:]
 
         for lookup in requiredTargets {
-            let effectiveDeck = mode == .performance ? lookup.deck : .deck1
             guard let commandID = RekordboxActionAdapter.commandID(
-                for: lookup.target,
-                deck: effectiveDeck
+                for: lookup.target
             ),
                   let rawShortcut = mapping.shortcut(for: commandID)
             else {
@@ -917,7 +933,6 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     private var activeDeviceID: String?
     private var activeLogicalDeviceID: String?
     private var activeGroup = 1
-    private var activeRekordboxDeck: RekordboxDeck = .deck1
     private var activeRekordboxMode: RekordboxMappingMode
     private let releaseInterval: TimeInterval
     private var waveformAnchor: CGPoint?
@@ -961,10 +976,6 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
             profileName: activeProfileName,
             group: initialGroup,
             fallback: initialRekordboxMode
-        )
-        activeRekordboxDeck = configurationStore.rekordboxDeck(
-            profileName: activeProfileName,
-            group: initialGroup
         )
         guard let defaultMappings = mappingsByProfile[activeProfileName]?[initialGroup] else {
             throw BridgeError.configuration("Default profile mappings are unavailable.")
@@ -1029,7 +1040,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     }
 
     @objc private func runtimeControlRequested(_ notification: Notification) {
-        guard let group = notification.userInfo?[OverCUERuntimeControlNotification.groupKey] as? Int,
+        guard let requestedGroup = notification.userInfo?[OverCUERuntimeControlNotification.groupKey] as? Int,
               let rawMode = notification.userInfo?[OverCUERuntimeControlNotification.modeKey] as? String,
               let mode = RekordboxMappingMode(rawValue: rawMode),
               let rawScope = notification.userInfo?[OverCUERuntimeControlNotification.scopeKey] as? String,
@@ -1040,6 +1051,9 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         else { return }
         let targetDeviceID = notification.userInfo?[OverCUERuntimeControlNotification.deviceIDKey]
             as? String
+        let requestedPresetGroupID = notification.userInfo?[
+            OverCUERuntimeControlNotification.presetGroupIDKey
+        ] as? String
         guard let activeDeviceID,
               scope.controls(activeDeviceID: activeDeviceID, targetDeviceID: targetDeviceID),
               reloadConfigurationForRuntimeControl()
@@ -1050,6 +1064,19 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
                     + "resolved to '\(activeProfileName)'."
             )
             return
+        }
+        let group: Int
+        if let requestedPresetGroupID {
+            guard let resolved = configurationStore.group(
+                profileName: targetProfileName,
+                presetGroupID: requestedPresetGroupID
+            ) else {
+                log("Ignoring GUI control for removed Preset Group '\(requestedPresetGroupID)'.")
+                return
+            }
+            group = resolved
+        } else {
+            group = requestedGroup
         }
         switchGroup(to: group, preferredMode: mode, source: "GUI")
     }
@@ -1156,10 +1183,6 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
             group: nextGroup,
             fallback: activeRekordboxMode
         )
-        activeRekordboxDeck = configurationStore.rekordboxDeck(
-            profileName: profileName,
-            group: nextGroup
-        )
         activeDeviceID = deviceID
         activeLogicalDeviceID = logicalDeviceID
         publishActiveRuntimeStatus()
@@ -1185,6 +1208,10 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         publishRuntimeStatus(
             mode: activeRekordboxMode,
             group: activeGroup,
+            presetGroupID: configurationStore.presetGroupID(
+                profileName: activeProfileName,
+                group: activeGroup
+            ),
             deviceID: activeDeviceID,
             logicalDeviceID: activeLogicalDeviceID,
             profileName: activeProfileName,
@@ -1208,7 +1235,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
             route(event)
             if event.phase == .pressed,
                event.target.behavior == .acceleratingRepeat,
-               let key = event.sourceKey {
+               let key = event.sourceID?.ack05Key {
                 startKeyRepeat(for: key)
             }
         }
@@ -1228,7 +1255,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
             guard let command = resolveKeyboardCommand(for: event) else { return }
             keyboardOutput.send(command: command, keyLabel: event.sourceLabel)
         case .pressed:
-            guard let key = event.sourceKey else { return }
+            guard let key = event.sourceID?.ack05Key else { return }
             guard let command = resolveKeyboardCommand(for: event) else { return }
             if event.target.behavior == .hold {
                 keyboardOutput.pressAndHold(key: key, command: command)
@@ -1236,13 +1263,13 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
                 keyboardOutput.send(command: command, keyLabel: event.sourceLabel)
             }
         case .released:
-            guard let key = event.sourceKey else { return }
+            guard let key = event.sourceID?.ack05Key else { return }
             keyboardOutput.release(key: key)
         }
     }
 
     private func resolveKeyboardCommand(for event: ActionEvent) -> ResolvedKeyboardCommand? {
-        let lookup = RekordboxCommandLookupKey(target: event.target, deck: activeRekordboxDeck)
+        let lookup = RekordboxCommandLookupKey(target: event.target)
         guard let command = keyboardCommandsByMode[activeRekordboxMode]?[lookup] else {
             log("KEY \(event.sourceLabel) \(event.target.displayName) is unassigned in rekordbox.")
             return nil
@@ -1283,12 +1310,16 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         var refreshedMappings: [String: [Int: ActionMapping]] = [:]
         for (name, profileConfiguration) in configurationStore.configuration.profiles {
             refreshedMappings[name] = try Dictionary(
-                uniqueKeysWithValues: (1...4).map { group in
-                    (group, try ActionMapping(profile: profileConfiguration, group: group))
+                uniqueKeysWithValues: profileConfiguration.presetGroups.indices.map { offset in
+                    let group = offset + 1
+                    return (group, try ActionMapping(profile: profileConfiguration, group: group))
                 }
             )
         }
         mappingsByProfile = refreshedMappings
+        if mappingsByProfile[activeProfileName]?[activeGroup] == nil {
+            activeGroup = 1
+        }
         if let activeDeviceID,
            let activeDevice = configurationStore.connectedDevice(
                sessionIdentifier: activeDeviceID
@@ -1301,6 +1332,10 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         publishRuntimeStatus(
             mode: activeRekordboxMode,
             group: activeGroup,
+            presetGroupID: configurationStore.presetGroupID(
+                profileName: activeProfileName,
+                group: activeGroup
+            ),
             deviceID: activeDeviceID,
             logicalDeviceID: activeLogicalDeviceID,
             profileName: activeProfileName
@@ -1308,7 +1343,21 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     }
 
     private func cycleGroup(step: Int) {
-        let nextGroup = (activeGroup - 1 + step + 4) % 4 + 1
+        guard let profile = configurationStore.configuration.profiles[activeProfileName],
+              let currentID = configurationStore.presetGroupID(
+                  profileName: activeProfileName,
+                  group: activeGroup
+              ),
+              let nextID = OverCUEPresetGroupNavigator.nextID(
+                  currentID: currentID,
+                  step: step,
+                  in: profile
+              ),
+              let nextGroup = configurationStore.group(
+                  profileName: activeProfileName,
+                  presetGroupID: nextID
+              )
+        else { return }
         switchGroup(to: nextGroup, preferredMode: nil, source: "ACK05")
     }
 
@@ -1317,8 +1366,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         preferredMode: RekordboxMappingMode?,
         source: String
     ) {
-        guard (1...4).contains(nextGroup),
-              let nextMappings = mappingsByProfile[activeProfileName]?[nextGroup]
+        guard let nextMappings = mappingsByProfile[activeProfileName]?[nextGroup]
         else {
             log("ERROR Group \(nextGroup) mappings are unavailable for profile '\(activeProfileName)'.")
             return
@@ -1367,14 +1415,6 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
             group: nextGroup,
             fallback: activeRekordboxMode
         )
-        let savedDeck = configurationStore.rekordboxDeck(
-            profileName: activeProfileName,
-            group: nextGroup
-        )
-        if activeRekordboxDeck != savedDeck {
-            keyboardOutput.releaseAll()
-            activeRekordboxDeck = savedDeck
-        }
         if keyboardCommandsByMode[savedMode] != nil {
             if activeRekordboxMode != savedMode { keyboardOutput.releaseAll() }
             activeRekordboxMode = savedMode
@@ -1886,6 +1926,7 @@ private func log(_ message: String) {
 private func publishRuntimeStatus(
     mode: RekordboxMappingMode,
     group: Int,
+    presetGroupID: String? = nil,
     deviceID: String?,
     logicalDeviceID: String?,
     profileName: String,
@@ -1902,6 +1943,9 @@ private func publishRuntimeStatus(
     ]
     if let logicalDeviceID {
         userInfo[OverCUERuntimeStatusNotification.logicalDeviceIDKey] = logicalDeviceID
+    }
+    if let presetGroupID {
+        userInfo[OverCUERuntimeStatusNotification.presetGroupIDKey] = presetGroupID
     }
     DistributedNotificationCenter.default().postNotificationName(
         OverCUERuntimeStatusNotification.name,
@@ -1965,8 +2009,9 @@ do {
         var mappingsByProfile: [String: [Int: ActionMapping]] = [:]
         for (name, profileConfiguration) in configurationStore.configuration.profiles {
             mappingsByProfile[name] = try Dictionary(
-                uniqueKeysWithValues: (1...4).map { group in
-                    (group, try ActionMapping(profile: profileConfiguration, group: group))
+                uniqueKeysWithValues: profileConfiguration.presetGroups.indices.map { offset in
+                    let group = offset + 1
+                    return (group, try ActionMapping(profile: profileConfiguration, group: group))
                 }
             )
         }
@@ -1977,7 +2022,6 @@ do {
         let defaultProfile = try configurationStore.profile(named: defaultProfileName)
         let initialGroupConfiguration = defaultProfile.mapping(for: options.group)
         let initialRekordboxMode = initialGroupConfiguration.rekordboxMode ?? options.rekordboxMode
-        let initialRekordboxDeck = initialGroupConfiguration.rekordboxDeck ?? .deck1
         let maximumPixels = options.accelerationEnabled
             ? options.maximumDragPixels
             : options.dragPixels
@@ -1994,9 +2038,7 @@ do {
                     + Array(mapping.dial.values)
                     + Array(mapping.dialChords.values)
                 for target in targets {
-                    requiredTargets.formUnion(RekordboxDeck.allCases.map {
-                        RekordboxCommandLookupKey(target: target, deck: $0)
-                    })
+                    requiredTargets.insert(RekordboxCommandLookupKey(target: target))
                 }
             }
         }
@@ -2055,7 +2097,7 @@ do {
         log(options.invertDial ? "Dial direction is inverted." : "Dial direction is normal.")
         for key in ACK05Key.allCases {
             let action = mappings.keys[key] ?? .action(defaultAction(for: key))
-            let lookup = RekordboxCommandLookupKey(target: action, deck: initialRekordboxDeck)
+            let lookup = RekordboxCommandLookupKey(target: action)
             if let resolved = loadedShortcutsByMode[initialRekordboxMode]?.actions[lookup] {
                 log("  \(key.rawValue.uppercased()): \(action.displayName) [\(resolved.shortcut.rawValue)]")
             } else {
@@ -2073,7 +2115,7 @@ do {
                 log("  \(chord): \(chordAction.displayName)")
             } else {
                 let action = chordAction
-                let lookup = RekordboxCommandLookupKey(target: action, deck: initialRekordboxDeck)
+                let lookup = RekordboxCommandLookupKey(target: action)
                 let shortcut = loadedShortcutsByMode[initialRekordboxMode]?.actions[lookup]?.shortcut.rawValue
                     ?? "unassigned"
                 log("  \(chord): \(action.displayName) [\(shortcut)]")
@@ -2081,14 +2123,14 @@ do {
         }
         for direction in DialDirection.allCases {
             guard let action = mappings.dial[direction] else { continue }
-            let lookup = RekordboxCommandLookupKey(target: action, deck: initialRekordboxDeck)
+            let lookup = RekordboxCommandLookupKey(target: action)
             let shortcut = loadedShortcutsByMode[initialRekordboxMode]?.actions[lookup]?.shortcut.rawValue
             let detail = shortcut.map { " [\($0)]" } ?? ""
             log("  \(direction.displayName): \(action.displayName)\(detail)")
         }
         for chord in mappings.dialChords.keys.sorted(by: { $0.label < $1.label }) {
             guard let action = mappings.dialChords[chord] else { continue }
-            let lookup = RekordboxCommandLookupKey(target: action, deck: initialRekordboxDeck)
+            let lookup = RekordboxCommandLookupKey(target: action)
             let shortcut = loadedShortcutsByMode[initialRekordboxMode]?.actions[lookup]?.shortcut.rawValue
             let detail = shortcut.map { " [\($0)]" } ?? ""
             log("  \(chord.label): \(action.displayName)\(detail)")

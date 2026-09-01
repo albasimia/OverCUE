@@ -51,7 +51,7 @@ Run the complete local macOS verification path (debug build, core checks, Univer
 ./Scripts/verify-macos.sh
 ```
 
-In PERFORMANCE mode, each of the four OverCUE groups can independently target rekordbox Deck 1, 2, 3, or 4. Mode, target Deck, and waveform drag position are stored per group.
+OverCUE uses 1–24 named Preset Groups. Each Preset stores its mode, waveform drag position, and mappings. The selected rekordbox shortcut carries its own Deck 1–4 or other scope, so one Preset can mix Deck scopes without a separate target-Deck setting.
 
 The vNext configuration separates Physical Device bindings from Logical Devices and Profiles. ACK05 runtime input state is isolated per connected IOHID device; multi-device hardware verification and Generic HID Learn remain in progress.
 

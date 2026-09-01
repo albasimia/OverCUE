@@ -165,9 +165,9 @@ ACK05のキーによってはHIDレポートが修飾キーだけで構成され
 
 物理入力は`InputActionResolver`で論理的な`ActionEvent`へ変換される。ActionEventのphaseは`triggered`、`pressed`、`released`、`repeated`のいずれかであり、Cue保持とJump長押しは物理キーではなくActionの動作特性として処理する。
 
-rekordbox固有のcommandId規則は`RekordboxActionAdapter`だけが保持する。Deck依存ActionはAction IDと各Groupの`rekordboxDeck`から解決し、DeckごとにAction定義を複製しない。`capture_waveform_position`はInternal Action Handlerで処理し、rekordboxへは送信しない。
+rekordbox固有のcommandId規則は`RekordboxActionAdapter`だけが保持する。Deck依存操作は、意味上のAction IDとユーザーが選択したrekordbox shortcutのcommandIdを`rekordbox-action:<action-id>:<commandId>`として一体で保存する。これにより同じPreset Group内でDeck 1 / 2 / 3 / 4やAll Decks等を混在でき、Cue holdやJump repeatのAction behaviorも維持する。Group単位の対象Deckは持たない。`capture_waveform_position`はInternal Action Handlerで処理し、rekordboxへは送信しない。
 
-設定ファイルの`keyMap`と`chordMap`では、以下の安定Action IDを使用する。
+次表のAction IDとDeck 1 commandIdはsemantic対応のSingle Source of Truthであり、v9以前のmigrationと既知shortcutの分類に使用する。v10のDeck依存割り当てはscope付きreferenceとして保存する。
 
 | Action ID | 表示名 | rekordbox commandId |
 | --- | --- | --- |
@@ -189,9 +189,9 @@ rekordbox固有のcommandId規則は`RekordboxActionAdapter`だけが保持す�
 | `pitch_bend_increase` | Pitch Bend + | `304f` |
 | `pitch_bend_decrease` | Pitch Bend - | `3050` |
 
-`chordMap`のみ、内部操作`capture_waveform_position`を指定できる。
+内部操作は従来どおり安定Action IDをそのまま保存する。
 
-表のcommandIdはDeck 1。PERFORMANCEでは同じAction suffixに対してDeck 1=`30xx`、Deck 2=`31xx`、Deck 3=`32xx`、Deck 4=`33xx`として解決する。例えば`play_pause`は`3006` / `3106` / `3206` / `3306`になる。`rekordbox:<commandId>`のGeneric Actionはユーザー指定値をそのまま使用し、Deck変換しない。EXPORTではDeck指定を使用せず、従来どおりDeck 1のcommandIdを解決する。
+表のcommandIdはDeck 1。PERFORMANCEの既知command familyは同じAction suffixに対してDeck 1=`30xx`、Deck 2=`31xx`、Deck 3=`32xx`、Deck 4=`33xx`である。例えばPlay/Pauseのscope付きreferenceは`rekordbox-action:play_pause:3006` / `...:3106` / `...:3206` / `...:3306`となる。ユーザー指定のGeneric `rekordbox:<commandId>`はその値をそのまま使用し、semantic Actionへの変換やDeck変換をしない。EXPORT / PERFORMANCEの別はPreset Groupのmodeが選ぶKeyMappings XMLであり、commandId自体は選択shortcutが保持する。
 
 ## 8. rekordboxショートカット連携
 
@@ -217,17 +217,17 @@ OverCUEは固定キーやマッピングファイルIDを直接決め打ちせ�
 ~/Library/Application Support/OverCUE/config.json
 ```
 
-設定形式はversion 9。初回起動時に自動生成する。version 1〜8設定を検出した場合は原本を`config.vN.backup.json`へ保存してversion 9へ自動移行する。version 6以前のプロファイル共通`waveformPosition`はグループ1〜4へコピーし、移行直後の操作位置を維持する。version 7の旧既定Group 2はPERFORMANCE / Deck 2として認識し、直書きDeck 2 commandIdを標準Actionへ置換する。それ以外は従来の標準ActionがDeck 1を操作していた意味を維持するためDeck 1を補完し、ユーザー指定のGeneric `rekordbox:<commandId>`は変更しない。Group 3のEXPORT用途も維持する。version 8の`deviceProfiles`はLogical Deviceとlegacy Physical Bindingへ移行し、既存Profile割り当てを維持する。デフォルトマップは`Sources/OverCUECore/Resources/DefaultKeyMapping.json`から読み込む。
+設定形式はversion 10。初回起動時に自動生成する。version 1〜9設定を検出した場合は原本を`config.vN.backup.json`へ保存して段階的に自動移行する。v9→v10では番号付きGroupをstable ID、必須name、orderを持つPreset Groupへ変換する。旧`rekordboxDeck`は、そのGroup内のDeck依存標準Actionをscope付きreferenceへ変換するためだけに使用し、v10の保存結果には残さない。Internal ActionとGeneric `rekordbox:<commandId>`は変更せず、Group 3のEXPORT用途、Mode、waveformPosition、各mappingを維持する。デフォルトマップは`Sources/OverCUECore/Resources/DefaultKeyMapping.json`から読み込む。
 
-GUIとCLIは同じ`config.json`を正本として共有する。永続更新は`OverCUEConfigurationFileStore`を通し、atomic writeの置換対象とは別の安定した`config.json.lock`を`flock`で排他取得したうえで最新ファイルをread-modify-writeする。CLIのMode変更とwaveform位置保存は最新configの対象fieldだけを更新する。GUIは最後に読み込んだbaseline、GUIローカル変更、lock取得後に読み直した最新disk stateを3-way mergeし、GUIが変更していないProfile / Group / mapping / Logical Device等のfieldは最新disk stateを保持する。同一fieldを双方が変更した場合はGUI localを採用する。version 1〜8 migrationもlock内で最新versionを再判定し、既に別processがcurrentへ移行・更新していた場合はその最新stateを採用する。これにより、通常保存とmigrationのどちらでも古いin-memory snapshot全体を後勝ちで書き戻さない。
+GUIとCLIは同じ`config.json`を正本として共有する。永続更新は`OverCUEConfigurationFileStore`を通し、atomic writeの置換対象とは別の安定した`config.json.lock`を`flock`で排他取得したうえで最新ファイルをread-modify-writeする。CLIのMode変更とwaveform位置保存は最新configの対象fieldだけを更新する。GUIは最後に読み込んだbaseline、GUIローカル変更、lock取得後に読み直した最新disk stateを3-way mergeし、GUIが変更していないProfile / Preset Group / mapping / Logical Device等のfieldは最新disk stateを保持する。同一fieldを双方が変更した場合はGUI localを採用する。migrationもlock内で最新versionを再判定し、既に別processがcurrentへ移行・更新した場合はその最新stateを採用する。
 
-CLIがModeやwaveform位置を保存した場合はprocess間変更通知を送り、GUIはdisk stateを新しいpersisted baselineとして取り込み、baselineからのGUI未保存差分だけを再適用する。Group切替時にも同じreconcileを行うため、CLIがGroup 2をEXPORTからPERFORMANCEへ変更した後にGUIがGroupを往復しても古いEXPORTを送り返さない。runtime status受信だけを理由にconfig全体を保存することはない。
+CLIがModeやwaveform位置を保存した場合はprocess間変更通知を送り、GUIはdisk stateを新しいpersisted baselineとして取り込み、baselineからのGUI未保存差分だけを再適用する。Preset切替時にも同じreconcileを行うため、CLIがModeを変更した後にGUIがPresetを往復しても古い値を送り返さない。runtime status受信だけを理由にconfig全体を保存することはない。選択中Presetはstable IDで保持し、remote側の並べ替え後も同じPresetを参照する。削除されたIDへのruntime controlは無視する。
 
-CLIはACK05 report処理前にもconfig file revisionを確認する。変更時はPhysical Binding → Logical Device → Profileを再評価し、全Profile / GroupのAction mapping、Deck、Mode、波形位置を再構築してから入力を処理する。config内容とrevisionは同じ`config.json.lock`保持中にsnapshotとして取得し、古い内容に新しいrevisionを対応させて更新を見逃さない。
+CLIはACK05 report処理前にもconfig file revisionを確認する。変更時はPhysical Binding → Logical Device → Profileを再評価し、全Profile / Preset GroupのAction mapping、Mode、波形位置を再構築してから入力を処理する。config内容とrevisionは同じ`config.json.lock`保持中にsnapshotとして取得し、古い内容に新しいrevisionを対応させて更新を見逃さない。
 
 ```json
 {
-  "version": 9,
+  "version": 10,
   "defaultProfile": "default",
   "logicalDevices": {
     "deck-1-main": {
@@ -248,25 +248,28 @@ CLIはACK05 report処理前にもconfig file revisionを確認する。変更時
   },
   "profiles": {
     "default": {
-      "groupMappings": {
-        "1": {
+      "presetGroups": [
+        {
+          "id": "pg-default-main",
+          "name": "Group 1",
+          "order": 10,
+          "mapping": {
           "waveformPosition": {
             "x": 640.5,
             "y": 212.25
           },
           "rekordboxMode": "performance",
-          "rekordboxDeck": 1,
           "keyMap": {
-            "K1": "hot_cue_3",
-            "K2": "delete_memory_cue",
-            "K3": "jump_forward",
-            "K4": "hot_cue_2",
-            "K5": "set_memory_cue",
-            "K6": "jump_backward",
-            "K7": "quantize",
-            "K8": "hot_cue_1",
-            "K9": "cue",
-            "K10": "play_pause"
+            "K1": "rekordbox-action:hot_cue_3:3020",
+            "K2": "rekordbox-action:delete_memory_cue:303b",
+            "K3": "rekordbox-action:jump_forward:3008",
+            "K4": "rekordbox-action:hot_cue_2:301f",
+            "K5": "rekordbox-action:set_memory_cue:3024",
+            "K6": "rekordbox-action:jump_backward:3009",
+            "K7": "rekordbox-action:quantize:301c",
+            "K8": "rekordbox-action:hot_cue_1:301e",
+            "K9": "rekordbox-action:cue:3007",
+            "K10": "rekordbox-action:play_pause:3006"
           },
           "chordMap": {
             "K8+K1": "capture_waveform_position",
@@ -278,11 +281,12 @@ CLIはACK05 report処理前にもconfig file revisionを確認する。変更時
             "clockwise": "jog_search_right"
           },
           "dialChordMap": {
-            "K7+DIAL_LEFT": "pitch_bend_decrease",
-            "K7+DIAL_RIGHT": "pitch_bend_increase"
+            "K7+DIAL_LEFT": "rekordbox-action:pitch_bend_decrease:3050",
+            "K7+DIAL_RIGHT": "rekordbox-action:pitch_bend_increase:304f"
           }
         }
-      }
+        }
+      ]
     }
   }
 }
@@ -290,21 +294,20 @@ CLIはACK05 report処理前にもconfig file revisionを確認する。変更時
 
 ### 9.1 プロファイル
 
-各プロファイルは`groupMappings`にグループ1〜4の設定を持ち、各グループは以下を独立して保持する。
+各Profileは1〜24個の`presetGroups`を持つ。Preset Groupはopaqueなstable `id`、必須`name`、並び順`order`、`mapping`から成る。固定24要素の配列ではなく、存在するPresetだけを保持する。各mappingは以下を独立して保持する。
 
-- `waveformPosition`: グループ固有の波形ドラッグ座標
-- `rekordboxMode`: グループで使用する`export`または`performance`
-- `rekordboxDeck`: PERFORMANCEで標準Actionを送るDeck（1〜4）。EXPORTでは保持するが使用しない
+- `waveformPosition`: Preset固有の波形ドラッグ座標
+- `rekordboxMode`: Presetで使用する`export`または`performance`
 - `keyMap`: K1〜K10の単体操作
 - `chordMap`: 2〜10キーの任意数コード操作。末尾のキーをトリガーとして扱う
 - `dialMap`: `clockwise`と`counterclockwise`のダイヤル操作
 - `dialChordMap`: 1つ以上のキー保持とダイヤル左右を組み合わせた操作。例: `K7+DIAL_RIGHT`
 
-グループ切り替えActionはグループ1で設定するプロファイル共通割り当てで、昇順は1→2→3→4→1、降順は1→4→3→2→1と循環する。旧`cycle_group` Actionは昇順として扱う。EXPORT / PERFORMANCE切り替えActionは、CLIが参照するrekordboxショートカットセットを切り替える。設定編集後はOverCUEを再起動する。
+Preset切り替えActionは先頭Presetで設定するProfile共通割り当てで、存在するPresetを`order`順に循環し末尾と先頭でwrapする。旧`cycle_group` Actionは次Presetとして扱う。EXPORT / PERFORMANCE切り替えActionは、CLIが参照するrekordboxショートカットセットを切り替える。
 
-GUIのグループPickerとCLIの実行グループは双方向に同期する。GUIからグループを変更した場合はCLIとメニューバーも更新し、ACK05から変更した場合はGUIのPickerも更新する。モードと対象Deckは各グループへ保存し、グループ変更時に復元する。これによりGroup 1〜4をPERFORMANCE / Deck 1〜4へ割り当てられる。波形ドラッグ座標もGroupごとに独立して保存・復元する。ACK05またはGUIからモードを変更した場合は現在グループへ直ちに保存する。
+GUIは番号segmentではなくPreset名のmenuで選択し、CLIの実行Presetとstable ID付きruntime status/controlで双方向同期する。Modeと波形ドラッグ座標はPresetごとに独立して保存・復元する。Deckや対象scopeは割り当てたshortcut自身が保持するため、追加のDeck selectorは表示しない。
 
-GUIからGroup / Mode / Deckを変更してruntime controlを送る場合、CLIはcontrol適用直前に`config.json`の最新version 9 stateをreloadし、Physical Binding / Logical Device / Profileを再評価してProfileごとのAction mappingを再構築する。対象Deckはこの最新stateから再取得するため、GUIがDeckを保存した直後にCLIが古いDeckを参照してMode保存で巻き戻すことを避ける。同一Groupへのcontrolでもhold、key repeat、波形dragを終了してから最新mapping、Deck、waveform位置へ更新する。
+GUIからPreset / Modeのruntime controlを送る場合、CLIは適用直前に最新version 10 stateをreloadし、Physical Binding / Logical Device / Profileとstable Preset IDを再評価してmappingを再構築する。同一Presetへのcontrolでもhold、key repeat、波形dragを終了してから最新mapping、Mode、waveform位置へ更新する。
 
 表示言語はOverCUEメニューの設定画面から日本語、英語、簡体字中国語を切り替える。翻訳辞書は`Sources/OverCUEApp/Resources/Localization`のJSONファイルとして管理し、選択はUserDefaultsへ保存する。rekordbox由来の機能名はrekordboxマッピングの記述を優先する。
 
@@ -322,7 +325,7 @@ ACK05割り当ての入力取得は、最初にキーまたはダイヤルを入
 
 Physical BindingはVendor ID + Product ID + Serialを最優先する。Serialがない機器のUSB `LocationID`はIdentify / Rebind候補のヒントにのみ使用し、永続IDとして自動一致させない。version 8以前から移行する`location:XXXXXXXX`も`lastKnownLocationID`だけへ保存し、`legacyDeviceIdentifier`の一致対象にはしない。`PhysicalDeviceUniqueID`や`DeviceAddress`等の非location旧識別値だけを後方互換の`legacyDeviceIdentifier`として保持する。
 
-CLI bridgeは接続ACK05ごとに独立したcontrollerを生成する。live session IDはIOHID接続インスタンス由来のtransport identifierを使用し、Serial由来のpersistent identityとは分離する。`InputActionResolver`、押下キー、Cue hold、Jump repeat、コード、ダイヤル加速、波形ドラッグ、Group／Deck／Profile状態は物理device間で共有しない。切断時は対象deviceの状態とkeydownだけを解放する。
+CLI bridgeは接続ACK05ごとに独立したcontrollerを生成する。live session IDはIOHID接続インスタンス由来のtransport identifierを使用し、Serial由来のpersistent identityとは分離する。`InputActionResolver`、押下キー、Cue hold、Jump repeat、コード、ダイヤル加速、波形ドラッグ、Preset／Mode／Profile状態は物理device間で共有しない。切断時は対象deviceの状態とkeydownだけを解放する。
 
 同時接続中の複数deviceが同じVID / PID / Serialを報告した場合、そのpersistent bindingはambiguousとして扱い、どちらも同じLogical Deviceへ自動bindingしない。接続トポロジ変更は既存controllerへ即時通知し、既に押下中のholdを含む状態をdefault Profileへ安全に再評価する。
 
@@ -330,7 +333,7 @@ CLI bridgeは接続ACK05ごとに独立したcontrollerを生成する。live se
 
 ### 9.3 Device Management Core
 
-`HIDDeviceRegistry`は接続中Physical HID Deviceをsession identifierで管理し、VID / PID / Serial / Product / Manufacturer / transport / LocationIDと、現在のbinding resolution、ambiguous状態、Logical DeviceのProfileを提供する。Registryはruntime接続状態だけを担当し、永続状態の正本はversion 9 configの`physicalDeviceBindings`と`logicalDevices`である。LocationIDは候補hintとしてのみ公開する。
+`HIDDeviceRegistry`は接続中Physical HID Deviceをsession identifierで管理し、VID / PID / Serial / Product / Manufacturer / transport / LocationIDと、現在のbinding resolution、ambiguous状態、Logical DeviceのProfileを提供する。Registryはruntime接続状態だけを担当し、永続状態の正本はversion 10 configの`physicalDeviceBindings`と`logicalDevices`である。LocationIDは候補hintとしてのみ公開する。
 
 `HIDIdentifySession`は候補deviceの入力を待ち、最初に操作されたsessionを返して終了する。候補外入力は無視し、選択sourceまたは全候補が切断された場合はcancelする。
 
@@ -344,7 +347,7 @@ Generic HIDはAdvanced / Best-effort機能として扱う。Coreはkeyboard usag
 
 Generic HID Learnは最初のactivationを送ったPhysical Deviceへsource lockし、別device入力を混在させない。source切断時はcancelする。synthetic Generic HID eventは既存`ActionTarget` / `ActionEvent`へ変換でき、hold、accelerating repeat、relative triggerを既存Action Layerへ渡す。Generic HID層はrekordbox commandIdを保持せず、keyboard shortcutを直接送信しない。
 
-Generic HID mappingはまだconfigへ永続化しないため、schema versionは9を維持する。実機でdescriptorの安定性と重複elementを確認した後、必要な場合だけversion 10 migrationを設計する。Devices / Identify / Rebind / LearnのSwiftUI画面も未実装である。
+Generic HID mappingはまだconfigへ永続化しない。version 10への更新理由はPreset Group / shortcut scope移行であり、Generic HID mapping schemaは実機でdescriptorの安定性と重複elementを確認した後に別途判断する。Devices / Identify / Rebind / LearnのSwiftUI画面も未実装である。
 
 ## 10. MIDIモード
 
@@ -425,19 +428,19 @@ swift run OverCUE
 - ウィンドウを閉じても入力ブリッジを継続
 - `Scripts/build-app.sh`でarm64 / x86_64 Universal Binaryの署名済み`dist/OverCUE.app`を生成し、同じくUniversal BinaryのCLIヘルパーを内包
 - Apple Silicon Mac / Intel Macの両方を対象とし、最低対応OSはmacOS 13
-- 4グループ表示
-- GroupごとのEXPORT / PERFORMANCEモードと対象Deck 1〜4の表示・編集（EXPORTではDeck指定を無効表示）
+- 1〜24個のnamed Preset Groupをmenuで選択し、PresetごとのEXPORT / PERFORMANCEモードを表示・編集
+- rekordbox shortcutの選択自体からDeck 1〜4、All Decks等のscopeを保持し、同一Preset内で混在
 - 時計回り90度の縦向きを初期値とする筐体表示、90度単位の回転、回転時にも正立するキーラベル
 
 ## 13. 現在の制約
 
 - rekordboxの画面レイアウトが変わった場合は波形位置の再登録が必要となる。
 - 波形位置は絶対座標のため、ウィンドウ移動、解像度変更、表示倍率変更の影響を受ける。
-- キーマップは起動時に読み込むため、JSON編集後は再起動が必要となる。
+- rekordbox KeyMappingsは起動時またはReload時に読み込む。
 - rekordboxの対象操作が未割り当てなら、そのキーは動作しない。
 - ACK05からのキー・ダイヤル出力はrekordboxが最前面にある場合だけ行う。
 - 同じ物理キーをコード修飾キーにすると、単体操作は解放時実行になる。
-- 複数ACK05の入力状態は物理deviceごとに分離したが、2台以上での同時操作、再接続、異なるLogical Device / Deckへの割り当ては実機未検証。
+- 複数ACK05の入力状態は物理deviceごとに分離したが、2台以上での同時操作、再接続、異なるLogical Device / Profileへの割り当ては実機未検証。
 - Devices UIとIdentify / Rebind / Forget / Learn UIは未実装。対応する非UI Core/APIは実装済み。
 - Generic HIDの実runtime mappingとconfig永続化は未実装。probe、event normalization、Learn、Action変換Coreまで実装済み。
 - ACK05および候補Generic HIDが固有Serialを公開するか、同型複数台で常に一意かは実機未検証。

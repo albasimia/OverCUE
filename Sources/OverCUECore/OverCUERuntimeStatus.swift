@@ -18,6 +18,7 @@ public enum OverCUERuntimeStatusNotification {
     public static let name = Notification.Name("com.overcue.runtime-status-changed")
     public static let modeKey = "mode"
     public static let groupKey = "group"
+    public static let presetGroupIDKey = "presetGroupID"
     public static let scopeKey = "scope"
     public static let deviceIDKey = "deviceID"
     public static let logicalDeviceIDKey = "logicalDeviceID"
@@ -70,6 +71,7 @@ public enum OverCUERuntimeControlNotification {
     public static let name = Notification.Name("com.overcue.runtime-control-requested")
     public static let modeKey = OverCUERuntimeStatusNotification.modeKey
     public static let groupKey = OverCUERuntimeStatusNotification.groupKey
+    public static let presetGroupIDKey = OverCUERuntimeStatusNotification.presetGroupIDKey
     public static let scopeKey = OverCUERuntimeStatusNotification.scopeKey
     public static let deviceIDKey = OverCUERuntimeStatusNotification.deviceIDKey
     public static let profileNameKey = OverCUERuntimeStatusNotification.profileNameKey

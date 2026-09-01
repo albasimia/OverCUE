@@ -29,12 +29,12 @@ struct DevicePanelView: View {
                         set: { model.setGroup($0) }
                     )
                 ) {
-                    ForEach(1...4, id: \.self) { group in
-                        Text("\(group)").tag(group)
+                    ForEach(Array(model.availablePresetGroups.enumerated()), id: \.element.id) { index, preset in
+                        Text(preset.name).tag(index + 1)
                     }
                 }
                 .labelsHidden()
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
                 .frame(maxWidth: 300)
             }
 

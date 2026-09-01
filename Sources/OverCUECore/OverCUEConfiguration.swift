@@ -17,7 +17,9 @@ public struct OverCUEGroupMapping: Codable, Equatable, Sendable {
     public var dialMap: [String: String]
     public var dialChordMap: [String: String]
     public var rekordboxMode: RekordboxMappingMode?
-    public var rekordboxDeck: RekordboxDeck?
+    // Decode-only migration state for version 9 and earlier. Version 10 never
+    // encodes a group-global Deck.
+    public var legacyRekordboxDeck: RekordboxDeck?
 
     public init(
         waveformPosition: WaveformPosition? = nil,
@@ -26,7 +28,7 @@ public struct OverCUEGroupMapping: Codable, Equatable, Sendable {
         dialMap: [String: String] = [:],
         dialChordMap: [String: String] = [:],
         rekordboxMode: RekordboxMappingMode? = nil,
-        rekordboxDeck: RekordboxDeck? = nil
+        legacyRekordboxDeck: RekordboxDeck? = nil
     ) {
         self.waveformPosition = waveformPosition
         self.keyMap = keyMap
@@ -34,7 +36,7 @@ public struct OverCUEGroupMapping: Codable, Equatable, Sendable {
         self.dialMap = dialMap
         self.dialChordMap = dialChordMap
         self.rekordboxMode = rekordboxMode
-        self.rekordboxDeck = rekordboxDeck
+        self.legacyRekordboxDeck = legacyRekordboxDeck
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -49,7 +51,62 @@ public struct OverCUEGroupMapping: Codable, Equatable, Sendable {
         dialMap = try container.decodeIfPresent([String: String].self, forKey: .dialMap) ?? [:]
         dialChordMap = try container.decodeIfPresent([String: String].self, forKey: .dialChordMap) ?? [:]
         rekordboxMode = try container.decodeIfPresent(RekordboxMappingMode.self, forKey: .rekordboxMode)
-        rekordboxDeck = try container.decodeIfPresent(RekordboxDeck.self, forKey: .rekordboxDeck)
+        legacyRekordboxDeck = try container.decodeIfPresent(
+            RekordboxDeck.self,
+            forKey: .rekordboxDeck
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(waveformPosition, forKey: .waveformPosition)
+        try container.encode(keyMap, forKey: .keyMap)
+        try container.encode(chordMap, forKey: .chordMap)
+        try container.encode(dialMap, forKey: .dialMap)
+        try container.encode(dialChordMap, forKey: .dialChordMap)
+        try container.encodeIfPresent(rekordboxMode, forKey: .rekordboxMode)
+    }
+}
+
+public struct OverCUEPresetGroup: Codable, Equatable, Identifiable, Sendable {
+    public static let maximumCount = 24
+
+    public var id: String
+    public var name: String
+    public var order: Int
+    public var mapping: OverCUEGroupMapping
+
+    public init(id: String, name: String, order: Int, mapping: OverCUEGroupMapping) {
+        self.id = id
+        self.name = name
+        self.order = order
+        self.mapping = mapping
+    }
+
+    public static func migratedID(forLegacyGroup group: Int) -> String {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in "overcue-v9-group-\(group)".utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x100000001b3
+        }
+        return String(format: "pg-%016llx", hash)
+    }
+}
+
+public enum OverCUEPresetGroupNavigator {
+    public static func nextID(
+        currentID: String?,
+        step: Int,
+        in profile: OverCUEProfile
+    ) -> String? {
+        let groups = profile.orderedPresetGroups
+        guard !groups.isEmpty else { return nil }
+        guard let currentIndex = currentID.flatMap({ id in groups.firstIndex { $0.id == id } })
+        else {
+            return step < 0 ? groups.last?.id : groups.first?.id
+        }
+        let offset = ((currentIndex + step) % groups.count + groups.count) % groups.count
+        return groups[offset].id
     }
 }
 
@@ -57,7 +114,7 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
     // Kept only so version 1–6 files can migrate their profile-wide position
     // into every group. Version 7 configurations leave this value nil.
     public var waveformPosition: WaveformPosition?
-    public var groupMappings: [String: OverCUEGroupMapping]
+    public var presetGroups: [OverCUEPresetGroup]
 
     public init(
         waveformPosition: WaveformPosition? = nil,
@@ -68,13 +125,18 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
         rekordboxMode: RekordboxMappingMode? = nil
     ) {
         self.waveformPosition = waveformPosition
-        groupMappings = [
-            "1": OverCUEGroupMapping(
+        presetGroups = [
+            OverCUEPresetGroup(
+                id: OverCUEPresetGroup.migratedID(forLegacyGroup: 1),
+                name: "Group 1",
+                order: 1,
+                mapping: OverCUEGroupMapping(
                 keyMap: keyMap,
                 chordMap: chordMap,
                 dialMap: dialMap,
                 dialChordMap: dialChordMap,
                 rekordboxMode: rekordboxMode
+                )
             ),
         ]
     }
@@ -84,12 +146,52 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
         groupMappings: [String: OverCUEGroupMapping]
     ) {
         self.waveformPosition = waveformPosition
-        self.groupMappings = groupMappings
+        presetGroups = Self.presets(from: groupMappings)
+    }
+
+    public init(
+        waveformPosition: WaveformPosition? = nil,
+        presetGroups: [OverCUEPresetGroup]
+    ) {
+        self.waveformPosition = waveformPosition
+        self.presetGroups = presetGroups
+    }
+
+    public var orderedPresetGroups: [OverCUEPresetGroup] {
+        presetGroups.sorted {
+            if $0.order != $1.order { return $0.order < $1.order }
+            return $0.id < $1.id
+        }
+    }
+
+    public var groupMappings: [String: OverCUEGroupMapping] {
+        get {
+            Dictionary(uniqueKeysWithValues: orderedPresetGroups.enumerated().map {
+                (String($0.offset + 1), $0.element.mapping)
+            })
+        }
+        set { presetGroups = Self.presets(from: newValue) }
+    }
+
+    public func presetGroup(id: String) -> OverCUEPresetGroup? {
+        presetGroups.first { $0.id == id }
+    }
+
+    public func mapping(forPresetID id: String) -> OverCUEGroupMapping {
+        guard let index = orderedPresetGroups.firstIndex(where: { $0.id == id }) else {
+            return OverCUEGroupMapping()
+        }
+        return mapping(for: index + 1)
+    }
+
+    public mutating func setMapping(_ mapping: OverCUEGroupMapping, forPresetID id: String) {
+        guard let index = presetGroups.firstIndex(where: { $0.id == id }) else { return }
+        presetGroups[index].mapping = mapping
     }
 
     public func mapping(for group: Int) -> OverCUEGroupMapping {
         var result = storedMapping(for: group)
-        guard group != 1, let global = groupMappings["1"] else { return result }
+        guard group != 1, let global = orderedPresetGroups.first?.mapping else { return result }
         for (input, action) in global.keyMap where Self.isGroupCycle(action) {
             result.keyMap[input] = action
         }
@@ -110,11 +212,26 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
     }
 
     public func storedMapping(for group: Int) -> OverCUEGroupMapping {
-        groupMappings[String(group)] ?? OverCUEGroupMapping()
+        let groups = orderedPresetGroups
+        guard groups.indices.contains(group - 1) else { return OverCUEGroupMapping() }
+        return groups[group - 1].mapping
     }
 
     public mutating func setMapping(_ mapping: OverCUEGroupMapping, for group: Int) {
-        groupMappings[String(group)] = mapping
+        let groups = orderedPresetGroups
+        if groups.indices.contains(group - 1),
+           let index = presetGroups.firstIndex(where: { $0.id == groups[group - 1].id }) {
+            presetGroups[index].mapping = mapping
+        } else if group > 0, group <= OverCUEPresetGroup.maximumCount {
+            presetGroups.append(
+                OverCUEPresetGroup(
+                    id: OverCUEPresetGroup.migratedID(forLegacyGroup: group),
+                    name: "Group \(group)",
+                    order: group,
+                    mapping: mapping
+                )
+            )
+        }
     }
 
     public var keyMap: [String: String] {
@@ -155,6 +272,7 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case waveformPosition
+        case presetGroups
         case groupMappings
         case keyMap
         case chordMap
@@ -164,17 +282,40 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         waveformPosition = try container.decodeIfPresent(WaveformPosition.self, forKey: .waveformPosition)
-        if let groups = try container.decodeIfPresent(
+        if let presets = try container.decodeIfPresent(
+            [OverCUEPresetGroup].self,
+            forKey: .presetGroups
+        ) {
+            guard !presets.isEmpty,
+                  presets.count <= OverCUEPresetGroup.maximumCount,
+                  Set(presets.map(\.id)).count == presets.count,
+                  Set(presets.map(\.order)).count == presets.count,
+                  presets.allSatisfy({ !$0.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                      && !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+            else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .presetGroups,
+                    in: container,
+                    debugDescription: "Preset Groups must have 1...24 unique stable IDs."
+                )
+            }
+            presetGroups = presets
+        } else if let groups = try container.decodeIfPresent(
             [String: OverCUEGroupMapping].self,
             forKey: .groupMappings
         ) {
-            groupMappings = groups
+            presetGroups = Self.presets(from: groups)
         } else {
-            groupMappings = [
-                "1": OverCUEGroupMapping(
+            presetGroups = [
+                OverCUEPresetGroup(
+                    id: OverCUEPresetGroup.migratedID(forLegacyGroup: 1),
+                    name: "Group 1",
+                    order: 1,
+                    mapping: OverCUEGroupMapping(
                     keyMap: try container.decodeIfPresent([String: String].self, forKey: .keyMap) ?? [:],
                     chordMap: try container.decodeIfPresent([String: String].self, forKey: .chordMap) ?? [:],
                     dialMap: try container.decodeIfPresent([String: String].self, forKey: .dialMap) ?? [:]
+                    )
                 ),
             ]
         }
@@ -183,7 +324,26 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(waveformPosition, forKey: .waveformPosition)
-        try container.encode(groupMappings, forKey: .groupMappings)
+        try container.encode(orderedPresetGroups, forKey: .presetGroups)
+    }
+
+    private static func presets(
+        from mappings: [String: OverCUEGroupMapping]
+    ) -> [OverCUEPresetGroup] {
+        mappings.compactMap { key, mapping -> (Int, OverCUEGroupMapping)? in
+            guard let order = Int(key), order > 0 else { return nil }
+            return (order, mapping)
+        }
+        .sorted { $0.0 < $1.0 }
+        .prefix(OverCUEPresetGroup.maximumCount)
+        .map { order, mapping in
+            OverCUEPresetGroup(
+                id: OverCUEPresetGroup.migratedID(forLegacyGroup: order),
+                name: "Group \(order)",
+                order: order,
+                mapping: mapping
+            )
+        }
     }
 
     public static let defaultValue: OverCUEProfile = {
@@ -198,19 +358,46 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
                 DefaultKeyMappingResource.self,
                 from: Data(contentsOf: url)
             )
-            return OverCUEProfile(groupMappings: resource.groupMappings)
+            if let presetGroups = resource.presetGroups {
+                return OverCUEProfile(presetGroups: presetGroups)
+            }
+            var profile = OverCUEProfile(groupMappings: resource.groupMappings ?? [:])
+            for group in profile.presetGroups.indices.map({ $0 + 1 }) {
+                var mapping = profile.storedMapping(for: group)
+                let deck = mapping.legacyRekordboxDeck ?? .deck1
+                mapping.keyMap = Self.scopedMappings(mapping.keyMap, deck: deck)
+                mapping.chordMap = Self.scopedMappings(mapping.chordMap, deck: deck)
+                mapping.dialMap = Self.scopedMappings(mapping.dialMap, deck: deck)
+                mapping.dialChordMap = Self.scopedMappings(mapping.dialChordMap, deck: deck)
+                mapping.legacyRekordboxDeck = nil
+                profile.setMapping(mapping, for: group)
+            }
+            return profile
         } catch {
             fatalError("DefaultKeyMapping.json is invalid: \(error)")
         }
     }()
+
+    private static func scopedMappings(
+        _ mappings: [String: String],
+        deck: RekordboxDeck
+    ) -> [String: String] {
+        mappings.mapValues { rawValue in
+            guard let action = ActionID(rawValue: rawValue),
+                  !action.behavior.isInternal
+            else { return rawValue }
+            return RekordboxActionAdapter.scopedTarget(for: action, deck: deck).configurationValue
+        }
+    }
 }
 
 private struct DefaultKeyMappingResource: Decodable {
-    let groupMappings: [String: OverCUEGroupMapping]
+    let presetGroups: [OverCUEPresetGroup]?
+    let groupMappings: [String: OverCUEGroupMapping]?
 }
 
 public struct OverCUEConfiguration: Codable, Equatable, Sendable {
-    public static let currentVersion = 9
+    public static let currentVersion = 10
 
     public var version: Int
     public var defaultProfile: String

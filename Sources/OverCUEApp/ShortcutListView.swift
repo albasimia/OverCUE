@@ -78,33 +78,6 @@ struct ShortcutListView: View {
                     .frame(width: 230)
                 }
 
-                HStack(spacing: 8) {
-                    Text(localization.text("shortcuts.targetDeck"))
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-
-                    Picker(
-                        "",
-                        selection: Binding(
-                            get: { model.targetDeck },
-                            set: { model.setTargetDeck($0) }
-                        )
-                    ) {
-                        ForEach(RekordboxDeck.allCases) { deck in
-                            Text("\(deck.rawValue)").tag(deck)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 62)
-                    .disabled(model.mode == .export)
-                    .help(localization.text(
-                        model.mode == .performance
-                            ? "shortcuts.targetDeck.help"
-                            : "shortcuts.targetDeck.exportHelp"
-                    ))
-                }
-
                 Button(action: model.reloadAndRestartBridge) {
                     Label(localization.text("shortcuts.reload"), systemImage: "arrow.clockwise")
                 }

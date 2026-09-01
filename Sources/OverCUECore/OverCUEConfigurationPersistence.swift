@@ -280,40 +280,48 @@ public enum OverCUEConfigurationMerger {
         if local.waveformPosition != base.waveformPosition {
             result.waveformPosition = local.waveformPosition
         }
-        result.groupMappings = mergeGroupMappings(
-            base: base.groupMappings,
-            local: local.groupMappings,
-            remote: remote.groupMappings
+        result.presetGroups = mergePresetGroups(
+            base: base.presetGroups,
+            local: local.presetGroups,
+            remote: remote.presetGroups
         )
         return result
     }
 
-    private static func mergeGroupMappings(
-        base: [String: OverCUEGroupMapping],
-        local: [String: OverCUEGroupMapping],
-        remote: [String: OverCUEGroupMapping]
-    ) -> [String: OverCUEGroupMapping] {
-        var result = remote
-        let keys = Set(base.keys).union(local.keys)
-        for key in keys {
-            let baseValue = base[key]
-            let localValue = local[key]
+    private static func mergePresetGroups(
+        base: [OverCUEPresetGroup],
+        local: [OverCUEPresetGroup],
+        remote: [OverCUEPresetGroup]
+    ) -> [OverCUEPresetGroup] {
+        let baseByID = Dictionary(uniqueKeysWithValues: base.map { ($0.id, $0) })
+        let localByID = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
+        var resultByID = Dictionary(uniqueKeysWithValues: remote.map { ($0.id, $0) })
+        for key in Set(baseByID.keys).union(localByID.keys) {
+            let baseValue = baseByID[key]
+            let localValue = localByID[key]
             guard localValue != baseValue else { continue }
             guard let localValue else {
-                result.removeValue(forKey: key)
+                resultByID.removeValue(forKey: key)
                 continue
             }
-            guard let baseValue, let remoteValue = remote[key] else {
-                result[key] = localValue
+            guard let baseValue, let remoteValue = resultByID[key] else {
+                resultByID[key] = localValue
                 continue
             }
-            result[key] = mergeGroupMapping(
-                base: baseValue,
-                local: localValue,
-                remote: remoteValue
+            var merged = remoteValue
+            if localValue.name != baseValue.name { merged.name = localValue.name }
+            if localValue.order != baseValue.order { merged.order = localValue.order }
+            merged.mapping = mergeGroupMapping(
+                base: baseValue.mapping,
+                local: localValue.mapping,
+                remote: remoteValue.mapping
             )
+            resultByID[key] = merged
         }
-        return result
+        return resultByID.values.sorted {
+            if $0.order != $1.order { return $0.order < $1.order }
+            return $0.id < $1.id
+        }
     }
 
     private static func mergeGroupMapping(
@@ -348,9 +356,7 @@ public enum OverCUEConfigurationMerger {
         if local.rekordboxMode != base.rekordboxMode {
             result.rekordboxMode = local.rekordboxMode
         }
-        if local.rekordboxDeck != base.rekordboxDeck {
-            result.rekordboxDeck = local.rekordboxDeck
-        }
+        result.legacyRekordboxDeck = nil
         return result
     }
 

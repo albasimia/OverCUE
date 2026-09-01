@@ -1,110 +1,126 @@
 {
-  "groupMappings": {
-    "1": {
-      "keyMap": {
-        "K1": "hot_cue_3",
-        "K2": "delete_memory_cue",
-        "K3": "jump_forward",
-        "K4": "hot_cue_2",
-        "K5": "set_memory_cue",
-        "K6": "jump_backward",
-        "K7": "quantize",
-        "K8": "hot_cue_1",
-        "K9": "cue",
-        "K10": "play_pause"
-      },
-      "chordMap": {
-        "K8+K1": "capture_waveform_position",
-        "K7+K8": "delete_hot_cue_1",
-        "K7+K4": "delete_hot_cue_2",
-        "K7+K1": "delete_hot_cue_3",
-        "K7+K3": "call_next_memory_cue",
-        "K7+K6": "call_previous_memory_cue",
-        "K7+K2": "cycle_group",
-        "K7+K5": "cycle_group_backward"
-      },
-      "dialMap": {
-        "counterclockwise": "jog_search_left",
-        "clockwise": "jog_search_right"
-      },
-      "dialChordMap": {
-        "K7+DIAL_LEFT": "pitch_bend_decrease",
-        "K7+DIAL_RIGHT": "pitch_bend_increase"
-      },
-      "rekordboxMode": "performance",
-      "rekordboxDeck": 1
+  "presetGroups": [
+    {
+      "id": "pg-default-main",
+      "name": "Group 1",
+      "order": 10,
+      "mapping": {
+        "keyMap": {
+          "K1": "rekordbox-action:hot_cue_3:3020",
+          "K2": "rekordbox-action:delete_memory_cue:303b",
+          "K3": "rekordbox-action:jump_forward:3008",
+          "K4": "rekordbox-action:hot_cue_2:301f",
+          "K5": "rekordbox-action:set_memory_cue:3024",
+          "K6": "rekordbox-action:jump_backward:3009",
+          "K7": "rekordbox-action:quantize:301c",
+          "K8": "rekordbox-action:hot_cue_1:301e",
+          "K9": "rekordbox-action:cue:3007",
+          "K10": "rekordbox-action:play_pause:3006"
+        },
+        "chordMap": {
+          "K8+K1": "capture_waveform_position",
+          "K7+K8": "rekordbox-action:delete_hot_cue_1:3021",
+          "K7+K4": "rekordbox-action:delete_hot_cue_2:3022",
+          "K7+K1": "rekordbox-action:delete_hot_cue_3:3023",
+          "K7+K3": "rekordbox-action:call_next_memory_cue:3039",
+          "K7+K6": "rekordbox-action:call_previous_memory_cue:303a",
+          "K7+K2": "cycle_group",
+          "K7+K5": "cycle_group_backward"
+        },
+        "dialMap": {
+          "counterclockwise": "jog_search_left",
+          "clockwise": "jog_search_right"
+        },
+        "dialChordMap": {
+          "K7+DIAL_LEFT": "rekordbox-action:pitch_bend_decrease:3050",
+          "K7+DIAL_RIGHT": "rekordbox-action:pitch_bend_increase:304f"
+        },
+        "rekordboxMode": "performance"
+      }
     },
-    "2": {
-      "keyMap": {
-        "K1": "hot_cue_3",
-        "K2": "delete_memory_cue",
-        "K3": "jump_forward",
-        "K4": "hot_cue_2",
-        "K5": "set_memory_cue",
-        "K6": "jump_backward",
-        "K7": "quantize",
-        "K8": "hot_cue_1",
-        "K9": "cue",
-        "K10": "play_pause"
-      },
-      "chordMap": {
-        "K8+K1": "capture_waveform_position",
-        "K7+K8": "delete_hot_cue_1",
-        "K7+K4": "delete_hot_cue_2",
-        "K7+K1": "delete_hot_cue_3",
-        "K7+K3": "call_next_memory_cue",
-        "K7+K6": "call_previous_memory_cue"
-      },
-      "dialMap": {
-        "counterclockwise": "jog_search_left",
-        "clockwise": "jog_search_right"
-      },
-      "dialChordMap": {
-        "K7+DIAL_LEFT": "pitch_bend_decrease",
-        "K7+DIAL_RIGHT": "pitch_bend_increase"
-      },
-      "rekordboxMode": "performance",
-      "rekordboxDeck": 2
+    {
+      "id": "pg-default-secondary",
+      "name": "Group 2",
+      "order": 20,
+      "mapping": {
+        "keyMap": {
+          "K1": "rekordbox-action:hot_cue_3:3120",
+          "K2": "rekordbox-action:delete_memory_cue:313b",
+          "K3": "rekordbox-action:jump_forward:3108",
+          "K4": "rekordbox-action:hot_cue_2:311f",
+          "K5": "rekordbox-action:set_memory_cue:3124",
+          "K6": "rekordbox-action:jump_backward:3109",
+          "K7": "rekordbox-action:quantize:311c",
+          "K8": "rekordbox-action:hot_cue_1:311e",
+          "K9": "rekordbox-action:cue:3107",
+          "K10": "rekordbox-action:play_pause:3106"
+        },
+        "chordMap": {
+          "K8+K1": "capture_waveform_position",
+          "K7+K8": "rekordbox-action:delete_hot_cue_1:3121",
+          "K7+K4": "rekordbox-action:delete_hot_cue_2:3122",
+          "K7+K1": "rekordbox-action:delete_hot_cue_3:3123",
+          "K7+K3": "rekordbox-action:call_next_memory_cue:3139",
+          "K7+K6": "rekordbox-action:call_previous_memory_cue:313a"
+        },
+        "dialMap": {
+          "counterclockwise": "jog_search_left",
+          "clockwise": "jog_search_right"
+        },
+        "dialChordMap": {
+          "K7+DIAL_LEFT": "rekordbox-action:pitch_bend_decrease:3150",
+          "K7+DIAL_RIGHT": "rekordbox-action:pitch_bend_increase:314f"
+        },
+        "rekordboxMode": "performance"
+      }
     },
-    "3": {
-      "keyMap": {
-        "K1": "hot_cue_3",
-        "K2": "delete_memory_cue",
-        "K3": "jump_forward",
-        "K4": "hot_cue_2",
-        "K5": "set_memory_cue",
-        "K6": "jump_backward",
-        "K7": "quantize",
-        "K8": "hot_cue_1",
-        "K9": "cue",
-        "K10": "play_pause"
-      },
-      "chordMap": {
-        "K8+K1": "capture_waveform_position",
-        "K7+K8": "delete_hot_cue_1",
-        "K7+K4": "delete_hot_cue_2",
-        "K7+K1": "delete_hot_cue_3",
-        "K7+K3": "call_next_memory_cue",
-        "K7+K6": "call_previous_memory_cue"
-      },
-      "dialMap": {
-        "counterclockwise": "jog_search_left",
-        "clockwise": "jog_search_right"
-      },
-      "dialChordMap": {
-        "K7+DIAL_LEFT": "pitch_bend_decrease",
-        "K7+DIAL_RIGHT": "pitch_bend_increase"
-      },
-      "rekordboxMode": "export",
-      "rekordboxDeck": 1
+    {
+      "id": "pg-default-export",
+      "name": "Group 3",
+      "order": 30,
+      "mapping": {
+        "keyMap": {
+          "K1": "rekordbox-action:hot_cue_3:3020",
+          "K2": "rekordbox-action:delete_memory_cue:303b",
+          "K3": "rekordbox-action:jump_forward:3008",
+          "K4": "rekordbox-action:hot_cue_2:301f",
+          "K5": "rekordbox-action:set_memory_cue:3024",
+          "K6": "rekordbox-action:jump_backward:3009",
+          "K7": "rekordbox-action:quantize:301c",
+          "K8": "rekordbox-action:hot_cue_1:301e",
+          "K9": "rekordbox-action:cue:3007",
+          "K10": "rekordbox-action:play_pause:3006"
+        },
+        "chordMap": {
+          "K8+K1": "capture_waveform_position",
+          "K7+K8": "rekordbox-action:delete_hot_cue_1:3021",
+          "K7+K4": "rekordbox-action:delete_hot_cue_2:3022",
+          "K7+K1": "rekordbox-action:delete_hot_cue_3:3023",
+          "K7+K3": "rekordbox-action:call_next_memory_cue:3039",
+          "K7+K6": "rekordbox-action:call_previous_memory_cue:303a"
+        },
+        "dialMap": {
+          "counterclockwise": "jog_search_left",
+          "clockwise": "jog_search_right"
+        },
+        "dialChordMap": {
+          "K7+DIAL_LEFT": "rekordbox-action:pitch_bend_decrease:3050",
+          "K7+DIAL_RIGHT": "rekordbox-action:pitch_bend_increase:304f"
+        },
+        "rekordboxMode": "export"
+      }
     },
-    "4": {
-      "keyMap": {},
-      "chordMap": {},
-      "dialMap": {},
-      "dialChordMap": {},
-      "rekordboxMode": "export",
-      "rekordboxDeck": 1
+    {
+      "id": "pg-default-spare",
+      "name": "Group 4",
+      "order": 40,
+      "mapping": {
+        "keyMap": {},
+        "chordMap": {},
+        "dialMap": {},
+        "dialChordMap": {},
+        "rekordboxMode": "export"
+      }
     }
-  }
+  ]
 }
