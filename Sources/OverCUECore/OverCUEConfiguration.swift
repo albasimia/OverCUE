@@ -210,23 +210,63 @@ private struct DefaultKeyMappingResource: Decodable {
 }
 
 public struct OverCUEConfiguration: Codable, Equatable, Sendable {
-    public static let currentVersion = 8
+    public static let currentVersion = 9
 
     public var version: Int
     public var defaultProfile: String
     public var profiles: [String: OverCUEProfile]
+    // Retained for decoding and migrating version 2-8 configurations. New
+    // assignments use logicalDevices + physicalDeviceBindings.
     public var deviceProfiles: [String: String]
+    public var logicalDevices: [String: OverCUELogicalDevice]
+    public var physicalDeviceBindings: [OverCUEPhysicalDeviceBinding]
 
     public init(
         version: Int = currentVersion,
         defaultProfile: String = "default",
         profiles: [String: OverCUEProfile],
-        deviceProfiles: [String: String] = [:]
+        deviceProfiles: [String: String] = [:],
+        logicalDevices: [String: OverCUELogicalDevice] = [:],
+        physicalDeviceBindings: [OverCUEPhysicalDeviceBinding] = []
     ) {
         self.version = version
         self.defaultProfile = defaultProfile
         self.profiles = profiles
         self.deviceProfiles = deviceProfiles
+        self.logicalDevices = logicalDevices
+        self.physicalDeviceBindings = physicalDeviceBindings
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case version, defaultProfile, profiles, deviceProfiles, logicalDevices, physicalDeviceBindings
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decode(Int.self, forKey: .version)
+        defaultProfile = try container.decodeIfPresent(String.self, forKey: .defaultProfile) ?? "default"
+        profiles = try container.decode([String: OverCUEProfile].self, forKey: .profiles)
+        deviceProfiles = try container.decodeIfPresent([String: String].self, forKey: .deviceProfiles) ?? [:]
+        logicalDevices = try container.decodeIfPresent(
+            [String: OverCUELogicalDevice].self,
+            forKey: .logicalDevices
+        ) ?? [:]
+        physicalDeviceBindings = try container.decodeIfPresent(
+            [OverCUEPhysicalDeviceBinding].self,
+            forKey: .physicalDeviceBindings
+        ) ?? []
+    }
+
+    public func logicalDeviceID(for device: HIDPhysicalDeviceDescriptor) -> String? {
+        physicalDeviceBindings.first(where: { $0.matches(device) })?.logicalDeviceID
+    }
+
+    public func profileName(for device: HIDPhysicalDeviceDescriptor) -> String {
+        guard let logicalDeviceID = logicalDeviceID(for: device),
+              let logicalDevice = logicalDevices[logicalDeviceID],
+              profiles[logicalDevice.profileName] != nil
+        else { return defaultProfile }
+        return logicalDevice.profileName
     }
 
     public static let defaultValue = OverCUEConfiguration(

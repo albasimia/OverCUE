@@ -428,6 +428,110 @@ check(
         == "rekordbox:42ff",
     "version 8 migration preserves explicit Generic command IDs"
 )
+var legacyDeviceConfiguration = version8Migration.configuration
+legacyDeviceConfiguration.deviceProfiles = ["location:0012ABCD": "generic"]
+let version9Migration = ActionConfigurationMigrator.migrateToCurrentVersion(
+    legacyDeviceConfiguration
+)
+check(version9Migration.configuration.version == 9, "migration updates configuration to version 9")
+check(
+    version9Migration.configuration.logicalDevices["legacy:location:0012ABCD"]?.profileName
+        == "generic",
+    "version 9 migration creates a Logical Device for a legacy profile assignment"
+)
+check(
+    version9Migration.configuration.physicalDeviceBindings.first
+        == OverCUEPhysicalDeviceBinding(
+            logicalDeviceID: "legacy:location:0012ABCD",
+            kind: .ack05,
+            vendorID: 0x28BD,
+            productID: 0x0202,
+            lastKnownLocationID: 0x0012ABCD,
+            legacyDeviceIdentifier: "location:0012ABCD"
+        ),
+    "version 9 migration preserves a legacy ACK05 binding"
+)
+check(
+    version9Migration.configuration.deviceProfiles.isEmpty,
+    "version 9 migration removes the duplicated legacy device profile map"
+)
+
+let serialDevice = HIDPhysicalDeviceDescriptor(
+    kind: .ack05,
+    vendorID: 0x28BD,
+    productID: 0x0202,
+    serialNumber: "ACK05-A",
+    locationID: 0x1000,
+    transportIdentifier: "session-a"
+)
+let movedSerialDevice = HIDPhysicalDeviceDescriptor(
+    kind: .ack05,
+    vendorID: 0x28BD,
+    productID: 0x0202,
+    serialNumber: "ACK05-A",
+    locationID: 0x2000,
+    transportIdentifier: "session-b"
+)
+let serialBinding = OverCUEPhysicalDeviceBinding(
+    logicalDeviceID: "deck-a",
+    kind: .ack05,
+    vendorID: 0x28BD,
+    productID: 0x0202,
+    serialNumber: "ACK05-A",
+    lastKnownLocationID: 0x1000
+)
+check(serialBinding.matches(serialDevice), "match a Physical Device by VID PID and Serial")
+check(serialBinding.matches(movedSerialDevice), "preserve binding when a serial device changes USB port")
+let locationOnlyBinding = OverCUEPhysicalDeviceBinding(
+    logicalDeviceID: "deck-b",
+    kind: .ack05,
+    vendorID: 0x28BD,
+    productID: 0x0202,
+    lastKnownLocationID: 0x1000
+)
+check(!locationOnlyBinding.matches(serialDevice), "do not treat USB location as persistent identity")
+check(locationOnlyBinding.isLocationHint(for: serialDevice), "use USB location only as a rebind hint")
+var logicalConfiguration = OverCUEConfiguration.defaultValue
+logicalConfiguration.profiles["alternate"] = .defaultValue
+logicalConfiguration.logicalDevices["deck-a"] = OverCUELogicalDevice(
+    name: "Deck A Main",
+    profileName: "alternate"
+)
+logicalConfiguration.physicalDeviceBindings = [serialBinding]
+check(
+    logicalConfiguration.profileName(for: movedSerialDevice) == "alternate",
+    "resolve Physical Device through Logical Device to Profile"
+)
+let unregisteredDevice = HIDPhysicalDeviceDescriptor(
+    kind: .ack05,
+    vendorID: 0x28BD,
+    productID: 0x0202,
+    locationID: 0x3000,
+    transportIdentifier: "session-c"
+)
+check(
+    logicalConfiguration.profileName(for: unregisteredDevice) == logicalConfiguration.defaultProfile,
+    "use the default Profile without registering an unknown Physical Device"
+)
+
+var inputStates = DeviceScopedStateStore<InputActionResolver>()
+let isolatedMapping = ActionMapping(keys: [.k1: .cue], chords: [:])
+inputStates.withState(for: "ack05-a", create: InputActionResolver.init) { resolver in
+    _ = resolver.handle(pressedKeys: [.k1], mapping: isolatedMapping)
+}
+let secondDeviceKeys = inputStates.withState(
+    for: "ack05-b",
+    create: InputActionResolver.init
+) { $0.pressedKeys }
+let firstDeviceKeys = inputStates.withState(
+    for: "ack05-a",
+    create: InputActionResolver.init
+) { $0.pressedKeys }
+check(secondDeviceKeys.isEmpty, "keep the second ACK05 key state independent")
+check(firstDeviceKeys == [.k1], "retain the first ACK05 key state independently")
+check(inputStates.count == 2, "store one input state per Physical Device")
+inputStates.removeState(for: "ack05-a")
+check(inputStates.count == 1, "remove only the disconnected Physical Device state")
 var globalGroupProfile = OverCUEProfile.defaultValue
 globalGroupProfile.chordMap["K7+K8+K1"] = ActionID.cycleGroup.rawValue
 check(
@@ -796,11 +900,15 @@ do {
     var group1 = configuration.profiles["default"]!.storedMapping(for: 1)
     group1.waveformPosition = WaveformPosition(x: 640.5, y: 212.25)
     configuration.profiles["default"]!.setMapping(group1, for: 1)
-    configuration.deviceProfiles["device-uuid"] = "alternate"
+    configuration.logicalDevices["deck-a"] = OverCUELogicalDevice(
+        name: "Deck A Main",
+        profileName: "alternate"
+    )
+    configuration.physicalDeviceBindings = [serialBinding]
     let data = try JSONEncoder().encode(configuration)
     let decoded = try JSONDecoder().decode(OverCUEConfiguration.self, from: data)
     check(decoded == configuration, "round-trip external configuration")
-    check(decoded.version == 8, "persist profile configuration version")
+    check(decoded.version == 9, "persist profile configuration version")
     check(
         decoded.profiles["default"]?.storedMapping(for: 1).waveformPosition
             == WaveformPosition(x: 640.5, y: 212.25),
@@ -828,7 +936,14 @@ do {
         decoded.profiles["default"]?.dialMap["clockwise"] == "jog_search_right",
         "persist clockwise dial mapping"
     )
-    check(decoded.deviceProfiles["device-uuid"] == "alternate", "persist device profile assignment")
+    check(
+        decoded.logicalDevices["deck-a"]?.profileName == "alternate",
+        "persist Logical Device profile assignment"
+    )
+    check(
+        decoded.physicalDeviceBindings == [serialBinding],
+        "persist Physical Device binding independently"
+    )
     check(
         decoded.profiles["default"]?.mapping(for: 2).rekordboxMode == .performance,
         "persist rekordbox mode independently for group 2"

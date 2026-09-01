@@ -16,4 +16,5 @@ public enum OverCUEInputStatusNotification {
     public static let name = Notification.Name("com.overcue.input-status-changed")
     public static let keysKey = "pressedKeys"
     public static let dialDirectionKey = "dialDirection"
+    public static let deviceIDKey = "deviceID"
 }

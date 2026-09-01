@@ -1,8 +1,8 @@
 # OverCUE
 
-OverCUE turns the XPPen ACK05 dial and keys into cue-preparation controls for rekordbox on macOS.
+OverCUE adapts physical controllers to cue-preparation controls for rekordbox on macOS. XPPen ACK05 is the first-class supported device.
 
-XPPen ACK05のダイヤルとキーを、macOS版rekordboxのCUE仕込み操作へ変換するアプリです。
+物理コントローラーを、macOS版rekordboxのCUE仕込み操作へ変換するアプリです。XPPen ACK05をFirst-classデバイスとしてサポートします。
 
 ![OverCUE](docs/assets/images/overcue-ja.png)
 
@@ -52,6 +52,8 @@ Run the complete local macOS verification path (debug build, core checks, Univer
 ```
 
 In PERFORMANCE mode, each of the four OverCUE groups can independently target rekordbox Deck 1, 2, 3, or 4. Mode, target Deck, and waveform drag position are stored per group.
+
+The vNext configuration separates Physical Device bindings from Logical Devices and Profiles. ACK05 runtime input state is isolated per connected IOHID device; multi-device hardware verification and Generic HID Learn remain in progress.
 
 ## License
 

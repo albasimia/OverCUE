@@ -1,11 +1,11 @@
 # OverCUE 現行仕様
 
-更新日: 2026-08-30
+更新日: 2026-09-01
 対象: macOS版 OverCUE / XPPen ACK05 / rekordbox 7
 
 ## 1. 概要
 
-OverCUEは、XPPen ACK05のダイヤルと10個のキーをrekordboxのCUE仕込み操作へ変換する常駐CLIアプリケーションである。
+OverCUEは、物理入力インターフェースをrekordboxのCUE仕込み操作へ変換するソフトウェアアダプターである。XPPen ACK05をOfficial / First-class deviceとして扱い、Generic HIDはAdvanced / Best-effortの拡張対象とする。
 
 主運用はrekordbox Freeプランで利用できるマウス・キーボード操作方式とする。ACK05をIOHIDから直接読み取り、工場出荷時のショートカット入力を抑止したうえで、以下を出力する。
 
@@ -217,14 +217,28 @@ OverCUEは固定キーやマッピングファイルIDを直接決め打ちせ�
 ~/Library/Application Support/OverCUE/config.json
 ```
 
-設定形式はversion 8。初回起動時に自動生成する。version 1〜7設定を検出した場合は原本を`config.vN.backup.json`へ保存してversion 8へ自動移行する。version 6以前のプロファイル共通`waveformPosition`はグループ1〜4へコピーし、移行直後の操作位置を維持する。version 7の旧既定Group 2はPERFORMANCE / Deck 2として認識し、直書きDeck 2 commandIdを標準Actionへ置換する。それ以外は従来の標準ActionがDeck 1を操作していた意味を維持するためDeck 1を補完し、ユーザー指定のGeneric `rekordbox:<commandId>`は変更しない。Group 3のEXPORT用途も維持する。デフォルトマップは`Sources/OverCUECore/Resources/DefaultKeyMapping.json`から読み込む。
+設定形式はversion 9。初回起動時に自動生成する。version 1〜8設定を検出した場合は原本を`config.vN.backup.json`へ保存してversion 9へ自動移行する。version 6以前のプロファイル共通`waveformPosition`はグループ1〜4へコピーし、移行直後の操作位置を維持する。version 7の旧既定Group 2はPERFORMANCE / Deck 2として認識し、直書きDeck 2 commandIdを標準Actionへ置換する。それ以外は従来の標準ActionがDeck 1を操作していた意味を維持するためDeck 1を補完し、ユーザー指定のGeneric `rekordbox:<commandId>`は変更しない。Group 3のEXPORT用途も維持する。version 8の`deviceProfiles`はLogical Deviceとlegacy Physical Bindingへ移行し、既存Profile割り当てを維持する。デフォルトマップは`Sources/OverCUECore/Resources/DefaultKeyMapping.json`から読み込む。
 
 ```json
 {
-  "version": 8,
+  "version": 9,
   "defaultProfile": "default",
+  "logicalDevices": {
+    "deck-1-main": {
+      "name": "Deck 1 Main",
+      "profileName": "default"
+    }
+  },
+  "physicalDeviceBindings": [
+    {
+      "logicalDeviceID": "deck-1-main",
+      "kind": "ack05",
+      "vendorID": 10429,
+      "productID": 514,
+      "serialNumber": "ACK05-SERIAL"
+    }
+  ],
   "deviceProfiles": {
-    "DEVICE-PHYSICAL-UUID": "default"
   },
   "profiles": {
     "default": {
@@ -294,15 +308,13 @@ GUIのグループPickerとCLIの実行グループは双方向に同期する�
 
 ### 9.2 デバイスとプロファイルの対応
 
-`deviceProfiles`のキーにデバイスID、値にプロファイル名を指定する。未登録のACK05は`defaultProfile`を使用し、初回入力時に対応を設定ファイルへ自動保存する。
+`logicalDevices`は演奏上のLogical Device名とProfile割り当てを保持し、`physicalDeviceBindings`がIOHID上のPhysical DeviceをLogical Deviceへ結び付ける。未登録ACK05は`defaultProfile`で動作するが、自動登録・自動保存しない。これにより機器交換時はPhysical Bindingだけを差し替え、Logical Device側のProfileを維持できる。
 
-デバイスIDは次の優先順で取得する。
+Physical BindingはVendor ID + Product ID + Serialを最優先する。Serialがない機器のUSB `LocationID`はIdentify / Rebind候補のヒントにのみ使用し、永続IDとして自動一致させない。version 8以前から移行したbindingだけは後方互換のため、旧識別値を`legacyDeviceIdentifier`として保持する。
 
-1. `PhysicalDeviceUniqueID`
-2. `DeviceAddress`
-3. `LocationID`
+CLI bridgeは接続ACK05ごとに独立したcontrollerを生成する。`InputActionResolver`、押下キー、Cue hold、Jump repeat、コード、ダイヤル加速、波形ドラッグ、Group／Deck／Profile状態は物理device間で共有しない。切断時は対象deviceの状態とkeydownだけを解放する。
 
-接続中の検証機ではシリアル番号は公開されず、`PhysicalDeviceUniqueID`とBLEの`DeviceAddress`が取得できた。
+複数ACK05の状態分離はCore checksで確認済みだが、2台以上を使う同時操作と再接続は実機未検証である。Devices UI、Identify / Rebind、Generic HID Learnは未実装。
 
 ## 10. MIDIモード
 
@@ -345,7 +357,7 @@ macOSでdebug build、Core checks、release Universal Binary app生成、codesig
 ./Scripts/verify-macos.sh
 ```
 
-現時点のコアチェック数は241件。
+現時点のコアチェック数は256件。
 
 ## 12. SwiftUI設定画面
 
@@ -387,5 +399,6 @@ swift run OverCUE
 - rekordboxの対象操作が未割り当てなら、そのキーは動作しない。
 - ACK05からのキー・ダイヤル出力はrekordboxが最前面にある場合だけ行う。
 - 同じ物理キーをコード修飾キーにすると、単体操作は解放時実行になる。
-- 複数ACK05用のデバイス・プロファイル対応は保持できるが、複数台の完全な同時操作は正式対応外。入力状態をデバイスごとに完全分離する拡張余地がある。
-- `PhysicalDeviceUniqueID`が再ペアリング後も維持されるか、2台の実機間で必ず異なるかは未検証。
+- 複数ACK05の入力状態は物理deviceごとに分離したが、2台以上での同時操作、再接続、異なるLogical Device / Deckへの割り当ては実機未検証。
+- Devices UI、明示的なIdentify / Rebind / Forget、Generic HIDの入力観測とLearnは未実装。
+- ACK05および候補Generic HIDが固有Serialを公開するか、同型複数台で常に一意かは実機未検証。

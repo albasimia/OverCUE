@@ -10,12 +10,12 @@ PERFORMANCE 4Deckのソフトウェア構造は成立済み。ACK05 1台のProfi
 
 ## 次の行動
 
-- [ ] ACK05入力状態を物理IOHID deviceごとに分離し、同型ACK05を2台以上接続してもキー／コード／ダイヤル状態が衝突しない構造にする。
+- [x] ACK05入力状態を物理IOHID deviceごとのcontrollerへ分離し、キー／コード／Cue hold／Jump repeat／ダイヤル／波形状態を共有しない構造にする。Core checks済み、2台実機は未検証。
 - [ ] Generic HIDをglobal keyboard eventへ潰す前のdevice-awareなIOHID入力として観測する基盤を追加する。
-- [ ] Physical DeviceとLogical Deviceを分離したbindingモデルを定義する。固有SerialがあればVID + PID + Serialを優先し、USB topology / locationは補助ヒントに留める。
+- [x] Physical DeviceとLogical Deviceを分離したconfig version 9 bindingモデルを定義する。固有SerialはVID + PID + Serialで一致し、USB locationは補助ヒントに限定する。
 - [ ] Devices → Add Generic Device → Identify/Learnの明示登録フローを用意し、未登録HID接続時に自動登録・自動画面遷移しない。
 - [ ] Generic HIDのキー入力、encoder CW/CCW、encoder pushを既存OverCUE ActionへLearnできる経路を作る。
-- [ ] Logical DeviceへProfileを割り当て、物理デバイスをRebindしてもProfile設定が失われないことを確認する。
+- [x] Logical DeviceへProfileを保持し、Physical Bindingと独立して保存・復元できることをCore checksで確認する。Devices UIからのRebind操作は未実装。
 - [ ] ACK05 ×2、Koolertron系Generic HID ×複数、UH700を使い、同型デバイス間の独立入力と再接続を実機確認する。
 - [ ] 実機確認結果をcore checks、`specs/current-spec.md`、AAL decision / historyへ反映する。
 
@@ -23,6 +23,7 @@ PERFORMANCE 4Deckのソフトウェア構造は成立済み。ACK05 1台のProfi
 
 - 追加ACK05とKoolertron系Generic HIDの到着後でないと、同型複数台のSerial有無、IOHID identity、encoder Report形式を直接確認できない。
 - 同型Generic HIDに固有Serialがない場合、再接続時はIdentify / Rebindが必要になる可能性がある。
+- 複数ACK05のsoftware state分離は完了したが、2台以上の実機による同時入力・切断・再接続は未検証。
 
 ## 完了条件
 

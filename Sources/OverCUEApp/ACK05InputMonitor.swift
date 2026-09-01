@@ -26,7 +26,8 @@ final class ACK05InputMonitor {
 
     private let manager: IOHIDManager
     private let decoder = ACK05ReportDecoder()
-    private var previousKeys: Set<ACK05Key> = []
+    private var previousKeysByDevice: [String: Set<ACK05Key>] = [:]
+    private var connectedDeviceIDs: Set<String> = []
     private var isOpen = false
 
     init() {
@@ -72,27 +73,33 @@ final class ACK05InputMonitor {
         guard isOpen else { return }
         IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         isOpen = false
-        previousKeys = []
+        previousKeysByDevice = [:]
+        connectedDeviceIDs = []
     }
 
-    fileprivate func didMatch(result: IOReturn) {
+    fileprivate func didMatch(device: IOHIDDevice, result: IOReturn) {
         guard result == kIOReturnSuccess else { return }
+        connectedDeviceIDs.insert(monitorIdentifier(device))
         onConnectionChanged?(true)
     }
 
-    fileprivate func didRemove(result: IOReturn) {
+    fileprivate func didRemove(device: IOHIDDevice, result: IOReturn) {
         guard result == kIOReturnSuccess else { return }
-        previousKeys = []
-        onConnectionChanged?(false)
+        let identifier = monitorIdentifier(device)
+        previousKeysByDevice.removeValue(forKey: identifier)
+        connectedDeviceIDs.remove(identifier)
+        onConnectionChanged?(!connectedDeviceIDs.isEmpty)
     }
 
     fileprivate func didReceiveReport(
         result: IOReturn,
+        device: IOHIDDevice?,
         reportID: UInt32,
         report: UnsafeMutablePointer<UInt8>,
         reportLength: CFIndex
     ) {
         guard result == kIOReturnSuccess else { return }
+        let deviceID = device.map(monitorIdentifier) ?? "unknown"
         let bytes = Array(UnsafeBufferPointer(start: report, count: max(0, Int(reportLength))))
         if case let .dial(direction) = decoder.decode(reportID: reportID, bytes: bytes) {
             onDialTurned?(direction)
@@ -101,11 +108,11 @@ final class ACK05InputMonitor {
         guard let keys = decoder.pressedKeys(
             reportID: reportID,
             bytes: bytes,
-            previousKeys: previousKeys
+            previousKeys: previousKeysByDevice[deviceID, default: []]
         ) else {
             return
         }
-        previousKeys = keys
+        previousKeysByDevice[deviceID] = keys
         onPressedKeysChanged?(keys)
     }
 }
@@ -117,7 +124,10 @@ private func ack05DeviceMatched(
     device: IOHIDDevice
 ) {
     guard let context else { return }
-    Unmanaged<ACK05InputMonitor>.fromOpaque(context).takeUnretainedValue().didMatch(result: result)
+    Unmanaged<ACK05InputMonitor>.fromOpaque(context).takeUnretainedValue().didMatch(
+        device: device,
+        result: result
+    )
 }
 
 private func ack05DeviceRemoved(
@@ -127,7 +137,10 @@ private func ack05DeviceRemoved(
     device: IOHIDDevice
 ) {
     guard let context else { return }
-    Unmanaged<ACK05InputMonitor>.fromOpaque(context).takeUnretainedValue().didRemove(result: result)
+    Unmanaged<ACK05InputMonitor>.fromOpaque(context).takeUnretainedValue().didRemove(
+        device: device,
+        result: result
+    )
 }
 
 private func ack05InputReportReceived(
@@ -140,10 +153,17 @@ private func ack05InputReportReceived(
     reportLength: CFIndex
 ) {
     guard let context else { return }
+    let device = sender.map { Unmanaged<IOHIDDevice>.fromOpaque($0).takeUnretainedValue() }
     Unmanaged<ACK05InputMonitor>.fromOpaque(context).takeUnretainedValue().didReceiveReport(
         result: result,
+        device: device,
         reportID: reportID,
         report: report,
         reportLength: reportLength
     )
+}
+
+private func monitorIdentifier(_ device: IOHIDDevice) -> String {
+    let address = UInt(bitPattern: Unmanaged.passUnretained(device).toOpaque())
+    return String(address, radix: 16)
 }

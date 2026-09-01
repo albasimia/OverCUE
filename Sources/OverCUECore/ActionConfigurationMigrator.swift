@@ -16,7 +16,46 @@ public enum ActionConfigurationMigrator {
     public static func migrateToCurrentVersion(
         _ source: OverCUEConfiguration
     ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
-        migrateToVersion8(source)
+        migrateToVersion9(source)
+    }
+
+    public static func migrateToVersion9(
+        _ source: OverCUEConfiguration
+    ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
+        var result = source.version < 8
+            ? migrateToVersion8(source)
+            : (configuration: source, warnings: [])
+
+        for (legacyDeviceID, profileName) in result.configuration.deviceProfiles.sorted(by: { $0.key < $1.key }) {
+            let logicalDeviceID = "legacy:\(legacyDeviceID)"
+            if result.configuration.logicalDevices[logicalDeviceID] == nil {
+                result.configuration.logicalDevices[logicalDeviceID] = OverCUELogicalDevice(
+                    name: "ACK05",
+                    profileName: profileName
+                )
+            }
+            guard !result.configuration.physicalDeviceBindings.contains(where: {
+                $0.logicalDeviceID == logicalDeviceID
+            }) else { continue }
+            result.configuration.physicalDeviceBindings.append(
+                OverCUEPhysicalDeviceBinding(
+                    logicalDeviceID: logicalDeviceID,
+                    kind: .ack05,
+                    vendorID: 0x28BD,
+                    productID: 0x0202,
+                    lastKnownLocationID: Self.locationID(fromLegacyDeviceID: legacyDeviceID),
+                    legacyDeviceIdentifier: legacyDeviceID
+                )
+            )
+        }
+        result.configuration.deviceProfiles = [:]
+        result.configuration.version = 9
+        return result
+    }
+
+    private static func locationID(fromLegacyDeviceID value: String) -> UInt32? {
+        guard value.hasPrefix("location:") else { return nil }
+        return UInt32(value.dropFirst("location:".count), radix: 16)
     }
 
     public static func migrateToVersion8(

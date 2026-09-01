@@ -6,7 +6,7 @@ OverCUEは、任意の物理入力インターフェースとrekordboxの間を�
 
 ## 現在のフェーズ
 
-PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している。ACK05 1台でGroup/Profileを切り替えながらDeck 1〜3を操作する実地DJは成立済み。次の主フェーズは、複数ACK05の同時操作、Generic HID入力、Physical DeviceとLogical Deviceの分離を導入し、3Deck標準物理リグを成立させること。
+PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している。ACK05 1台でGroup/Profileを切り替えながらDeck 1〜3を操作する実地DJは成立済み。複数ACK05向けに物理device別の入力状態分離とPhysical Device / Logical Device bindingモデルを導入した。次はDevices UI、Generic HIDのdevice-aware入力とLearn、複数実機検証を進め、3Deck標準物理リグを成立させる。
 
 ## 現在地
 
@@ -15,13 +15,16 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している�
 - 4つのGroupがあり、各Groupは`rekordboxMode`、`rekordboxDeck`、`waveformPosition`、キー／コード／ダイヤル割り当てを独立して保持する。
 - PERFORMANCEではDeck 1〜4を選択できる。EXPORTではDeck指定を保持するが操作解決には使わない。
 - rekordboxの選択中KeyMappings XMLを読み、commandIdから実際のキーボードショートカットを解決する。
-- configはversion 8。version 1〜7からのmigrationとバックアップを持つ。
+- configはversion 9。version 1〜8からのmigrationとバックアップを持つ。旧`deviceProfiles`はLogical Device + legacy Physical Bindingへ移行する。
 - `Scripts/verify-macos.sh`でdebug build、core checks、Universal Binary app生成、ad-hoc codesign検証を一括実行できる。
 - 2026-08-30時点の4Deck対応はcommit `28631d4de001331d8aceaa96bf57f778cd9c2ac6`、branch `codex/performance-4deck`へpush済み。
 - ACK05 1台のProfile切り替えによるDeck 1〜3操作は、実際のDJ運用で成立済み。
 - DJM-750 original + macOS Tahoe 26.6.2 + DJM-750 driver 4.0.1 + rekordbox PERFORMANCE / External Mixerで、4ch独立出力を実機確認済み。
 - 標準物理リグは3Deckを基本とし、1DeckあたりACK05 + 小型Generic HID（4キー + endless encoder想定）を組み合わせる。ソフトウェア上は4Deckを維持する。
 - Generic HIDの候補実機としてKoolertron系小型マクロパッドを検証するが、OverCUEのUI・データモデルを特定製品へ依存させない。
+- CLI bridgeは接続ACK05ごとに独立controllerを持ち、InputActionResolver、Cue hold、Jump repeat、ダイヤル、波形ドラッグ、Group / Deck / Profile状態を物理device間で共有しない。
+- Physical BindingはVID + PID + Serialで自動一致する。LocationIDはRebind候補のヒントに限定し、未登録deviceはdefault Profileで動作しても自動保存しない。
+- `overcue-checks`は256件。複数deviceのstate分離、Serial binding、LocationID非永続一致、version 9 migrationを含む。
 
 ## 制約
 
@@ -74,7 +77,7 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している�
 
 ## 未決事項
 
-- 複数ACK05接続時のIOHID identityと入力状態分離の具体実装。
+- 複数ACK05実機でのSerial有無、IOHID identity、同時入力・切断・再接続の確認。
 - Koolertron系Generic HIDのキー、encoder CW/CCW、encoder pushがmacOS IOHID上でどのUsage / Reportとして見えるか。
 - 同型Generic HIDが固有Serialを持たない場合のbinding永続化と再接続UX。
 - Devices画面、Logical Device命名、Profile assignment、Rebind / Forgetの最終UI。
@@ -105,4 +108,4 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している�
 
 ## 次の行動
 
-複数ACK05の同時操作とGeneric HIDのdevice-aware入力基盤を実装・実機検証し、Physical Device → Logical Device → Profile → Actionの経路を成立させる。
+Devices UIとGeneric HIDのdevice-aware入力／Learnを実装し、複数ACK05・Generic HID実機でPhysical Device → Logical Device → Profile → Actionの経路を検証する。

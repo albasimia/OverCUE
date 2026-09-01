@@ -284,27 +284,24 @@ private final class ConfigurationStore {
                 "defaultProfile '\(configuration.defaultProfile)' does not exist in profiles."
             )
         }
-        for (deviceID, profileName) in configuration.deviceProfiles
-        where configuration.profiles[profileName] == nil {
+        for (logicalDeviceID, logicalDevice) in configuration.logicalDevices
+        where configuration.profiles[logicalDevice.profileName] == nil {
             throw BridgeError.configuration(
-                "Device '\(deviceID)' references unknown profile '\(profileName)'."
+                "Logical device '\(logicalDeviceID)' references unknown profile "
+                    + "'\(logicalDevice.profileName)'."
+            )
+        }
+        for binding in configuration.physicalDeviceBindings
+        where configuration.logicalDevices[binding.logicalDeviceID] == nil {
+            throw BridgeError.configuration(
+                "Physical binding references unknown logical device '\(binding.logicalDeviceID)'."
             )
         }
     }
 
-    func profileName(for deviceID: String?) -> String {
-        guard let deviceID else { return configuration.defaultProfile }
-        return configuration.deviceProfiles[deviceID] ?? configuration.defaultProfile
-    }
-
-    @discardableResult
-    func registerDeviceIfNeeded(_ deviceID: String) throws -> Bool {
-        guard deviceID != "unknown", configuration.deviceProfiles[deviceID] == nil else {
-            return false
-        }
-        configuration.deviceProfiles[deviceID] = configuration.defaultProfile
-        try save()
-        return true
+    func profileName(for device: HIDPhysicalDeviceDescriptor?) -> String {
+        guard let device else { return configuration.defaultProfile }
+        return configuration.profileName(for: device)
     }
 
     func profile(named name: String) throws -> OverCUEProfile {
@@ -723,7 +720,14 @@ private final class InternalActionHandler {
 }
 
 private protocol ACK05ReportHandling: AnyObject {
-    func handle(deviceID: String, reportID: UInt32, bytes: [UInt8])
+    func deviceConnected(_ device: HIDPhysicalDeviceDescriptor)
+    func deviceDisconnected(_ device: HIDPhysicalDeviceDescriptor)
+    func handle(device: HIDPhysicalDeviceDescriptor, reportID: UInt32, bytes: [UInt8])
+}
+
+private extension ACK05ReportHandling {
+    func deviceConnected(_ device: HIDPhysicalDeviceDescriptor) {}
+    func deviceDisconnected(_ device: HIDPhysicalDeviceDescriptor) {}
 }
 
 private final class MIDIBridgeController: NSObject, ACK05ReportHandling {
@@ -745,7 +749,7 @@ private final class MIDIBridgeController: NSObject, ACK05ReportHandling {
         touchOffTimer?.invalidate()
     }
 
-    func handle(deviceID: String, reportID: UInt32, bytes: [UInt8]) {
+    func handle(device: HIDPhysicalDeviceDescriptor, reportID: UInt32, bytes: [UInt8]) {
         guard let event = decoder.decode(reportID: reportID, bytes: bytes) else { return }
 
         switch event {
@@ -920,8 +924,8 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         switchGroup(to: group, preferredMode: mode, source: "GUI")
     }
 
-    func handle(deviceID: String, reportID: UInt32, bytes: [UInt8]) {
-        activateProfile(for: deviceID)
+    func handle(device: HIDPhysicalDeviceDescriptor, reportID: UInt32, bytes: [UInt8]) {
+        activateProfile(for: device)
         if let pressedKeys = decoder.pressedKeys(
             reportID: reportID,
             bytes: bytes,
@@ -935,7 +939,7 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
 
         switch event {
         case let .dial(direction):
-            publishDialTurn(direction)
+            publishDialTurn(direction, deviceID: activeDeviceID)
             if let chordEvent = actionResolver.dialEvent(for: direction, mapping: mappings) {
                 route(chordEvent)
                 return
@@ -954,15 +958,9 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         }
     }
 
-    private func activateProfile(for deviceID: String) {
-        do {
-            if try configurationStore.registerDeviceIfNeeded(deviceID) {
-                log("Registered device \(deviceID) with default profile '\(configurationStore.configuration.defaultProfile)'.")
-            }
-        } catch {
-            log("ERROR \(error)")
-        }
-        let profileName = configurationStore.profileName(for: deviceID)
+    private func activateProfile(for device: HIDPhysicalDeviceDescriptor) {
+        let deviceID = device.sessionIdentifier
+        let profileName = configurationStore.profileName(for: device)
         guard activeDeviceID != deviceID || activeProfileName != profileName else { return }
         let nextGroup = activeDeviceID == nil && profileName == activeProfileName ? activeGroup : 1
         guard let nextMappings = mappingsByProfile[profileName]?[nextGroup] else {
@@ -1005,8 +1003,19 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
         }
     }
 
+    func deviceDisconnected(_ device: HIDPhysicalDeviceDescriptor) {
+        guard activeDeviceID == device.sessionIdentifier else { return }
+        for event in actionResolver.reset(mapping: mappings) {
+            route(event)
+        }
+        stopKeyRepeat()
+        finishDrag(restorePointer: true)
+        keyboardOutput.releaseAll()
+        publishPressedKeys([], deviceID: device.sessionIdentifier)
+    }
+
     private func handlePressedKeys(_ pressedKeys: Set<ACK05Key>) {
-        publishPressedKeys(pressedKeys)
+        publishPressedKeys(pressedKeys, deviceID: activeDeviceID)
         let released = actionResolver.pressedKeys.subtracting(pressedKeys)
         let events = actionResolver.handle(pressedKeys: pressedKeys, mapping: mappings)
         for event in events {
@@ -1340,6 +1349,46 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
     }
 }
 
+private final class PerDeviceACK05ReportRouter: ACK05ReportHandling {
+    fileprivate typealias Factory = (HIDPhysicalDeviceDescriptor) throws -> any ACK05ReportHandling
+
+    private let factory: Factory
+    private var controllers = DeviceScopedStateStore<any ACK05ReportHandling>()
+
+    init(factory: @escaping Factory) {
+        self.factory = factory
+    }
+
+    func deviceConnected(_ device: HIDPhysicalDeviceDescriptor) {
+        do {
+            let controller = try controller(for: device)
+            controller.deviceConnected(device)
+        } catch {
+            log("ERROR Could not initialize \(device.sessionIdentifier): \(error)")
+        }
+    }
+
+    func deviceDisconnected(_ device: HIDPhysicalDeviceDescriptor) {
+        let key = device.sessionIdentifier
+        controllers.removeState(for: key)?.deviceDisconnected(device)
+    }
+
+    func handle(device: HIDPhysicalDeviceDescriptor, reportID: UInt32, bytes: [UInt8]) {
+        do {
+            try controller(for: device).handle(device: device, reportID: reportID, bytes: bytes)
+        } catch {
+            log("ERROR Could not route \(device.sessionIdentifier): \(error)")
+        }
+    }
+
+    private func controller(
+        for device: HIDPhysicalDeviceDescriptor
+    ) throws -> any ACK05ReportHandling {
+        let key = device.sessionIdentifier
+        return try controllers.state(for: key) { try factory(device) }
+    }
+}
+
 private final class ACK05HIDInput {
     private let controller: any ACK05ReportHandling
     private let manager: IOHIDManager
@@ -1391,7 +1440,9 @@ private final class ACK05HIDInput {
             log("ERROR ACK05 connection callback failed (\(formatStatus(result))).")
             return
         }
-        log("ACK05 connected: \(deviceIdentity(device)).")
+        let descriptor = hidDeviceDescriptor(device)
+        controller.deviceConnected(descriptor)
+        log("ACK05 connected: \(deviceIdentity(device)) [\(descriptor.sessionIdentifier)].")
     }
 
     func didRemove(device: IOHIDDevice, result: IOReturn) {
@@ -1399,8 +1450,10 @@ private final class ACK05HIDInput {
             log("ERROR ACK05 removal callback failed (\(formatStatus(result))).")
             return
         }
-        publishPressedKeys([])
-        log("ACK05 disconnected: \(deviceIdentity(device)).")
+        let descriptor = hidDeviceDescriptor(device)
+        controller.deviceDisconnected(descriptor)
+        publishPressedKeys([], deviceID: descriptor.sessionIdentifier)
+        log("ACK05 disconnected: \(deviceIdentity(device)) [\(descriptor.sessionIdentifier)].")
     }
 
     func didReceiveReport(
@@ -1418,8 +1471,14 @@ private final class ACK05HIDInput {
         let bytes = Array(
             UnsafeBufferPointer(start: report, count: max(0, Int(reportLength)))
         )
+        let descriptor = device.map(hidDeviceDescriptor) ?? HIDPhysicalDeviceDescriptor(
+            kind: .ack05,
+            vendorID: ACK05Identity.vendorID,
+            productID: ACK05Identity.productID,
+            transportIdentifier: "unknown"
+        )
         controller.handle(
-            deviceID: device.map(deviceIdentifier) ?? "unknown",
+            device: descriptor,
             reportID: reportID,
             bytes: bytes
         )
@@ -1480,17 +1539,38 @@ private func isRekordboxFrontmost() -> Bool {
     }
 }
 
-private func deviceIdentifier(_ device: IOHIDDevice) -> String {
+private func hidDeviceDescriptor(_ device: IOHIDDevice) -> HIDPhysicalDeviceDescriptor {
+    let vendorID = (IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? NSNumber)?.intValue
+        ?? ACK05Identity.vendorID
+    let productID = (IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? NSNumber)?.intValue
+        ?? ACK05Identity.productID
+    let serialNumber = IOHIDDeviceGetProperty(
+        device,
+        kIOHIDSerialNumberKey as CFString
+    ) as? String
+    let locationID = (
+        IOHIDDeviceGetProperty(device, kIOHIDLocationIDKey as CFString) as? NSNumber
+    )?.uint32Value
+    var legacyIdentifiers: Set<String> = []
     for key in ["PhysicalDeviceUniqueID", "DeviceAddress"] {
         if let value = IOHIDDeviceGetProperty(device, key as CFString) as? String,
            !value.isEmpty {
-            return value
+            legacyIdentifiers.insert(value)
         }
     }
-    if let location = IOHIDDeviceGetProperty(device, kIOHIDLocationIDKey as CFString) as? NSNumber {
-        return String(format: "location:%08X", location.uint32Value)
+    if let locationID {
+        legacyIdentifiers.insert(String(format: "location:%08X", locationID))
     }
-    return "unknown"
+    let address = UInt(bitPattern: Unmanaged.passUnretained(device).toOpaque())
+    return HIDPhysicalDeviceDescriptor(
+        kind: .ack05,
+        vendorID: vendorID,
+        productID: productID,
+        serialNumber: serialNumber,
+        locationID: locationID,
+        transportIdentifier: String(address, radix: 16),
+        legacyIdentifiers: legacyIdentifiers
+    )
 }
 
 private func commandLabel(_ command: JogCommand) -> String {
@@ -1531,43 +1611,53 @@ private func publishRuntimeStatus(mode: RekordboxMappingMode, group: Int) {
     )
 }
 
-private func publishPressedKeys(_ keys: Set<ACK05Key>) {
+private func publishPressedKeys(_ keys: Set<ACK05Key>, deviceID: String? = nil) {
+    var userInfo: [String: Any] = [
+        OverCUEInputStatusNotification.keysKey: keys
+            .map { $0.rawValue.uppercased() }
+            .sorted(),
+    ]
+    if let deviceID {
+        userInfo[OverCUEInputStatusNotification.deviceIDKey] = deviceID
+    }
     DistributedNotificationCenter.default().postNotificationName(
         OverCUEInputStatusNotification.name,
         object: nil,
-        userInfo: [
-            OverCUEInputStatusNotification.keysKey: keys
-                .map { $0.rawValue.uppercased() }
-                .sorted(),
-        ],
+        userInfo: userInfo,
         deliverImmediately: true
     )
 }
 
-private func publishDialTurn(_ direction: DialDirection) {
+private func publishDialTurn(_ direction: DialDirection, deviceID: String? = nil) {
+    var userInfo: [String: Any] = [
+        OverCUEInputStatusNotification.dialDirectionKey: direction.rawValue,
+    ]
+    if let deviceID {
+        userInfo[OverCUEInputStatusNotification.deviceIDKey] = deviceID
+    }
     DistributedNotificationCenter.default().postNotificationName(
         OverCUEInputStatusNotification.name,
         object: nil,
-        userInfo: [
-            OverCUEInputStatusNotification.dialDirectionKey: direction.rawValue,
-        ],
+        userInfo: userInfo,
         deliverImmediately: true
     )
 }
 
 do {
     let options = try BridgeOptions.parse(CommandLine.arguments)
-    let controller: any ACK05ReportHandling
+    let controllerFactory: PerDeviceACK05ReportRouter.Factory
 
     switch options.outputMode {
     case .midi:
         let profile = try DDJSXMIDIProfile(deck: options.deck)
         let midi = try CoreMIDIVirtualSource(name: options.sourceName)
-        controller = MIDIBridgeController(
-            midi: midi,
-            profile: profile,
-            touchOffMilliseconds: options.touchOffMilliseconds
-        )
+        controllerFactory = { _ in
+            MIDIBridgeController(
+                midi: midi,
+                profile: profile,
+                touchOffMilliseconds: options.touchOffMilliseconds
+            )
+        }
         log("CoreMIDI source '\(options.sourceName)' is ready for Deck \(options.deck).")
         log("JogTouch timeout: \(options.touchOffMilliseconds) ms.")
     case .mouse:
@@ -1627,18 +1717,19 @@ do {
                 log("WARNING Rekordbox shortcut mode \(mode.displayName) is unavailable: \(error)")
             }
         }
-        let keyboardOutput = RekordboxKeyboardOutput()
-        controller = try MouseBridgeController(
-            profile: profile,
-            keyboardOutput: keyboardOutput,
-            keyboardCommandsByMode: loadedShortcutsByMode.mapValues(\.actions),
-            initialRekordboxMode: initialRekordboxMode,
-            initialGroup: options.group,
-            mappingsByProfile: mappingsByProfile,
-            configurationStore: configurationStore,
-            releaseMilliseconds: options.touchOffMilliseconds,
-            promptForAccessibility: options.promptForAccessibility
-        )
+        controllerFactory = { _ in
+            try MouseBridgeController(
+                profile: profile,
+                keyboardOutput: RekordboxKeyboardOutput(),
+                keyboardCommandsByMode: loadedShortcutsByMode.mapValues(\.actions),
+                initialRekordboxMode: initialRekordboxMode,
+                initialGroup: options.group,
+                mappingsByProfile: mappingsByProfile,
+                configurationStore: configurationStore,
+                releaseMilliseconds: options.touchOffMilliseconds,
+                promptForAccessibility: options.promptForAccessibility
+            )
+        }
         log("Free-plan mouse output is ready.")
         log(
             "Rekordbox shortcut mode: \(initialRekordboxMode.rawValue) "
@@ -1702,12 +1793,17 @@ do {
             let detail = shortcut.map { " [\($0)]" } ?? ""
             log("  \(chord.label): \(action.displayName)\(detail)")
         }
-        for (deviceID, profileName) in configurationStore.configuration.deviceProfiles.sorted(by: { $0.key < $1.key }) {
-            log("  DEVICE \(deviceID) -> profile '\(profileName)'")
+        for (logicalDeviceID, logicalDevice) in configurationStore.configuration.logicalDevices
+            .sorted(by: { $0.key < $1.key }) {
+            log(
+                "  LOGICAL DEVICE \(logicalDeviceID) '\(logicalDevice.name)' "
+                    + "-> profile '\(logicalDevice.profileName)'"
+            )
         }
         log("Hover over the enlarged waveform and use the capture chord to save its position.")
     }
 
+    let controller = PerDeviceACK05ReportRouter(factory: controllerFactory)
     let hid = ACK05HIDInput(controller: controller, seizeDevice: options.seizeDevice)
     try hid.start()
 
