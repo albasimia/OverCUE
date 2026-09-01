@@ -28,6 +28,7 @@ public enum ActionConfigurationMigrator {
 
         for (legacyDeviceID, profileName) in result.configuration.deviceProfiles.sorted(by: { $0.key < $1.key }) {
             let logicalDeviceID = "legacy:\(legacyDeviceID)"
+            let legacyLocationID = Self.locationID(fromLegacyDeviceID: legacyDeviceID)
             if result.configuration.logicalDevices[logicalDeviceID] == nil {
                 result.configuration.logicalDevices[logicalDeviceID] = OverCUELogicalDevice(
                     name: "ACK05",
@@ -43,8 +44,8 @@ public enum ActionConfigurationMigrator {
                     kind: .ack05,
                     vendorID: 0x28BD,
                     productID: 0x0202,
-                    lastKnownLocationID: Self.locationID(fromLegacyDeviceID: legacyDeviceID),
-                    legacyDeviceIdentifier: legacyDeviceID
+                    lastKnownLocationID: legacyLocationID,
+                    legacyDeviceIdentifier: legacyLocationID == nil ? legacyDeviceID : nil
                 )
             )
         }

@@ -6,7 +6,7 @@ OverCUEは、任意の物理入力インターフェースとrekordboxの間を�
 
 ## 現在のフェーズ
 
-PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している。ACK05 1台でGroup/Profileを切り替えながらDeck 1〜3を操作する実地DJは成立済み。複数ACK05向けに物理device別の入力状態分離とPhysical Device / Logical Device bindingモデルを導入したが、commit `3a81b4e`のレビューでdevice identity、runtime notification scope、legacy location migration、GUI capture sourceに修正ゲートが見つかった。Generic HID / Devices UIへ進む前にこのゲートを閉じる。
+PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している。ACK05 1台でGroup/Profileを切り替えながらDeck 1〜3を操作する実地DJは成立済み。複数ACK05向けの物理device別入力状態、Physical / Logical Device bindingに加え、commit `3a81b4e`レビューで見つかったlive identity、runtime scope、legacy location migration、GUI capture sourceの4ゲートを修正した。次は複数実機確認後、Generic HID / Devices UIへ進む。
 
 ## 現在地
 
@@ -22,12 +22,12 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している�
 - DJM-750 original + macOS Tahoe 26.6.2 + DJM-750 driver 4.0.1 + rekordbox PERFORMANCE / External Mixerで、4ch独立出力を実機確認済み。
 - 標準物理リグは3Deckを基本とし、1DeckあたりACK05 + 小型Generic HID（4キー + endless encoder想定）を組み合わせる。ソフトウェア上は4Deckを維持する。
 - Generic HIDの候補実機としてKoolertron系小型マクロパッドを検証するが、OverCUEのUI・データモデルを特定製品へ依存させない。
-- CLI bridgeは接続ACK05ごとに独立controllerを持つ構造へ変更済みだが、live session identityがSerial由来persistent identityへフォールバックするため、同一Serialの同型deviceでstate共有が再発し得る。修正ゲートとして扱う。
-- Physical BindingはVID + PID + Serialを永続候補として使うが、同一Serialの同時接続時は曖昧として扱える必要がある。LocationIDはRebind候補のヒントに限定する。
-- Runtime Status / Controlは複数controller間でdevice scopeを保持する必要があり、GUIがruntime statusを`defaultProfile`へ無条件保存してはいけない。
-- version 9 migrationでlegacy `location:`値をpersistent matchへ残さず、LocationID hintだけへ移す必要がある。
-- ACK05 Learn / Captureはsource physical deviceを固定し、別ACK05の入力を1つのコードへ混在させない必要がある。
-- `overcue-checks`は256件だが、上記レビューゲートを再現する追加checksが必要。
+- CLI bridgeのlive session identityはIOHID接続インスタンス由来transport identifierを使い、Serial由来persistent identityと分離する。
+- 同時接続deviceが同じVID / PID / Serialを名乗る場合はbindingをambiguousとしてdefault Profileへ戻し、接続トポロジ変更を既存controllerへ即時通知する。
+- Runtime Status / Controlはsession device ID、Logical Device ID、Profile名とdevice / global scopeを保持する。GUIはstatus受信だけで設定を書き戻さない。
+- version 9 migrationのlegacy `location:`値は`lastKnownLocationID` hintだけへ移し、persistent match対象へ残さない。
+- ACK05 Learn / Captureは最初のsource physical deviceへ固定し、別ACK05の入力を混在させない。source切断時はcaptureをキャンセルする。
+- `overcue-checks`は273件。上記4レビューゲートの再現checksを含む。
 
 ## 制約
 
@@ -118,4 +118,4 @@ PERFORMANCE Deck 1〜4対応とmacOSローカルビルドは完了している�
 
 ## 次の行動
 
-commit `3a81b4e`のレビューゲート（P1: live session identity、P1: runtime device scope、P1: legacy location migration、P2: capture source isolation）を先に解消し、追加Core checksとローカル検証を通してからGeneric HID / Devices UIへ進む。
+複数ACK05実機でlive session分離、ambiguous binding、device-scoped control、capture source切断を確認し、その後Generic HID / Devices UIへ進む。

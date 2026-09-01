@@ -67,6 +67,7 @@
   "message.capturePrompt": "ボタン／同時押しを入力するか、ボタンを保持してダイヤルを回してください。",
   "message.waitingInput": "入力を待っています。",
   "message.waitingDevice": "ACK05の接続を待っています…",
+  "message.captureDeviceDisconnected": "入力取得中のACK05が切断されたため、編集をキャンセルしました。",
   "message.editCancelled": "割り当て編集をキャンセルしました。",
   "message.bindingRemoved": "%@ のACK05割り当てを削除しました。",
   "message.removed": "割り当てを削除しました。",

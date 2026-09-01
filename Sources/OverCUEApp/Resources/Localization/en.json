@@ -67,6 +67,7 @@
   "message.capturePrompt": "Press a button/chord, or hold buttons and turn the dial.",
   "message.waitingInput": "Waiting for input.",
   "message.waitingDevice": "Waiting for ACK05…",
+  "message.captureDeviceDisconnected": "The ACK05 used for capture disconnected. Capture was cancelled.",
   "message.editCancelled": "Assignment editing cancelled.",
   "message.bindingRemoved": "Removed the ACK05 assignment for %@.",
   "message.removed": "Assignment removed.",

@@ -304,15 +304,19 @@ GUIのグループPickerとCLIの実行グループは双方向に同期する�
 
 デバイスマップのキー選択は単体キー割り当てを同時押しより優先する。CLIはACK05の押下状態をDistributed NotificationでGUIへ通知し、GUIは押下中の物理キーだけを緑でハイライトする。キー解放またはデバイス切断時はハイライトを解除する。
 
-メニューバーはゴーストアイコン、現在のモード頭文字（E/P）、現在の実行グループの順に表示する。CLI内のグループ／モードActionによる変更はプロセス間通知でGUIへ同期する。
+メニューバーはゴーストアイコン、現在のモード頭文字（E/P）、現在の実行グループの順に表示する。CLI内のグループ／モードActionによる変更は、session device ID、Logical Device ID、Profile名を含むdevice-scopedなプロセス間通知でGUIへ同期する。GUIはstatus受信だけでは設定を書き戻さず、default Profileを表示中でsource Profileが一致する場合だけ画面状態を同期する。GUIからのcontrolは最後に操作したsession deviceへ送信し、接続前だけ明示的なglobal scopeを使う。
+
+ACK05割り当ての入力取得は、最初にキーまたはダイヤルを入力したphysical deviceへ完了・キャンセルまで固定する。他ACK05のキー状態は同じコードへ混在させない。capture sourceが切断された場合は編集をキャンセルし、別deviceへ暗黙に引き継がない。
 
 ### 9.2 デバイスとプロファイルの対応
 
 `logicalDevices`は演奏上のLogical Device名とProfile割り当てを保持し、`physicalDeviceBindings`がIOHID上のPhysical DeviceをLogical Deviceへ結び付ける。未登録ACK05は`defaultProfile`で動作するが、自動登録・自動保存しない。これにより機器交換時はPhysical Bindingだけを差し替え、Logical Device側のProfileを維持できる。
 
-Physical BindingはVendor ID + Product ID + Serialを最優先する。Serialがない機器のUSB `LocationID`はIdentify / Rebind候補のヒントにのみ使用し、永続IDとして自動一致させない。version 8以前から移行したbindingだけは後方互換のため、旧識別値を`legacyDeviceIdentifier`として保持する。
+Physical BindingはVendor ID + Product ID + Serialを最優先する。Serialがない機器のUSB `LocationID`はIdentify / Rebind候補のヒントにのみ使用し、永続IDとして自動一致させない。version 8以前から移行する`location:XXXXXXXX`も`lastKnownLocationID`だけへ保存し、`legacyDeviceIdentifier`の一致対象にはしない。`PhysicalDeviceUniqueID`や`DeviceAddress`等の非location旧識別値だけを後方互換の`legacyDeviceIdentifier`として保持する。
 
-CLI bridgeは接続ACK05ごとに独立したcontrollerを生成する。`InputActionResolver`、押下キー、Cue hold、Jump repeat、コード、ダイヤル加速、波形ドラッグ、Group／Deck／Profile状態は物理device間で共有しない。切断時は対象deviceの状態とkeydownだけを解放する。
+CLI bridgeは接続ACK05ごとに独立したcontrollerを生成する。live session IDはIOHID接続インスタンス由来のtransport identifierを使用し、Serial由来のpersistent identityとは分離する。`InputActionResolver`、押下キー、Cue hold、Jump repeat、コード、ダイヤル加速、波形ドラッグ、Group／Deck／Profile状態は物理device間で共有しない。切断時は対象deviceの状態とkeydownだけを解放する。
+
+同時接続中の複数deviceが同じVID / PID / Serialを報告した場合、そのpersistent bindingはambiguousとして扱い、どちらも同じLogical Deviceへ自動bindingしない。接続トポロジ変更は既存controllerへ即時通知し、既に押下中のholdを含む状態をdefault Profileへ安全に再評価する。
 
 複数ACK05の状態分離はCore checksで確認済みだが、2台以上を使う同時操作と再接続は実機未検証である。Devices UI、Identify / Rebind、Generic HID Learnは未実装。
 
@@ -357,7 +361,7 @@ macOSでdebug build、Core checks、release Universal Binary app生成、codesig
 ./Scripts/verify-macos.sh
 ```
 
-現時点のコアチェック数は256件。
+現時点のコアチェック数は273件。
 
 ## 12. SwiftUI設定画面
 

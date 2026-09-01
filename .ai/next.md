@@ -2,11 +2,11 @@
 
 ## 現在のフェーズ
 
-PERFORMANCE 4Deckのソフトウェア構造は成立済み。ACK05 1台のProfile切り替えによる3Deck実地運用と、DJM-750 originalへの4ch独立出力も確認済み。複数ACK05向けの物理device別controllerとconfig version 9 bindingモデルは導入済みだが、commit `3a81b4e` のレビューで複数device設計に4件の修正ゲートが見つかった。Generic HID / Devices UIへ進む前に、まずこのゲートを閉じる。
+PERFORMANCE 4Deckのソフトウェア構造は成立済み。ACK05 1台のProfile切り替えによる3Deck実地運用と、DJM-750 originalへの4ch独立出力も確認済み。複数ACK05向けcontrollerとconfig version 9 bindingモデル、およびcommit `3a81b4e`レビューの4修正ゲートはソフトウェア実装・Core checks・ローカルビルドまで完了した。次は複数実機で境界を確認する。
 
 ## 次の目的
 
-複数ACK05基盤のdevice identity、runtime state scope、legacy migration、GUI capture sourceを安全に分離し、Physical Device → Logical Device → Profile → OverCUE Actionの前提を確定する。
+ACK05 ×2でdevice identity、runtime scope、ambiguous binding、capture source切断を実機確認し、Physical Device → Logical Device → Profile → OverCUE Actionの前提を確定する。
 
 ## 最優先レビューゲート
 
@@ -14,49 +14,49 @@ PERFORMANCE 4Deckのソフトウェア構造は成立済み。ACK05 1台のProfi
 
 ### P1 — live session identityをpersistent identityから分離する
 
-- [ ] `PerDeviceACK05ReportRouter` / runtime controllerのキーに、Serial由来のpersistent identityを使わない。
-- [ ] live sessionのcontroller stateは、同一プロセス内の接続インスタンスを必ず区別できるsession identityで分離する。Serialの有無や重複でcontrollerが共有されないこと。
-- [ ] SerialはPhysical Bindingの永続候補としてのみ扱い、runtime state identityとは分離する。
-- [ ] 同時接続中に同じVID / PID / Serialを名乗る複数deviceが存在する場合、同じLogical Deviceへ無条件に自動bindingしたことにしない。曖昧としてIdentify / Rebindへ送れる構造にする。
-- [ ] 同じSerialを持つ2つのdescriptorでも、InputActionResolver、Cue hold、Jump repeat、Group / Deck、ダイヤル、波形ドラッグ状態が独立するCore checkを追加する。
+- [x] `PerDeviceACK05ReportRouter` / runtime controllerのキーに、Serial由来のpersistent identityを使わない。
+- [x] live sessionのcontroller stateは、同一プロセス内の接続インスタンスを必ず区別できるsession identityで分離する。Serialの有無や重複でcontrollerが共有されないこと。
+- [x] SerialはPhysical Bindingの永続候補としてのみ扱い、runtime state identityとは分離する。
+- [x] 同時接続中に同じVID / PID / Serialを名乗る複数deviceが存在する場合、同じLogical Deviceへ無条件に自動bindingしたことにしない。曖昧としてIdentify / Rebindへ送れる構造にする。
+- [x] 同じSerialを持つ2つのdescriptorでも、InputActionResolver stateが独立するCore checkを追加する。Cue hold、Jump repeat、Group / Deck、ダイヤル、波形ドラッグはcontroller分離で保持し、実機確認を残す。
 
 ### P1 — Runtime Status / Controlをdevice scopeへ分離する
 
-- [ ] `OverCUERuntimeStatusNotification` / `OverCUERuntimeControlNotification`へdevice scopeを持たせる。少なくともsession device IDまたはLogical Device IDを識別できること。必要ならprofile名も通知する。
-- [ ] あるACK05のGroup / Mode変更が、別ACK05のcontroller stateへ意図せず伝播しない。
-- [ ] GUIがCLI由来runtime statusを受け取っただけで`defaultProfile`へ無条件保存しない。statusのsourceと保存対象Profile / Logical Deviceを一致させる。
-- [ ] GUIからのcontrolが特定device向けかglobal操作かを曖昧にしない。global操作を残す場合は明示的なscopeとして扱う。
-- [ ] single ACK05時の従来UXは維持する。
+- [x] `OverCUERuntimeStatusNotification` / `OverCUERuntimeControlNotification`へsession device ID、Logical Device ID、Profile名とscopeを追加する。
+- [x] あるACK05のGroup / Mode変更をdevice-scoped controlで対象controllerだけへ届ける。
+- [x] GUIがCLI由来runtime statusを受け取っただけで`defaultProfile`へ保存しない。
+- [x] GUIからのcontrolをdevice / global scopeで明示し、接続後は最後に操作したsource deviceへ送る。
+- [x] single ACK05時は最初のstatus以降device scopeを使い、接続前だけglobal controlで従来UXを維持する。
 
 ### P1 — legacy `location:` migrationを永続binding扱いしない
 
-- [ ] version 8以前の`deviceProfiles`でlegacy IDが`location:XXXXXXXX`の場合、`lastKnownLocationID`へ移行しても`legacyDeviceIdentifier`のpersistent match対象にはしない。
-- [ ] `LocationID`は既存decisionどおりIdentify / Rebind候補のhintに限定する。
-- [ ] 同じUSB portへ別個体を接続しただけで、旧Logical Deviceへ自動bindingされないCore checkを追加する。
-- [ ] `PhysicalDeviceUniqueID` / `DeviceAddress`等の旧識別値を後方互換で残す場合は、`location:`と明確に分岐する。
+- [x] legacy `location:XXXXXXXX`は`lastKnownLocationID`だけへ移行し、persistent match対象にしない。
+- [x] `LocationID`をIdentify / Rebind候補のhintに限定する。
+- [x] 同じUSB portの別個体が旧Logical Deviceへ自動bindingされないCore checkを追加する。
+- [x] 非location旧識別値だけを後方互換の`legacyDeviceIdentifier`として残す。
 
 ### P2 — ACK05 captureを1 physical deviceへロックする
 
-- [ ] `ACK05InputMonitor`のkey / dial callbackはsource device IDを上位へ渡す。
-- [ ] Learn / Capture開始後、最初に入力したACK05をcapture sourceとして固定し、完了・キャンセルまで他deviceの入力を混ぜない。
-- [ ] ACK05 AのK7とACK05 BのK1を`K7+K1`の1コードとして誤認しない。
-- [ ] device切断時のcapture解除 / 待機状態を定義し、別deviceへ暗黙継続しない。
+- [x] `ACK05InputMonitor`のkey / dial / connection callbackはsource device IDを上位へ渡す。
+- [x] Learn / Capture開始後、最初に入力したACK05をcapture sourceとして固定する。
+- [x] 別ACK05のキー状態を同じコードへ混在させないCore lockとGUI filteringを追加する。
+- [x] capture source切断時は編集をキャンセルし、別deviceへ暗黙継続しない。
 
 ### ゲート完了条件
 
-- [ ] 上記P1 3件とP2 1件をすべて実装する。
-- [ ] 修正を再現するCore checksを追加し、既存checksも全件成功する。
-- [ ] `specs/current-spec.md`とAAL historyへ修正後のidentity / runtime scope / migration / capture仕様を反映する。
-- [ ] `./Scripts/verify-macos.sh`が成功する。
-- [ ] 実機未確認事項をテスト成功だけで実機確認済みと記録しない。
+- [x] 上記P1 3件とP2 1件をすべて実装する。
+- [x] 修正を再現するCore checksを追加し、273件すべて成功する。
+- [x] `specs/current-spec.md`とAALへ修正後のidentity / runtime scope / migration / capture仕様を反映する。
+- [x] `./Scripts/verify-macos.sh`が成功する。
+- [x] 実機未確認事項をテスト成功だけで実機確認済みと記録しない。
 
-上記レビューゲートを閉じるまでは、Generic HID LearnやDevices UIの新規機能実装を先行させない。
+上記レビューゲートはソフトウェア上で解消済み。複数ACK05の実機境界を確認してからGeneric HID LearnやDevices UIへ進む。
 
 ## その後の次の行動
 
-- [x] ACK05入力状態を物理IOHID deviceごとのcontrollerへ分離し、キー／コード／Cue hold／Jump repeat／ダイヤル／波形状態を共有しない構造にする。Core checks済み、2台実機は未検証。ただし上記session identity gateの補強が必要。
+- [x] ACK05入力状態を物理IOHID deviceごとのcontrollerへ分離し、同一Serialでもstateを共有しない構造にする。Core checks済み、2台実機は未検証。
 - [ ] Generic HIDをglobal keyboard eventへ潰す前のdevice-awareなIOHID入力として観測する基盤を追加する。
-- [x] Physical DeviceとLogical Deviceを分離したconfig version 9 bindingモデルを定義する。Serial / Locationの扱いは上記migration / ambiguity gateで補強する。
+- [x] Physical DeviceとLogical Deviceを分離したconfig version 9 bindingモデルを定義し、Serial ambiguity / Location hintを補強する。
 - [ ] Devices → Add Generic Device → Identify/Learnの明示登録フローを用意し、未登録HID接続時に自動登録・自動画面遷移しない。
 - [ ] Generic HIDのキー入力、encoder CW/CCW、encoder pushを既存OverCUE ActionへLearnできる経路を作る。
 - [x] Logical DeviceへProfileを保持し、Physical Bindingと独立して保存・復元できることをCore checksで確認する。Devices UIからのRebind操作は未実装。

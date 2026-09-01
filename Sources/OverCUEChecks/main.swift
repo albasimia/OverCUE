@@ -447,9 +447,9 @@ check(
             vendorID: 0x28BD,
             productID: 0x0202,
             lastKnownLocationID: 0x0012ABCD,
-            legacyDeviceIdentifier: "location:0012ABCD"
+            legacyDeviceIdentifier: nil
         ),
-    "version 9 migration preserves a legacy ACK05 binding"
+    "version 9 migration keeps a legacy location only as a rebind hint"
 )
 check(
     version9Migration.configuration.deviceProfiles.isEmpty,
@@ -471,6 +471,14 @@ let movedSerialDevice = HIDPhysicalDeviceDescriptor(
     serialNumber: "ACK05-A",
     locationID: 0x2000,
     transportIdentifier: "session-b"
+)
+check(
+    serialDevice.persistentIdentifier == movedSerialDevice.persistentIdentifier,
+    "derive the same persistent identity from an equal Serial"
+)
+check(
+    serialDevice.sessionIdentifier != movedSerialDevice.sessionIdentifier,
+    "keep live session identity independent when two devices report the same Serial"
 )
 let serialBinding = OverCUEPhysicalDeviceBinding(
     logicalDeviceID: "deck-a",
@@ -502,6 +510,47 @@ check(
     logicalConfiguration.profileName(for: movedSerialDevice) == "alternate",
     "resolve Physical Device through Logical Device to Profile"
 )
+check(
+    logicalConfiguration.bindingResolution(
+        for: serialDevice,
+        among: [serialDevice, movedSerialDevice]
+    ) == .ambiguous(logicalDeviceIDs: ["deck-a"]),
+    "treat simultaneous devices with the same Serial as an ambiguous binding"
+)
+check(
+    logicalConfiguration.profileName(
+        for: serialDevice,
+        among: [serialDevice, movedSerialDevice]
+    ) == logicalConfiguration.defaultProfile,
+    "do not auto-bind an ambiguous Serial to one Logical Device"
+)
+let migratedLocationDevice = HIDPhysicalDeviceDescriptor(
+    kind: .ack05,
+    vendorID: 0x28BD,
+    productID: 0x0202,
+    locationID: 0x0012ABCD,
+    transportIdentifier: "replacement-at-old-port",
+    legacyIdentifiers: ["location:0012ABCD"]
+)
+let migratedLocationBinding = version9Migration.configuration.physicalDeviceBindings[0]
+check(
+    !migratedLocationBinding.matches(migratedLocationDevice),
+    "do not bind a replacement device from a migrated legacy USB location"
+)
+check(
+    migratedLocationBinding.isLocationHint(for: migratedLocationDevice),
+    "retain a migrated legacy USB location as an Identify Rebind hint"
+)
+var legacyAddressConfiguration = version8Migration.configuration
+legacyAddressConfiguration.deviceProfiles = ["BLE-DEVICE-ADDRESS": "generic"]
+let legacyAddressMigration = ActionConfigurationMigrator.migrateToCurrentVersion(
+    legacyAddressConfiguration
+)
+check(
+    legacyAddressMigration.configuration.physicalDeviceBindings.first?.legacyDeviceIdentifier
+        == "BLE-DEVICE-ADDRESS",
+    "preserve a non-location legacy device identifier for compatibility"
+)
 let unregisteredDevice = HIDPhysicalDeviceDescriptor(
     kind: .ack05,
     vendorID: 0x28BD,
@@ -516,22 +565,59 @@ check(
 
 var inputStates = DeviceScopedStateStore<InputActionResolver>()
 let isolatedMapping = ActionMapping(keys: [.k1: .cue], chords: [:])
-inputStates.withState(for: "ack05-a", create: InputActionResolver.init) { resolver in
+inputStates.withState(for: serialDevice.sessionIdentifier, create: InputActionResolver.init) { resolver in
     _ = resolver.handle(pressedKeys: [.k1], mapping: isolatedMapping)
 }
 let secondDeviceKeys = inputStates.withState(
-    for: "ack05-b",
+    for: movedSerialDevice.sessionIdentifier,
     create: InputActionResolver.init
 ) { $0.pressedKeys }
 let firstDeviceKeys = inputStates.withState(
-    for: "ack05-a",
+    for: serialDevice.sessionIdentifier,
     create: InputActionResolver.init
 ) { $0.pressedKeys }
-check(secondDeviceKeys.isEmpty, "keep the second ACK05 key state independent")
-check(firstDeviceKeys == [.k1], "retain the first ACK05 key state independently")
+check(secondDeviceKeys.isEmpty, "keep equal-Serial ACK05 key state independent")
+check(firstDeviceKeys == [.k1], "retain the first equal-Serial ACK05 key state independently")
 check(inputStates.count == 2, "store one input state per Physical Device")
-inputStates.removeState(for: "ack05-a")
+inputStates.removeState(for: serialDevice.sessionIdentifier)
 check(inputStates.count == 1, "remove only the disconnected Physical Device state")
+
+var captureLock = PhysicalDeviceCaptureLock()
+check(captureLock.acceptsInput(from: "ack05-a"), "lock capture to the first Physical Device input")
+check(!captureLock.acceptsInput(from: "ack05-b"), "reject input from another device during capture")
+check(
+    captureLock.acceptsStateChange(from: "ack05-a"),
+    "accept key release from the locked capture device"
+)
+check(
+    !captureLock.acceptsStateChange(from: "ack05-b"),
+    "do not combine key state from another ACK05 into one chord"
+)
+check(!captureLock.deviceDisconnected("ack05-b"), "ignore disconnect of another capture device")
+check(captureLock.deviceDisconnected("ack05-a"), "cancel the lock when its capture device disconnects")
+check(captureLock.deviceID == nil, "clear capture source after its device disconnects")
+
+check(
+    OverCUERuntimeNotificationScope.device.controls(
+        activeDeviceID: "ack05-a",
+        targetDeviceID: "ack05-a"
+    ),
+    "deliver device-scoped runtime control to its target"
+)
+check(
+    !OverCUERuntimeNotificationScope.device.controls(
+        activeDeviceID: "ack05-b",
+        targetDeviceID: "ack05-a"
+    ),
+    "isolate device-scoped runtime control from another controller"
+)
+check(
+    OverCUERuntimeNotificationScope.global.controls(
+        activeDeviceID: "ack05-b",
+        targetDeviceID: nil
+    ),
+    "deliver only explicitly global runtime control to every controller"
+)
 var globalGroupProfile = OverCUEProfile.defaultValue
 globalGroupProfile.chordMap["K7+K8+K1"] = ActionID.cycleGroup.rawValue
 check(

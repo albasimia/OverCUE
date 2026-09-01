@@ -67,6 +67,7 @@
   "message.capturePrompt": "请按按钮／组合键，或按住按钮并转动旋钮。",
   "message.waitingInput": "正在等待输入。",
   "message.waitingDevice": "正在等待 ACK05…",
+  "message.captureDeviceDisconnected": "用于输入捕获的 ACK05 已断开，编辑已取消。",
   "message.editCancelled": "已取消编辑分配。",
   "message.bindingRemoved": "已删除 %@ 的 ACK05 分配。",
   "message.removed": "分配已删除。",

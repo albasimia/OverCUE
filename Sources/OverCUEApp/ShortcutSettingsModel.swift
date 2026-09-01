@@ -100,6 +100,9 @@ final class ShortcutSettingsModel: ObservableObject {
     @Published private(set) var toast: ToastMessage?
     @Published private(set) var runtimeMode: RekordboxMappingMode = .export
     @Published private(set) var runtimeGroup = 1
+    @Published private(set) var runtimeDeviceID: String?
+    @Published private(set) var runtimeLogicalDeviceID: String?
+    @Published private(set) var runtimeProfileName: String?
     @Published var overwriteConfirmation: OverwriteConfirmation?
     @Published private(set) var pressedDeviceKeys: Set<ACK05Key> = []
     @Published private(set) var activeDialDirection: DialDirection?
@@ -112,6 +115,7 @@ final class ShortcutSettingsModel: ObservableObject {
     private var inputMonitor: ACK05InputMonitor?
     private var previousCaptureKeys: Set<ACK05Key> = []
     private var capturedKeyOrder: [ACK05Key] = []
+    private var captureDeviceLock = PhysicalDeviceCaptureLock()
     private var toastDismissTask: Task<Void, Never>?
     private var dialHighlightTask: Task<Void, Never>?
     private var runtimeStatusObserver: SendableObserverToken?
@@ -157,10 +161,25 @@ final class ShortcutSettingsModel: ObservableObject {
             ) { [weak self] notification in
                 guard let modeValue = notification.userInfo?[OverCUERuntimeStatusNotification.modeKey] as? String,
                       let mode = RekordboxMappingMode(rawValue: modeValue),
-                      let group = notification.userInfo?[OverCUERuntimeStatusNotification.groupKey] as? Int
+                      let group = notification.userInfo?[OverCUERuntimeStatusNotification.groupKey] as? Int,
+                      let rawScope = notification.userInfo?[OverCUERuntimeStatusNotification.scopeKey] as? String,
+                      OverCUERuntimeNotificationScope(rawValue: rawScope) == .device,
+                      let deviceID = notification.userInfo?[OverCUERuntimeStatusNotification.deviceIDKey]
+                        as? String,
+                      let profileName = notification.userInfo?[OverCUERuntimeStatusNotification.profileNameKey]
+                        as? String
                 else { return }
+                let logicalDeviceID = notification.userInfo?[
+                    OverCUERuntimeStatusNotification.logicalDeviceIDKey
+                ] as? String
                 Task { @MainActor in
-                    self?.applyRuntimeStatus(mode: mode, group: group)
+                    self?.applyRuntimeStatus(
+                        mode: mode,
+                        group: group,
+                        deviceID: deviceID,
+                        logicalDeviceID: logicalDeviceID,
+                        profileName: profileName
+                    )
                 }
             }
         )
@@ -360,6 +379,7 @@ final class ShortcutSettingsModel: ObservableObject {
             guard !isCapturing else { return }
             runtimeMode = mode
             runtimeGroup = selectedGroup
+            clearRuntimeDeviceScope()
             runtimeBridge.start(mode: mode, group: selectedGroup)
             showToast(L10n.text("message.inputEnabled"), style: .info)
         } else {
@@ -527,24 +547,36 @@ final class ShortcutSettingsModel: ObservableObject {
         )
 
         let monitor = ACK05InputMonitor()
-        monitor.onConnectionChanged = { [weak self] connected in
+        monitor.onConnectionChanged = { [weak self] deviceID, connected in
             guard let self else { return }
             Task { @MainActor in
-                self.captureMessage = connected
-                    ? L10n.text("message.capturePrompt")
-                    : L10n.text("message.waitingDevice")
+                if connected {
+                    if self.captureDeviceLock.deviceID == nil {
+                        self.captureMessage = L10n.text("message.capturePrompt")
+                    }
+                } else if self.captureDeviceLock.deviceDisconnected(deviceID) {
+                    self.captureError = L10n.text("message.captureDeviceDisconnected")
+                    self.cancelCaptureKeepingError()
+                } else if self.captureDeviceLock.deviceID == nil {
+                    self.captureMessage = L10n.text("message.waitingDevice")
+                }
             }
         }
-        monitor.onPressedKeysChanged = { [weak self] keys in
+        monitor.onPressedKeysChanged = { [weak self] deviceID, keys in
             guard let self else { return }
             Task { @MainActor in
+                let accepted = keys.isEmpty
+                    ? self.captureDeviceLock.acceptsStateChange(from: deviceID)
+                    : self.captureDeviceLock.acceptsInput(from: deviceID)
+                guard accepted else { return }
                 self.pressedDeviceKeys = keys
                 self.handleCapturedKeys(keys)
             }
         }
-        monitor.onDialTurned = { [weak self] direction in
+        monitor.onDialTurned = { [weak self] deviceID, direction in
             guard let self else { return }
             Task { @MainActor in
+                guard self.captureDeviceLock.acceptsInput(from: deviceID) else { return }
                 self.showDialInput(direction)
                 self.commitDialCapture(direction, heldKeys: self.capturedKeyOrder)
             }
@@ -936,6 +968,7 @@ final class ShortcutSettingsModel: ObservableObject {
         captureMessage = nil
         previousCaptureKeys = []
         capturedKeyOrder = []
+        captureDeviceLock.reset()
         pressedDeviceKeys = []
         activeDialDirection = nil
     }
@@ -947,6 +980,7 @@ final class ShortcutSettingsModel: ObservableObject {
         }
         runtimeMode = mode
         runtimeGroup = selectedGroup
+        clearRuntimeDeviceScope()
         runtimeBridge.start(mode: mode, group: selectedGroup)
     }
 
@@ -957,7 +991,14 @@ final class ShortcutSettingsModel: ObservableObject {
         }
         runtimeMode = mode
         runtimeGroup = selectedGroup
+        clearRuntimeDeviceScope()
         runtimeBridge.restart(mode: mode, group: selectedGroup)
+    }
+
+    private func clearRuntimeDeviceScope() {
+        runtimeDeviceID = nil
+        runtimeLogicalDeviceID = nil
+        runtimeProfileName = nil
     }
 
     private func saveConfiguration() throws {
@@ -1050,17 +1091,30 @@ final class ShortcutSettingsModel: ObservableObject {
         }
     }
 
-    private func applyRuntimeStatus(mode newMode: RekordboxMappingMode, group: Int) {
+    private func applyRuntimeStatus(
+        mode newMode: RekordboxMappingMode,
+        group: Int,
+        deviceID: String,
+        logicalDeviceID: String?,
+        profileName: String
+    ) {
         guard (1...4).contains(group) else { return }
-        let didChange = runtimeMode != newMode || runtimeGroup != group
+        let didChange = runtimeMode != newMode
+            || runtimeGroup != group
+            || runtimeDeviceID != deviceID
+            || runtimeLogicalDeviceID != logicalDeviceID
+            || runtimeProfileName != profileName
         runtimeMode = newMode
         runtimeGroup = group
+        runtimeDeviceID = deviceID
+        runtimeLogicalDeviceID = logicalDeviceID
+        runtimeProfileName = profileName
         guard didChange else { return }
+        guard profileName == configuration.defaultProfile else { return }
 
         selectedGroup = group
         mode = newMode
         targetDeck = configuredDeck(for: group)
-        saveMode(newMode, for: group)
         UserDefaults.standard.set(newMode.rawValue, forKey: "rekordboxMappingMode")
         selectedDeviceKey = nil
         selectedDialDirection = nil
@@ -1072,13 +1126,25 @@ final class ShortcutSettingsModel: ObservableObject {
 
     private func postRuntimeControl(group: Int, mode: RekordboxMappingMode) {
         guard isBridgeEnabled else { return }
+        let scope: OverCUERuntimeNotificationScope
+        var userInfo: [String: Any] = [
+            OverCUERuntimeControlNotification.groupKey: group,
+            OverCUERuntimeControlNotification.modeKey: mode.rawValue,
+        ]
+        if let runtimeDeviceID,
+           runtimeProfileName == nil || runtimeProfileName == configuration.defaultProfile {
+            scope = .device
+            userInfo[OverCUERuntimeControlNotification.deviceIDKey] = runtimeDeviceID
+        } else if runtimeDeviceID == nil {
+            scope = .global
+        } else {
+            return
+        }
+        userInfo[OverCUERuntimeControlNotification.scopeKey] = scope.rawValue
         DistributedNotificationCenter.default().postNotificationName(
             OverCUERuntimeControlNotification.name,
             object: nil,
-            userInfo: [
-                OverCUERuntimeControlNotification.groupKey: group,
-                OverCUERuntimeControlNotification.modeKey: mode.rawValue,
-            ],
+            userInfo: userInfo,
             deliverImmediately: true
         )
     }

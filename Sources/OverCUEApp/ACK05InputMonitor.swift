@@ -20,9 +20,9 @@ enum ACK05InputMonitorError: @preconcurrency LocalizedError {
 }
 
 final class ACK05InputMonitor {
-    var onPressedKeysChanged: ((Set<ACK05Key>) -> Void)?
-    var onDialTurned: ((DialDirection) -> Void)?
-    var onConnectionChanged: ((Bool) -> Void)?
+    var onPressedKeysChanged: ((String, Set<ACK05Key>) -> Void)?
+    var onDialTurned: ((String, DialDirection) -> Void)?
+    var onConnectionChanged: ((String, Bool) -> Void)?
 
     private let manager: IOHIDManager
     private let decoder = ACK05ReportDecoder()
@@ -80,7 +80,7 @@ final class ACK05InputMonitor {
     fileprivate func didMatch(device: IOHIDDevice, result: IOReturn) {
         guard result == kIOReturnSuccess else { return }
         connectedDeviceIDs.insert(monitorIdentifier(device))
-        onConnectionChanged?(true)
+        onConnectionChanged?(monitorIdentifier(device), true)
     }
 
     fileprivate func didRemove(device: IOHIDDevice, result: IOReturn) {
@@ -88,7 +88,7 @@ final class ACK05InputMonitor {
         let identifier = monitorIdentifier(device)
         previousKeysByDevice.removeValue(forKey: identifier)
         connectedDeviceIDs.remove(identifier)
-        onConnectionChanged?(!connectedDeviceIDs.isEmpty)
+        onConnectionChanged?(identifier, false)
     }
 
     fileprivate func didReceiveReport(
@@ -102,7 +102,7 @@ final class ACK05InputMonitor {
         let deviceID = device.map(monitorIdentifier) ?? "unknown"
         let bytes = Array(UnsafeBufferPointer(start: report, count: max(0, Int(reportLength))))
         if case let .dial(direction) = decoder.decode(reportID: reportID, bytes: bytes) {
-            onDialTurned?(direction)
+            onDialTurned?(deviceID, direction)
             return
         }
         guard let keys = decoder.pressedKeys(
@@ -113,7 +113,7 @@ final class ACK05InputMonitor {
             return
         }
         previousKeysByDevice[deviceID] = keys
-        onPressedKeysChanged?(keys)
+        onPressedKeysChanged?(deviceID, keys)
     }
 }
 

@@ -258,11 +258,53 @@ public struct OverCUEConfiguration: Codable, Equatable, Sendable {
     }
 
     public func logicalDeviceID(for device: HIDPhysicalDeviceDescriptor) -> String? {
-        physicalDeviceBindings.first(where: { $0.matches(device) })?.logicalDeviceID
+        guard case let .bound(logicalDeviceID) = bindingResolution(
+            for: device,
+            among: [device]
+        ) else { return nil }
+        return logicalDeviceID
+    }
+
+    public func bindingResolution(
+        for device: HIDPhysicalDeviceDescriptor,
+        among connectedDevices: [HIDPhysicalDeviceDescriptor]
+    ) -> PhysicalDeviceBindingResolution {
+        let matchingBindings = physicalDeviceBindings.filter { $0.matches(device) }
+        let logicalDeviceIDs = Array(Set(matchingBindings.map(\.logicalDeviceID))).sorted()
+        guard !logicalDeviceIDs.isEmpty else { return .unbound }
+
+        if let persistentIdentifier = device.persistentIdentifier {
+            let matchingSessions = Set(connectedDevices.compactMap { candidate -> String? in
+                candidate.persistentIdentifier == persistentIdentifier
+                    ? candidate.sessionIdentifier
+                    : nil
+            })
+            if matchingSessions.count > 1 {
+                return .ambiguous(logicalDeviceIDs: logicalDeviceIDs)
+            }
+        }
+        guard logicalDeviceIDs.count == 1, let logicalDeviceID = logicalDeviceIDs.first else {
+            return .ambiguous(logicalDeviceIDs: logicalDeviceIDs)
+        }
+        return .bound(logicalDeviceID: logicalDeviceID)
     }
 
     public func profileName(for device: HIDPhysicalDeviceDescriptor) -> String {
         guard let logicalDeviceID = logicalDeviceID(for: device),
+              let logicalDevice = logicalDevices[logicalDeviceID],
+              profiles[logicalDevice.profileName] != nil
+        else { return defaultProfile }
+        return logicalDevice.profileName
+    }
+
+    public func profileName(
+        for device: HIDPhysicalDeviceDescriptor,
+        among connectedDevices: [HIDPhysicalDeviceDescriptor]
+    ) -> String {
+        guard case let .bound(logicalDeviceID) = bindingResolution(
+            for: device,
+            among: connectedDevices
+        ),
               let logicalDevice = logicalDevices[logicalDeviceID],
               profiles[logicalDevice.profileName] != nil
         else { return defaultProfile }

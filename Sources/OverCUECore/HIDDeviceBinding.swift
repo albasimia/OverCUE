@@ -38,7 +38,7 @@ public struct HIDPhysicalDeviceDescriptor: Equatable, Sendable {
     }
 
     public var sessionIdentifier: String {
-        persistentIdentifier ?? String(
+        String(
             format: "%@:%04X:%04X:session:%@",
             kind.rawValue,
             vendorID,
@@ -46,6 +46,12 @@ public struct HIDPhysicalDeviceDescriptor: Equatable, Sendable {
             transportIdentifier
         )
     }
+}
+
+public enum PhysicalDeviceBindingResolution: Equatable, Sendable {
+    case unbound
+    case bound(logicalDeviceID: String)
+    case ambiguous(logicalDeviceIDs: [String])
 }
 
 public struct OverCUELogicalDevice: Codable, Equatable, Sendable {
@@ -116,6 +122,7 @@ public struct DeviceScopedStateStore<State> {
     public init() {}
 
     public var count: Int { states.count }
+    public var values: [State] { Array(states.values) }
 
     public mutating func state(
         for deviceID: String,
@@ -140,6 +147,33 @@ public struct DeviceScopedStateStore<State> {
         var state = try self.state(for: deviceID, create: create)
         defer { states[deviceID] = state }
         return try operation(&state)
+    }
+}
+
+public struct PhysicalDeviceCaptureLock: Equatable, Sendable {
+    public private(set) var deviceID: String?
+
+    public init() {}
+
+    public mutating func acceptsInput(from candidateDeviceID: String) -> Bool {
+        if let deviceID { return deviceID == candidateDeviceID }
+        deviceID = candidateDeviceID
+        return true
+    }
+
+    public func acceptsStateChange(from candidateDeviceID: String) -> Bool {
+        deviceID == candidateDeviceID
+    }
+
+    @discardableResult
+    public mutating func deviceDisconnected(_ candidateDeviceID: String) -> Bool {
+        guard deviceID == candidateDeviceID else { return false }
+        deviceID = nil
+        return true
+    }
+
+    public mutating func reset() {
+        deviceID = nil
     }
 }
 
