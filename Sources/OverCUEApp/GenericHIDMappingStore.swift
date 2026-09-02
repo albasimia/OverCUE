@@ -118,6 +118,32 @@ enum GenericHIDMappingStore {
         GenericHIDMappingChangedNotification.post()
     }
 
+    static func removeTarget(
+        logicalDeviceIDs: Set<String>,
+        presetID: String,
+        target: ActionTarget
+    ) throws {
+        try update { document in
+            for logicalDeviceID in logicalDeviceIDs {
+                guard var presetMappings = document.logicalDevices[logicalDeviceID],
+                      var records = presetMappings[presetID]
+                else { continue }
+                records.removeAll { $0.target == target.configurationValue }
+                if records.isEmpty {
+                    presetMappings.removeValue(forKey: presetID)
+                } else {
+                    presetMappings[presetID] = records
+                }
+                if presetMappings.isEmpty {
+                    document.logicalDevices.removeValue(forKey: logicalDeviceID)
+                } else {
+                    document.logicalDevices[logicalDeviceID] = presetMappings
+                }
+            }
+        }
+        GenericHIDMappingChangedNotification.post()
+    }
+
     private static func update(
         _ body: (inout GenericHIDMappingDocument) throws -> Void
     ) throws {
