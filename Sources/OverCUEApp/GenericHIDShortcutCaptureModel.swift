@@ -18,10 +18,10 @@ struct GenericHIDShortcutBinding: Identifiable, Equatable {
 
 /// Generic HID adapter for the existing Shortcuts capture lifecycle.
 ///
-/// Shortcuts remains the only mapping editor. The existing ACK05 capture owns
-/// the overall edit session; Generic HID monitors run alongside it while the
-/// normal runtime is disabled. Whichever physical input is captured first wins,
-/// then both capture adapters are stopped before runtime is restored.
+/// Shortcuts remains the only mapping editor. ACK05 uses its existing direct
+/// capture monitor. Generic HID never opens a second manager for Learn: the
+/// already-running exclusive Generic HID runtime temporarily intercepts the
+/// first persistable descriptor and reports it through the capture broker.
 @MainActor
 final class GenericHIDShortcutCaptureModel: ObservableObject {
     @Published private(set) var bindingsByTarget: [String: [GenericHIDShortcutBinding]] = [:]
@@ -30,10 +30,8 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
     @Published private(set) var captureMessage: String?
     @Published private(set) var errorMessage: String?
 
-    private var monitors: [String: GenericHIDLearnMonitor] = [:]
     private var capturedTarget: ActionTarget?
     private var capturedPresetID: String?
-    private var restoreBridgeAfterCapture = false
     private var finishingCapture = false
 
     func reload(shortcutModel: ShortcutSettingsModel) {
@@ -95,7 +93,6 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
         for entry: RekordboxShortcutEntry,
         shortcutModel: ShortcutSettingsModel
     ) {
-        cancelGenericMonitors()
         finishingCapture = false
         errorMessage = nil
 
@@ -106,72 +103,34 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
         }
 
         let presetID = shortcutModel.availablePresetGroups[shortcutModel.selectedGroup - 1].id
-        let target = target(for: entry)
-        let wasEnabled = shortcutModel.isBridgeEnabled
-        restoreBridgeAfterCapture = wasEnabled
-        if wasEnabled {
-            shortcutModel.setBridgeEnabled(false)
-        }
-
-        // Reuse the existing Shortcuts ACK05 capture session instead of creating
-        // a second mapping workflow. Runtime remains disabled until either ACK05
-        // or Generic HID wins the capture.
-        shortcutModel.beginCapture(for: entry)
-        capturedTarget = target
+        capturedTarget = target(for: entry)
         capturedPresetID = presetID
         captureEntryID = entry.id
-        isCapturing = shortcutModel.isCapturing
         captureMessage = L10n.text("message.capturePrompt")
+        isCapturing = true
 
-        do {
-            let configuration = try OverCUEConfigurationFileStore.readCurrent(
-                at: OverCUEAppConfigurationLocation.url
+        GenericHIDShortcutCaptureBroker.shared.prepare { [weak self, weak shortcutModel] logicalDeviceID, input in
+            guard let self, let shortcutModel else { return }
+            self.commitGenericCapture(
+                logicalDeviceID: logicalDeviceID,
+                input: input,
+                shortcutModel: shortcutModel
             )
-            let bindings = configuration.physicalDeviceBindings
-                .filter { binding in
-                    guard binding.kind == .genericHID,
-                          binding.serialNumber != nil,
-                          let logical = configuration.logicalDevices[binding.logicalDeviceID]
-                    else { return false }
-                    return logical.profileName == configuration.defaultProfile
-                }
-                .sorted { lhs, rhs in lhs.logicalDeviceID < rhs.logicalDeviceID }
+        }
 
-            for binding in bindings {
-                // One Generic HID binding per Logical Device is the supported
-                // registration shape. Ignore duplicate physical records here so
-                // a single device cannot be seized twice during capture.
-                guard monitors[binding.logicalDeviceID] == nil else { continue }
-                let logicalDeviceID = binding.logicalDeviceID
-                let monitor = GenericHIDLearnMonitor(binding: binding)
-                monitor.onCaptured = { [weak self, weak shortcutModel] input in
-                    Task { @MainActor in
-                        guard let self, let shortcutModel else { return }
-                        self.commitGenericCapture(
-                            logicalDeviceID: logicalDeviceID,
-                            input: input,
-                            shortcutModel: shortcutModel
-                        )
-                    }
-                }
-                do {
-                    try monitor.start()
-                    monitors[logicalDeviceID] = monitor
-                } catch {
-                    // ACK05 capture can still continue if one Generic HID is
-                    // unavailable. Surface the hardware error without destroying
-                    // the unified edit session.
-                    errorMessage = error.localizedDescription
-                }
-            }
-        } catch {
-            errorMessage = error.localizedDescription
+        // This is the existing ACK05 Shortcuts capture entry point. Its
+        // runtimeBridge.stop() call consumes the broker and switches Generic HID
+        // into capture mode without closing its exclusive IOHIDManager.
+        shortcutModel.beginCapture(for: entry)
+        if !shortcutModel.isCapturing {
+            GenericHIDShortcutCaptureBroker.shared.cancelPrepared()
+            finishCapture(shortcutModel: shortcutModel)
         }
     }
 
-    /// Call when ShortcutSettingsModel.isCapturing changes. ACK05 completion
-    /// happens inside ShortcutSettingsModel, so this closes any parallel Generic
-    /// HID monitors before restoring the runtime bridge.
+    /// ACK05 completion happens inside ShortcutSettingsModel. When its existing
+    /// capture session ends, the runtime bridge also leaves Generic HID capture
+    /// mode and resumes ACK05 without reopening Generic HID.
     func shortcutCaptureDidChange(
         isCapturing shortcutIsCapturing: Bool,
         shortcutModel: ShortcutSettingsModel
@@ -183,7 +142,7 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
 
     func cancelUnifiedCapture(shortcutModel: ShortcutSettingsModel) {
         finishingCapture = true
-        cancelGenericMonitors()
+        GenericHIDShortcutCaptureBroker.shared.cancelPrepared()
         if shortcutModel.isCapturing {
             shortcutModel.cancelCapture()
         }
@@ -230,6 +189,7 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
               let presetID = capturedPresetID
         else { return }
         finishingCapture = true
+
         do {
             try GenericHIDMappingStore.assign(
                 logicalDeviceID: logicalDeviceID,
@@ -242,11 +202,10 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
             errorMessage = error.localizedDescription
         }
 
-        cancelGenericMonitors()
+        // Existing cancelCapture tears down ACK05 capture and calls
+        // runtimeBridge.start(). The bridge recognizes the active unified
+        // capture and resumes ACK05 only; Generic HID stays continuously open.
         if shortcutModel.isCapturing {
-            // The bridge is intentionally disabled for the whole unified capture,
-            // so cancelCapture only tears down the ACK05 monitor here; it cannot
-            // race a runtime restart against the Generic HID release.
             shortcutModel.cancelCapture()
         }
         reload(shortcutModel: shortcutModel)
@@ -254,25 +213,13 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
     }
 
     private func finishCapture(shortcutModel: ShortcutSettingsModel) {
-        cancelGenericMonitors()
+        GenericHIDShortcutCaptureBroker.shared.cancelPrepared()
         capturedTarget = nil
         capturedPresetID = nil
         captureEntryID = nil
         captureMessage = nil
         isCapturing = false
         finishingCapture = false
-
-        if restoreBridgeAfterCapture {
-            restoreBridgeAfterCapture = false
-            shortcutModel.setBridgeEnabled(true)
-        }
-    }
-
-    private func cancelGenericMonitors() {
-        for monitor in monitors.values {
-            monitor.stop()
-        }
-        monitors = [:]
     }
 
     private func target(for entry: RekordboxShortcutEntry) -> ActionTarget {
