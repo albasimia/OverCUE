@@ -25,6 +25,7 @@ final class OverCUECLIRuntime {
 
     private var process: Process?
     private let genericHIDRuntime = GenericHIDRuntimeCoordinator()
+    private let genericHIDNativeEventSuppressor = GenericHIDNativeEventSuppressor()
     private var isShortcutCaptureActive = false
     private var genericRuntimeStartedForCapture = false
     private(set) var status: Status = .stopped {
@@ -34,7 +35,7 @@ final class OverCUECLIRuntime {
     func start(mode: RekordboxMappingMode, group: Int) {
         // Existing ShortcutSettingsModel resumes runtime by calling start().
         // If this was a unified capture, resume only ACK05 and leave the same
-        // Generic HID exclusive owner alive instead of close/reopen handoff.
+        // Generic HID runtime / native-event suppressor alive.
         if isShortcutCaptureActive {
             endShortcutCapture(mode: mode, group: group, resumeRuntime: true)
             return
@@ -45,11 +46,13 @@ final class OverCUECLIRuntime {
 
         do {
             try startACK05Process(mode: mode, group: group)
+            try genericHIDNativeEventSuppressor.start()
             try startGenericHIDRuntimeWithHandoffRetry()
             status = .running
         } catch {
             stopACK05Process()
             genericHIDRuntime.stop()
+            genericHIDNativeEventSuppressor.stop()
             status = .failed(error.localizedDescription)
         }
     }
@@ -63,6 +66,9 @@ final class OverCUECLIRuntime {
         }
 
         genericRuntimeStartedForCapture = !genericHIDRuntime.isRunning
+        if !genericHIDNativeEventSuppressor.isRunning {
+            try genericHIDNativeEventSuppressor.start()
+        }
         if genericRuntimeStartedForCapture {
             try startGenericHIDRuntimeWithHandoffRetry()
         }
@@ -81,6 +87,7 @@ final class OverCUECLIRuntime {
         guard isShortcutCaptureActive else {
             if !resumeRuntime, genericRuntimeStartedForCapture {
                 genericHIDRuntime.stop()
+                genericHIDNativeEventSuppressor.stop()
                 genericRuntimeStartedForCapture = false
             }
             return
@@ -91,9 +98,8 @@ final class OverCUECLIRuntime {
 
         guard resumeRuntime else {
             stopACK05Process()
-            if genericRuntimeStartedForCapture {
-                genericHIDRuntime.stop()
-            }
+            genericHIDRuntime.stop()
+            genericHIDNativeEventSuppressor.stop()
             genericRuntimeStartedForCapture = false
             status = .stopped
             return
@@ -101,12 +107,16 @@ final class OverCUECLIRuntime {
 
         genericRuntimeStartedForCapture = false
         do {
+            if !genericHIDNativeEventSuppressor.isRunning {
+                try genericHIDNativeEventSuppressor.start()
+            }
             if process == nil {
                 try startACK05Process(mode: mode, group: group)
             }
             status = .running
         } catch {
             genericHIDRuntime.stop()
+            genericHIDNativeEventSuppressor.stop()
             status = .failed(error.localizedDescription)
         }
     }
@@ -156,6 +166,7 @@ final class OverCUECLIRuntime {
                 self.process = nil
                 guard !self.isShortcutCaptureActive else { return }
                 self.genericHIDRuntime.stop()
+                self.genericHIDNativeEventSuppressor.stop()
                 if exitStatus == 0 {
                     self.status = .stopped
                 } else {
@@ -200,10 +211,13 @@ final class OverCUECLIRuntime {
     func stop() {
         // Shortcuts prepares this one-shot handoff immediately before its
         // existing beginCapture() calls runtimeBridge.stop(). Consume it here:
-        // stop ACK05 only and keep Generic HID open in capture mode.
+        // stop ACK05 only and keep Generic HID capture + event suppression alive.
         if let handler = GenericHIDShortcutCaptureBroker.shared.takePreparedHandler() {
             do {
                 genericRuntimeStartedForCapture = !genericHIDRuntime.isRunning
+                if !genericHIDNativeEventSuppressor.isRunning {
+                    try genericHIDNativeEventSuppressor.start()
+                }
                 if genericRuntimeStartedForCapture {
                     try startGenericHIDRuntimeWithHandoffRetry()
                 }
@@ -215,6 +229,7 @@ final class OverCUECLIRuntime {
                 genericRuntimeStartedForCapture = false
                 isShortcutCaptureActive = false
                 genericHIDRuntime.stop()
+                genericHIDNativeEventSuppressor.stop()
                 stopACK05Process()
                 status = .failed(error.localizedDescription)
             }
@@ -225,6 +240,7 @@ final class OverCUECLIRuntime {
         genericRuntimeStartedForCapture = false
         genericHIDRuntime.endCapture()
         genericHIDRuntime.stop()
+        genericHIDNativeEventSuppressor.stop()
         stopACK05Process()
         status = .stopped
     }
