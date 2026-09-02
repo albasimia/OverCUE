@@ -9,8 +9,6 @@ struct GenericHIDMappingSection: View {
     @State private var showActionPicker = false
     @State private var actionSearch = ""
     @State private var restoreBridgeAfterLearn = false
-    @State private var pendingLearnTask: Task<Void, Never>?
-    @State private var pendingRuntimeRestoreTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -38,7 +36,7 @@ struct GenericHIDMappingSection: View {
                     Label(localization.text("genericHID.learn"), systemImage: "waveform.badge.plus")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(model.isLearning || pendingLearnTask != nil || model.selectedPresetID == nil)
+                .disabled(model.isLearning || model.selectedPresetID == nil)
             }
 
             if model.rows.isEmpty {
@@ -65,7 +63,7 @@ struct GenericHIDMappingSection: View {
                             }
                             .buttonStyle(.borderless)
                             .help(localization.text("genericHID.remove"))
-                            .disabled(model.isLearning || pendingLearnTask != nil)
+                            .disabled(model.isLearning)
                         }
                         .padding(.vertical, 9)
                         if row.id != model.rows.last?.id {
@@ -75,7 +73,7 @@ struct GenericHIDMappingSection: View {
                 }
             }
 
-            if pendingLearnTask != nil || model.isLearning {
+            if model.isLearning {
                 HStack(spacing: 10) {
                     ProgressView()
                         .controlSize(.small)
@@ -83,10 +81,8 @@ struct GenericHIDMappingSection: View {
                         .font(.subheadline.weight(.medium))
                     Spacer()
                     Button(localization.text("common.cancel")) {
-                        pendingLearnTask?.cancel()
-                        pendingLearnTask = nil
                         model.cancelLearn()
-                        scheduleRuntimeRestoreIfNeeded()
+                        restoreRuntimeIfNeeded()
                     }
                     .buttonStyle(.bordered)
                 }
@@ -110,21 +106,17 @@ struct GenericHIDMappingSection: View {
             model.configure(device: device)
         }
         .onChange(of: device.id) { _ in
-            pendingLearnTask?.cancel()
-            pendingLearnTask = nil
             model.cancelLearn()
-            scheduleRuntimeRestoreIfNeeded()
+            restoreRuntimeIfNeeded()
             model.configure(device: device)
         }
         .onChange(of: model.isLearning) { learning in
-            guard !learning, pendingLearnTask == nil else { return }
-            scheduleRuntimeRestoreIfNeeded()
+            guard !learning else { return }
+            restoreRuntimeIfNeeded()
         }
         .onDisappear {
-            pendingLearnTask?.cancel()
-            pendingLearnTask = nil
             model.cancelLearn()
-            scheduleRuntimeRestoreIfNeeded()
+            restoreRuntimeIfNeeded()
         }
         .sheet(isPresented: $showActionPicker) {
             actionPicker
@@ -193,48 +185,24 @@ struct GenericHIDMappingSection: View {
     }
 
     private func beginLearn(_ choice: GenericHIDActionChoice) {
-        pendingLearnTask?.cancel()
-        pendingRuntimeRestoreTask?.cancel()
-        pendingRuntimeRestoreTask = nil
-
-        // Preserve the original runtime-enabled state across rapid consecutive
-        // Learn operations. A pending restore means runtime was enabled before
-        // the previous Learn even though it is currently stopped.
-        restoreBridgeAfterLearn = restoreBridgeAfterLearn || shortcutModel.isBridgeEnabled
-        if shortcutModel.isBridgeEnabled {
+        // Use the same lifecycle as the Shortcuts capture flow: stop the normal
+        // runtime, let one capture monitor own the HID, then restore runtime when
+        // capture ends. Kernel-level handoff latency is handled by the HID open
+        // retry layer, not by arbitrary UI sleeps.
+        restoreBridgeAfterLearn = shortcutModel.isBridgeEnabled
+        if restoreBridgeAfterLearn {
             shortcutModel.setBridgeEnabled(false)
         }
-
-        // Normal runtime seizes the bound Generic HID so native keyboard /
-        // Consumer Control events do not leak to macOS. Give that exclusive
-        // claim time to drain before Learn seizes the same Physical Device.
-        pendingLearnTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 450_000_000)
-            guard !Task.isCancelled else { return }
-            pendingLearnTask = nil
-            do {
-                try model.beginLearn(target: choice.target)
-            } catch {
-                scheduleRuntimeRestoreIfNeeded()
-            }
+        do {
+            try model.beginLearn(target: choice.target)
+        } catch {
+            restoreRuntimeIfNeeded()
         }
     }
 
-    private func scheduleRuntimeRestoreIfNeeded() {
+    private func restoreRuntimeIfNeeded() {
         guard restoreBridgeAfterLearn else { return }
-        pendingRuntimeRestoreTask?.cancel()
-
-        // Learn itself also uses kIOHIDOptionsTypeSeizeDevice. Its close can
-        // remain visible as ExclusiveAccess for a short time in the kernel, so
-        // do not immediately let the normal runtime seize the device again.
-        pendingRuntimeRestoreTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 550_000_000)
-            guard !Task.isCancelled else { return }
-            pendingRuntimeRestoreTask = nil
-            guard !model.isLearning, pendingLearnTask == nil else { return }
-            guard restoreBridgeAfterLearn else { return }
-            restoreBridgeAfterLearn = false
-            shortcutModel.setBridgeEnabled(true)
-        }
+        restoreBridgeAfterLearn = false
+        shortcutModel.setBridgeEnabled(true)
     }
 }
