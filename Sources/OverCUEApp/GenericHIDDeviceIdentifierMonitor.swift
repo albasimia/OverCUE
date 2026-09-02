@@ -13,6 +13,9 @@ enum GenericHIDDeviceIdentifierMonitorError: @preconcurrency LocalizedError {
     @MainActor var errorDescription: String? {
         switch self {
         case let .openFailed(status):
+            if status == kIOReturnNotPrivileged || status == kIOReturnNotPermitted {
+                return L10n.text("cli.inputPermission")
+            }
             return L10n.text(
                 "devices.identify.openFailed",
                 String(format: "0x%08X", UInt32(bitPattern: status))
@@ -93,6 +96,7 @@ final class GenericHIDDeviceIdentifierMonitor: @unchecked Sendable {
         groups = [:]
         groupKeyByInterfaceID = [:]
         didIdentify = false
+        publishDevices()
     }
 
     fileprivate func didMatch(device: IOHIDDevice, result: IOReturn) {
@@ -104,194 +108,157 @@ final class GenericHIDDeviceIdentifierMonitor: @unchecked Sendable {
     fileprivate func didRemove(device: IOHIDDevice, result: IOReturn) {
         guard result == kIOReturnSuccess else { return }
         let interfaceID = interfaceIdentifier(device)
-        guard let groupKey = groupKeyByInterfaceID.removeValue(forKey: interfaceID),
-              var group = groups[groupKey]
+        guard let key = groupKeyByInterfaceID.removeValue(forKey: interfaceID),
+              var group = groups[key]
         else { return }
-
         group.interfaceIDs.remove(interfaceID)
         if group.interfaceIDs.isEmpty {
-            groups.removeValue(forKey: groupKey)
+            groups.removeValue(forKey: key)
         } else {
-            groups[groupKey] = group
+            groups[key] = group
         }
         publishDevices()
     }
 
     fileprivate func didReceiveValue(result: IOReturn, value: IOHIDValue) {
         guard result == kIOReturnSuccess, !didIdentify else { return }
-
         let element = IOHIDValueGetElement(value)
         let device = IOHIDElementGetDevice(element)
         guard let descriptor = registerInterface(device) else { return }
-
-        let reportID = UInt32(IOHIDElementGetReportID(element))
-        let input = GenericHIDInputDescriptor(
-            usagePage: IOHIDElementGetUsagePage(element),
-            usage: IOHIDElementGetUsage(element),
-            reportID: reportID == 0 ? nil : reportID,
-            collectionPath: collectionPath(for: element)
-        )
-        let runtimeElement = GenericHIDRuntimeElementDescriptor(
-            input: input,
-            cookie: UInt64(IOHIDElementGetCookie(element)),
-            isRelative: IOHIDElementIsRelative(element),
-            matchingElementCount: matchingElementCount(for: element, input: input)
-        )
-        guard runtimeElement.persistentInput != nil,
-              let event = GenericHIDEventNormalizer.normalize(
-                  GenericHIDRawValue(
-                      sessionDeviceID: descriptor.sessionIdentifier,
-                      element: runtimeElement,
-                      value: IOHIDValueGetIntegerValue(value)
-                  )
-              )
-        else { return }
-
-        switch event.phase {
-        case .pressed:
-            identify(descriptor)
-        case let .relative(delta) where delta != 0:
-            identify(descriptor)
-        case .relative, .released, .absolute:
-            break
-        }
-    }
-
-    private func identify(_ descriptor: HIDPhysicalDeviceDescriptor) {
-        guard !didIdentify else { return }
+        let integerValue = IOHIDValueGetIntegerValue(value)
+        guard shouldTreatAsIdentificationInput(element: element, value: integerValue) else { return }
         didIdentify = true
         onIdentified?(descriptor, connectedDevices)
     }
 
-    private func publishDevices() {
-        onDevicesChanged?(connectedDevices)
-    }
-
     private var connectedDevices: [HIDPhysicalDeviceDescriptor] {
-        groups.values
-            .map(\.representative)
-            .sorted { $0.sessionIdentifier < $1.sessionIdentifier }
+        groups.values.map(\.representative).sorted { lhs, rhs in
+            if lhs.displayName != rhs.displayName {
+                return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
+            }
+            return lhs.sessionIdentifier < rhs.sessionIdentifier
+        }
     }
 
     @discardableResult
     private func registerInterface(_ device: IOHIDDevice) -> HIDPhysicalDeviceDescriptor? {
-        guard let rawDescriptor = candidateDescriptor(for: device),
-              let persistentIdentifier = rawDescriptor.persistentIdentifier
+        guard let descriptor = descriptor(for: device),
+              let persistentIdentifier = descriptor.persistentIdentifier
         else { return nil }
-
-        let interfaceID = interfaceIdentifier(device)
-        if let existingKey = groupKeyByInterfaceID[interfaceID],
-           let existing = groups[existingKey] {
-            return existing.representative
-        }
-
-        let groupKey = LiveGroupKey(
+        let key = LiveGroupKey(
             persistentIdentifier: persistentIdentifier,
-            connectionQualifier: connectionQualifier(
-                descriptor: rawDescriptor,
-                interfaceID: interfaceID
-            )
+            connectionQualifier: connectionQualifier(for: descriptor)
         )
-        groupKeyByInterfaceID[interfaceID] = groupKey
-
-        if var group = groups[groupKey] {
+        let interfaceID = interfaceIdentifier(device)
+        if var group = groups[key] {
             group.interfaceIDs.insert(interfaceID)
-            groups[groupKey] = group
-            return group.representative
+            groups[key] = group
+        } else {
+            groups[key] = LiveGroup(
+                representative: descriptor,
+                interfaceIDs: [interfaceID]
+            )
         }
-
-        groups[groupKey] = LiveGroup(
-            representative: rawDescriptor,
-            interfaceIDs: [interfaceID]
-        )
-        return rawDescriptor
+        groupKeyByInterfaceID[interfaceID] = key
+        return groups[key]?.representative
     }
 
-    private func candidateDescriptor(for device: IOHIDDevice) -> HIDPhysicalDeviceDescriptor? {
-        let vendorID = propertyNumber(device, kIOHIDVendorIDKey)?.intValue ?? 0
-        let productID = propertyNumber(device, kIOHIDProductIDKey)?.intValue ?? 0
-        guard vendorID != 0,
-              productID != 0,
-              !(vendorID == GenericHIDDeviceIdentifierHardware.ack05VendorID
-                  && productID == GenericHIDDeviceIdentifierHardware.ack05ProductID),
-              let serialNumber = (property(device, kIOHIDSerialNumberKey) as? String)?
-                  .trimmingCharacters(in: .whitespacesAndNewlines),
-              !serialNumber.isEmpty
-        else { return nil }
-
+    private func descriptor(for device: IOHIDDevice) -> HIDPhysicalDeviceDescriptor? {
+        let vendorID = (IOHIDDeviceGetProperty(
+            device,
+            kIOHIDVendorIDKey as CFString
+        ) as? NSNumber)?.intValue ?? 0
+        let productID = (IOHIDDeviceGetProperty(
+            device,
+            kIOHIDProductIDKey as CFString
+        ) as? NSNumber)?.intValue ?? 0
+        guard vendorID > 0, productID > 0 else { return nil }
+        if vendorID == GenericHIDDeviceIdentifierHardware.ack05VendorID,
+           productID == GenericHIDDeviceIdentifierHardware.ack05ProductID {
+            return nil
+        }
+        let serialNumber = (IOHIDDeviceGetProperty(
+            device,
+            kIOHIDSerialNumberKey as CFString
+        ) as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let serialNumber, !serialNumber.isEmpty else { return nil }
+        let productName = IOHIDDeviceGetProperty(
+            device,
+            kIOHIDProductKey as CFString
+        ) as? String
+        let manufacturerName = IOHIDDeviceGetProperty(
+            device,
+            kIOHIDManufacturerKey as CFString
+        ) as? String
+        let transport = IOHIDDeviceGetProperty(
+            device,
+            kIOHIDTransportKey as CFString
+        ) as? String
+        let locationID = (IOHIDDeviceGetProperty(
+            device,
+            kIOHIDLocationIDKey as CFString
+        ) as? NSNumber)?.uint32Value
         return HIDPhysicalDeviceDescriptor(
             kind: .genericHID,
             vendorID: vendorID,
             productID: productID,
             serialNumber: serialNumber,
-            productName: property(device, kIOHIDProductKey) as? String,
-            manufacturerName: property(device, kIOHIDManufacturerKey) as? String,
-            transport: property(device, kIOHIDTransportKey) as? String,
-            locationID: propertyNumber(device, kIOHIDLocationIDKey)?.uint32Value,
-            transportIdentifier: String(interfaceIdentifier(device), radix: 16)
+            productName: productName,
+            manufacturerName: manufacturerName,
+            transport: transport,
+            locationID: locationID,
+            transportIdentifier: runtimeAttachmentIdentifier(
+                vendorID: vendorID,
+                productID: productID,
+                serialNumber: serialNumber,
+                locationID: locationID
+            )
         )
     }
 
-    private func connectionQualifier(
-        descriptor: HIDPhysicalDeviceDescriptor,
-        interfaceID: UInt
+    private func runtimeAttachmentIdentifier(
+        vendorID: Int,
+        productID: Int,
+        serialNumber: String,
+        locationID: UInt32?
     ) -> String {
-        if let locationID = descriptor.locationID, locationID != 0 {
+        let location = locationID.map { String(format: "%08X", $0) } ?? "unknown"
+        return String(format: "%04X:%04X:%@:%@", vendorID, productID, serialNumber, location)
+    }
+
+    private func connectionQualifier(for descriptor: HIDPhysicalDeviceDescriptor) -> String {
+        if let locationID = descriptor.locationID {
             return String(format: "location:%08X", locationID)
         }
-        // Without topology evidence, do not collapse multiple IOHID interfaces
-        // only because they report the same serial. Keeping them separate makes
-        // duplicate persistent identities fail closed as ambiguous.
-        return "interface:\(String(interfaceID, radix: 16))"
+        return "session:\(descriptor.transportIdentifier)"
     }
 
     private func interfaceIdentifier(_ device: IOHIDDevice) -> UInt {
         UInt(bitPattern: Unmanaged.passUnretained(device).toOpaque())
     }
 
-    private func collectionPath(for element: IOHIDElement) -> [HIDUsage] {
-        var path: [HIDUsage] = []
-        var parent = IOHIDElementGetParent(element)
-        while let current = parent {
-            path.append(
-                HIDUsage(
-                    page: IOHIDElementGetUsagePage(current),
-                    usage: IOHIDElementGetUsage(current)
-                )
-            )
-            parent = IOHIDElementGetParent(current)
+    private func publishDevices() {
+        onDevicesChanged?(connectedDevices)
+    }
+
+    private func shouldTreatAsIdentificationInput(
+        element: IOHIDElement,
+        value: CFIndex
+    ) -> Bool {
+        let type = IOHIDElementGetType(element)
+        switch type {
+        case kIOHIDElementTypeInput_Button,
+             kIOHIDElementTypeInput_Misc,
+             kIOHIDElementTypeInput_Axis,
+             kIOHIDElementTypeInput_ScanCodes:
+            break
+        default:
+            return false
         }
-        return path.reversed()
-    }
-
-    private func matchingElementCount(
-        for element: IOHIDElement,
-        input: GenericHIDInputDescriptor
-    ) -> Int? {
-        let device = IOHIDElementGetDevice(element)
-        guard let elements = IOHIDDeviceCopyMatchingElements(
-            device,
-            nil,
-            IOOptionBits(kIOHIDOptionsTypeNone)
-        ) as? [IOHIDElement] else { return nil }
-
-        return elements.filter { candidate in
-            let reportID = UInt32(IOHIDElementGetReportID(candidate))
-            return GenericHIDInputDescriptor(
-                usagePage: IOHIDElementGetUsagePage(candidate),
-                usage: IOHIDElementGetUsage(candidate),
-                reportID: reportID == 0 ? nil : reportID,
-                collectionPath: collectionPath(for: candidate)
-            ) == input
-        }.count
-    }
-
-    private func property(_ device: IOHIDDevice, _ key: String) -> Any? {
-        IOHIDDeviceGetProperty(device, key as CFString)
-    }
-
-    private func propertyNumber(_ device: IOHIDDevice, _ key: String) -> NSNumber? {
-        property(device, key) as? NSNumber
+        if IOHIDElementIsRelative(element) {
+            return value != 0
+        }
+        return value != 0
     }
 }
 
@@ -302,7 +269,8 @@ private func genericIdentifyDeviceMatched(
     device: IOHIDDevice
 ) {
     guard let context else { return }
-    Unmanaged<GenericHIDDeviceIdentifierMonitor>.fromOpaque(context).takeUnretainedValue()
+    Unmanaged<GenericHIDDeviceIdentifierMonitor>.fromOpaque(context)
+        .takeUnretainedValue()
         .didMatch(device: device, result: result)
 }
 
@@ -313,7 +281,8 @@ private func genericIdentifyDeviceRemoved(
     device: IOHIDDevice
 ) {
     guard let context else { return }
-    Unmanaged<GenericHIDDeviceIdentifierMonitor>.fromOpaque(context).takeUnretainedValue()
+    Unmanaged<GenericHIDDeviceIdentifierMonitor>.fromOpaque(context)
+        .takeUnretainedValue()
         .didRemove(device: device, result: result)
 }
 
@@ -324,6 +293,7 @@ private func genericIdentifyInputValueReceived(
     value: IOHIDValue
 ) {
     guard let context else { return }
-    Unmanaged<GenericHIDDeviceIdentifierMonitor>.fromOpaque(context).takeUnretainedValue()
+    Unmanaged<GenericHIDDeviceIdentifierMonitor>.fromOpaque(context)
+        .takeUnretainedValue()
         .didReceiveValue(result: result, value: value)
 }
