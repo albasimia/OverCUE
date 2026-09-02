@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ShortcutListView: View {
     @ObservedObject var model: ShortcutSettingsModel
+    @StateObject private var genericHIDModel = GenericHIDShortcutCaptureModel()
     @EnvironmentObject private var localization: AppLocalization
     @State private var expandedCategories: Set<RekordboxShortcutCategory> = [.deck1]
     @State private var isOverCUEExpanded = true
@@ -17,6 +18,21 @@ struct ShortcutListView: View {
             shortcutList
         }
         .padding(28)
+        .onAppear {
+            genericHIDModel.reload(shortcutModel: model)
+        }
+        .onChange(of: model.selectedGroup) { _ in
+            if genericHIDModel.isCapturing {
+                genericHIDModel.cancelUnifiedCapture(shortcutModel: model)
+            }
+            genericHIDModel.reload(shortcutModel: model)
+        }
+        .onChange(of: model.isCapturing) { capturing in
+            genericHIDModel.shortcutCaptureDidChange(
+                isCapturing: capturing,
+                shortcutModel: model
+            )
+        }
         .onChange(of: model.selectedEntryID) { newValue in
             guard let newValue,
                   let entry = model.entries.first(where: { $0.id == newValue })
@@ -25,25 +41,40 @@ struct ShortcutListView: View {
             }
             expandedCategories.insert(.category(for: entry.commandID))
         }
+        .onDisappear {
+            if genericHIDModel.isCapturing {
+                genericHIDModel.cancelUnifiedCapture(shortcutModel: model)
+            }
+        }
     }
 
     @ViewBuilder
     private var captureStatus: some View {
-        if model.isCapturing, let message = model.captureMessage {
+        if model.isCapturing || genericHIDModel.isCapturing {
             HStack(spacing: 10) {
-                Image(systemName: model.isCapturing ? "keyboard.badge.ellipsis" : "checkmark.circle.fill")
+                Image(systemName: "keyboard.badge.ellipsis")
                     .foregroundStyle(.secondary)
-                Text(message)
+                Text(genericHIDModel.captureMessage ?? model.captureMessage ?? L10n.text("message.waitingInput"))
                     .font(.subheadline.weight(.medium))
                     .lineLimit(2)
                 Spacer()
-                Button(localization.text("common.cancel"), action: model.cancelCapture)
-                    .buttonStyle(.bordered)
+                Button(localization.text("common.cancel")) {
+                    if genericHIDModel.isCapturing {
+                        genericHIDModel.cancelUnifiedCapture(shortcutModel: model)
+                    } else {
+                        model.cancelCapture()
+                    }
+                }
+                .buttonStyle(.bordered)
             }
             .padding(.horizontal, 13)
             .frame(minHeight: 42)
             .background(Color.secondary.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        } else if let error = genericHIDModel.errorMessage {
+            Label(error, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.red)
         }
     }
 
@@ -78,7 +109,10 @@ struct ShortcutListView: View {
                     .frame(width: 230)
                 }
 
-                Button(action: model.reloadAndRestartBridge) {
+                Button {
+                    model.reloadAndRestartBridge()
+                    genericHIDModel.reload(shortcutModel: model)
+                } label: {
                     Label(localization.text("shortcuts.reload"), systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.bordered)
@@ -262,8 +296,8 @@ struct ShortcutListView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(localization.text("shortcuts.column.rekordbox"))
                 .frame(width: 150, alignment: .leading)
-            Text(localization.text("shortcuts.column.ack05"))
-                .frame(width: 190, alignment: .leading)
+            Text("INPUT")
+                .frame(width: 270, alignment: .leading)
         }
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
@@ -273,9 +307,12 @@ struct ShortcutListView: View {
     }
 
     private func shortcutRow(_ entry: RekordboxShortcutEntry) -> some View {
+        let ack05Configured = model.isConfigured(entry)
+        let genericConfigured = genericHIDModel.isConfigured(entry)
+        let configured = ack05Configured || genericConfigured
+        let labels = (model.bindingLabels(for: entry) + genericHIDModel.labels(for: entry))
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         let selected = model.selectedEntryID == entry.id
-        let configured = model.isConfigured(entry)
-        let labels = model.bindingLabels(for: entry)
 
         return HStack(spacing: 16) {
             Button {
@@ -312,27 +349,39 @@ struct ShortcutListView: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 } else {
-                    ForEach(labels, id: \.self) { label in
-                        Text(label)
-                            .font(.caption.monospaced().weight(.semibold))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .background(Color.accentColor.opacity(0.18))
-                            .clipShape(Capsule())
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(labels, id: \.self) { label in
+                            Text(label)
+                                .font(.caption.monospaced().weight(.semibold))
+                                .lineLimit(1)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(Color.accentColor.opacity(0.18))
+                                .clipShape(Capsule())
+                        }
                     }
                 }
                 Spacer(minLength: 0)
                 Button {
-                    model.beginCapture(for: entry)
+                    genericHIDModel.beginUnifiedCapture(for: entry, shortcutModel: model)
                 } label: {
-                    Image(systemName: model.editingEntryID == entry.id ? "keyboard.badge.ellipsis" : "square.and.pencil")
-                        .foregroundStyle(model.editingEntryID == entry.id ? Color.orange : Color.accentColor)
+                    Image(systemName:
+                        genericHIDModel.captureEntryID == entry.id || model.editingEntryID == entry.id
+                            ? "keyboard.badge.ellipsis"
+                            : "square.and.pencil")
+                        .foregroundStyle(
+                            genericHIDModel.captureEntryID == entry.id || model.editingEntryID == entry.id
+                                ? Color.orange
+                                : Color.accentColor
+                        )
                 }
                 .buttonStyle(.plain)
                 .help(localization.text("shortcuts.edit.help"))
 
                 Button {
+                    genericHIDModel.removeBindings(for: entry, shortcutModel: model)
                     model.removeBindings(for: entry)
+                    genericHIDModel.reload(shortcutModel: model)
                 } label: {
                     Image(systemName: "trash")
                         .foregroundStyle(configured ? Color.red : Color.secondary.opacity(0.35))
@@ -341,10 +390,11 @@ struct ShortcutListView: View {
                 .disabled(!configured)
                 .help(localization.text("shortcuts.remove.help"))
             }
-            .frame(width: 190, alignment: .leading)
+            .frame(width: 270, alignment: .leading)
         }
         .padding(.horizontal, 20)
-        .frame(height: 52)
+        .frame(minHeight: 52)
+        .padding(.vertical, labels.count > 1 ? 4 : 0)
         .contentShape(Rectangle())
         .background {
             if selected {
