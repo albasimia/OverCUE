@@ -263,6 +263,15 @@ struct DevicesView: View {
                         }
                     }
 
+                    if device.binding?.kind == .genericHID {
+                        detailSection(localization.text("genericHID.section")) {
+                            GenericHIDMappingSection(
+                                device: device,
+                                shortcutModel: shortcutModel
+                            )
+                        }
+                    }
+
                     detailSection(localization.text("groupPreset.title")) {
                         GroupPresetDeviceAssignmentView(
                             model: groupPresetModel,
