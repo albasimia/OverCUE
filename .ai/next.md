@@ -2,7 +2,7 @@
 
 ## 現在のフェーズ
 
-Preset / Shortcut Scope version 10に、ACK05複数台の実機証拠を反映したDevices UI、Preset管理、Group Presetを追加した。Group Preset専用画面をトップレベルへ追加し、全Logical Deviceのinclusion / Preset参照を一画面で編集できるようにした。GitHub connector経由の実装なので、現HEADのローカルbuild / test / verifyは未実施。
+Preset / Shortcut Scope version 10に、ACK05複数台の実機証拠を反映したDevices UI、Preset管理、Group Presetを追加した。Group Preset専用画面をトップレベルへ追加し、全Logical Deviceのinclusion / Preset参照を一画面で編集できるようにした。ACK05 USB接続については、Serial / PhysicalDeviceUniqueIDを取得できない実機に対し、USB topologyの`locationID`をSlot Identityとして使う実装を追加した。GitHub connector経由の実装なので、現HEADのローカルbuild / test / verifyは未実施。
 
 Group PresetはLogical Deviceごとに参照するPreset stable IDを保持する親設定とする。Group Preset切替時は接続中の各Logical Deviceへdevice-scoped runtime controlを送り、指定Presetを初期状態として適用する。以後のCycle Presetは各デバイスの一時runtime stateとして維持し、通常のstatus/config更新ではGroup Presetの初期値へ巻き戻さない。
 
@@ -16,7 +16,18 @@ Group PresetはLogical Deviceごとに参照するPreset stable IDを保持す�
 - [x] Serial Numberは2台とも取得不可。
 - [x] Bluetooth再ペアリング後はPhysicalDeviceUniqueID / locationID / DeviceAddressがすべて変化。
 
-Decision `20260901T234500-6f42c1`により、ACK05ではPhysicalDeviceUniqueIDをPairing Identityとして使用し、再ペアリング時はIdentify / Rebindする。
+Decision `20260901T234500-6f42c1`により、ACK05ではPhysicalDeviceUniqueIDをBLE Pairing Identityとして使用し、再ペアリング時はIdentify / Rebindする。
+
+## ACK05 USB 実機確認済み
+
+- [x] USB接続ではSerial Numberが空白、PhysicalDeviceUniqueID / DeviceAddressは取得不可。
+- [x] 1台のACK05が`usagePage=0x0001 / 0x000D / 0xFF0A`の3 IOHID interfaceとして見える。
+- [x] 3 interfaceは同一接続中に同じ`locationID`を共有する。
+- [x] 同じUSBハブの同じポートへ抜き差し後も`locationID=0x01140000`を維持。
+- [x] 同じUSBハブの別ポートへ移すと`0x01130000`→`0x01140000`のように`locationID`が変化。
+- [x] IORegistryの`Shortcut Remote@01140000`と`locationID=0x01140000`が一致。
+
+Decision `20260902T215700-ack05-usb-slot-identity`により、ACK05 USBでは`locationID`を物理個体IDではなくUSB Slot Identityとして使う。同じslotの3 IOHID interfaceは1 runtime sessionへ束ね、ポートを移した場合は別slotとして扱う。Generic HIDへは一般化しない。
 
 ## 今回実装したUI / 設定
 
@@ -38,6 +49,7 @@ Decision `20260901T234500-6f42c1`により、ACK05ではPhysicalDeviceUniqueID�
 - [x] Preset削除・Profile変更時にGroup Presetのdangling referenceを残さない。
 - [x] Group Preset assignmentをconfig 3-way merge対象に追加。
 - [x] Settings top-level画面。
+- [x] ACK05 USB Slot Identityと同一slot内3 interfaceのruntime session統合。
 
 ## 最優先: macOSローカル検証
 
@@ -56,6 +68,10 @@ Decision `20260901T234500-6f42c1`により、ACK05ではPhysicalDeviceUniqueID�
 - [ ] 通常の電源OFF / ONとMac再起動後に同じLogical Deviceへ復帰する。
 - [ ] Bluetooth再ペアリング後は旧Bindingへ自動復帰せず、Rebindで復旧する。
 - [ ] Identify中に通常runtimeとのIOHID exclusive access競合が起きない。
+- [ ] USB ACK05をDevices > Add ACK05で登録できる。
+- [ ] USB ACK05を同じhub portへ抜き差し後、同じLogical Deviceへ復帰する。
+- [ ] USB ACK05を別hub portへ移した場合は旧slot bindingへ自動一致しない。
+- [ ] USB ACK05の3 IOHID interfaceがUI / runtime上で1 Physical Deviceとして扱われる。
 - [ ] Presetを5個以上まで追加し、name selector / Cycle Presetが存在するPresetだけをorder順に巡回する。
 - [ ] Preset rename / delete後もstable ID選択とruntime controlが破綻しない。
 - [ ] Group Presetを複数作成し、ACK05ごとに異なるPresetを指定して一括切替できる。

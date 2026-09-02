@@ -1,12 +1,13 @@
 import Foundation
 
-/// ACK05-specific binding path backed by macOS PhysicalDeviceUniqueID.
+/// ACK05-specific binding path.
 ///
-/// The verified ACK05 units expose no serial number. PhysicalDeviceUniqueID is
-/// stable across controller power cycles and Mac restarts, but changes when the
-/// Bluetooth pairing is removed and recreated. Therefore this manager treats
-/// that value as a persistent pairing identity and intentionally requires
-/// Identify/Rebind after re-pairing.
+/// Verified BLE units expose no serial number, so PhysicalDeviceUniqueID is used
+/// as a pairing identity. Verified USB units expose neither a useful serial nor
+/// PhysicalDeviceUniqueID, so the stable USB topology location is used as a slot
+/// identity. A USB slot identifies the hub/port position rather than the physical
+/// ACK05 unit; moving the controller to another port intentionally requires a new
+/// binding for that slot.
 public enum ACK05PairedDeviceBindingManager {
     @discardableResult
     public static func rebind(
@@ -19,16 +20,16 @@ public enum ACK05PairedDeviceBindingManager {
             throw HIDDeviceBindingManagementError.unknownLogicalDevice(logicalDeviceID)
         }
         guard device.kind == .ack05,
-              let pairingIdentifier = device.ack05PairingIdentifier,
+              let bindingIdentifier = device.ack05BindingIdentifier,
               let persistentIdentifier = device.persistentIdentifier
         else {
             throw HIDDeviceBindingManagementError.missingPersistentIdentity(
                 device.sessionIdentifier
             )
         }
-        guard let connectedDevice = connectedDevices.first(where: {
+        guard connectedDevices.contains(where: {
             $0.sessionIdentifier == device.sessionIdentifier
-        }), connectedDevice == device else {
+        }) else {
             throw HIDDeviceBindingManagementError.deviceNotConnected(device.sessionIdentifier)
         }
 
@@ -64,7 +65,7 @@ public enum ACK05PairedDeviceBindingManager {
             productID: device.productID,
             serialNumber: device.serialNumber,
             lastKnownLocationID: device.locationID,
-            legacyDeviceIdentifier: pairingIdentifier
+            legacyDeviceIdentifier: bindingIdentifier
         )
         configuration.physicalDeviceBindings.append(binding)
         return binding

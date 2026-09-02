@@ -53,6 +53,24 @@ public struct HIDPhysicalDeviceDescriptor: Equatable, Sendable {
             .first
     }
 
+    /// The verified ACK05 USB descriptor exposes no useful serial number or
+    /// PhysicalDeviceUniqueID. Its IOHID interfaces share a non-zero locationID,
+    /// and that value survived disconnect/reconnect in the same hub port while
+    /// changing when the ACK05 moved to another port. Treat this as a USB *slot*
+    /// identity: it identifies the topology position, not the physical controller.
+    public var ack05USBSlotIdentifier: String? {
+        guard kind == .ack05,
+              transport?.caseInsensitiveCompare("USB") == .orderedSame,
+              let locationID,
+              locationID != 0
+        else { return nil }
+        return String(format: "usb-slot:%08X", locationID)
+    }
+
+    public var ack05BindingIdentifier: String? {
+        ack05PairingIdentifier ?? ack05USBSlotIdentifier
+    }
+
     public var persistentIdentifier: String? {
         if let serialNumber {
             return String(
@@ -72,16 +90,26 @@ public struct HIDPhysicalDeviceDescriptor: Equatable, Sendable {
                 pairingIdentifier
             )
         }
+        if let usbSlotIdentifier = ack05USBSlotIdentifier {
+            return String(
+                format: "%@:%04X:%04X:%@",
+                kind.rawValue,
+                vendorID,
+                productID,
+                usbSlotIdentifier
+            )
+        }
         return nil
     }
 
     public var sessionIdentifier: String {
-        String(
+        let runtimeIdentifier = ack05USBSlotIdentifier ?? transportIdentifier
+        return String(
             format: "%@:%04X:%04X:session:%@",
             kind.rawValue,
             vendorID,
             productID,
-            transportIdentifier
+            runtimeIdentifier
         )
     }
 }
@@ -137,6 +165,11 @@ public struct OverCUEPhysicalDeviceBinding: Codable, Equatable, Sendable {
 
         if let serialNumber {
             return serialNumber == device.serialNumber
+        }
+        if kind == .ack05,
+           let legacyDeviceIdentifier,
+           let bindingIdentifier = device.ack05BindingIdentifier {
+            return legacyDeviceIdentifier == bindingIdentifier
         }
         if let legacyDeviceIdentifier {
             guard !legacyDeviceIdentifier.lowercased().hasPrefix("location:") else {
