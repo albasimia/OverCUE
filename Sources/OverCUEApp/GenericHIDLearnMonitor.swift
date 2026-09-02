@@ -31,13 +31,16 @@ final class GenericHIDLearnMonitor: @unchecked Sendable {
     init(binding: OverCUEPhysicalDeviceBinding) {
         self.binding = binding
         manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-        IOHIDManagerSetDeviceMatching(
-            manager,
-            [
-                kIOHIDVendorIDKey as String: binding.vendorID,
-                kIOHIDProductIDKey as String: binding.productID,
-            ] as CFDictionary
-        )
+
+        var matching: [String: Any] = [
+            kIOHIDVendorIDKey as String: binding.vendorID,
+            kIOHIDProductIDKey as String: binding.productID,
+        ]
+        if let serialNumber = binding.serialNumber {
+            matching[kIOHIDSerialNumberKey as String] = serialNumber
+        }
+        IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
+
         let context = Unmanaged.passUnretained(self).toOpaque()
         IOHIDManagerRegisterInputValueCallback(manager, genericLearnInputValueReceived, context)
         IOHIDManagerScheduleWithRunLoop(
@@ -65,7 +68,11 @@ final class GenericHIDLearnMonitor: @unchecked Sendable {
         }
         learnSession.begin()
         didCapture = false
-        let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+
+        // Learn targets one already-bound Physical Device. Seize only that
+        // VID/PID/Serial match so its native keyboard / Consumer Control action
+        // cannot reach macOS before OverCUE captures the descriptor.
+        let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
         guard result == kIOReturnSuccess else {
             throw GenericHIDLearnMonitorError.openFailed(result)
         }
