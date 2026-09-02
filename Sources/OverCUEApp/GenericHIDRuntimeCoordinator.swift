@@ -87,8 +87,9 @@ private final class GenericHIDKeyboardOutput {
 }
 
 /// Runtime capture is exclusive only for Generic HID devices already bound in
-/// config. Identify/Learn remain shared-mode so ordinary keyboards are never
-/// globally seized by discovery.
+/// config. Shortcuts Learn reuses this same exclusive owner instead of closing
+/// the runtime and opening a second IOHIDManager, so composite devices never
+/// cross an exclusive handoff boundary during mapping edits.
 final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     private struct LiveGroupKey: Hashable {
         let persistentIdentifier: String
@@ -113,6 +114,11 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     private var genericMappingObserver: GenericHIDRuntimeObserverToken?
     private var runtimeControlObserver: GenericHIDRuntimeObserverToken?
     private var isOpen = false
+    private var isCaptureMode = false
+    private var captureSession = GenericHIDLearnSession()
+    private var captureHandler: ((String, GenericHIDInputBindingKey) -> Void)?
+
+    var isRunning: Bool { isOpen }
 
     init() {
         manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
@@ -148,7 +154,10 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         configureDeviceMatching()
         installObservers()
 
-        let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
+        let result = HIDManagerOpenRetry.open(
+            manager,
+            options: IOOptionBits(kIOHIDOptionsTypeSeizeDevice)
+        )
         guard result == kIOReturnSuccess else {
             removeObservers()
             throw GenericHIDDeviceIdentifierMonitorError.openFailed(result)
@@ -156,8 +165,34 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         isOpen = true
     }
 
+    func beginCapture(
+        onCaptured: @escaping (String, GenericHIDInputBindingKey) -> Void
+    ) {
+        keyboardOutput.releaseAll()
+        for state in statesBySessionID.values {
+            _ = state.resolver.reset(mapping: state.mapping)
+            stopRepeat(state)
+        }
+        captureSession.begin()
+        captureHandler = onCaptured
+        isCaptureMode = true
+    }
+
+    func endCapture() {
+        guard isCaptureMode || captureHandler != nil else { return }
+        captureHandler = nil
+        isCaptureMode = false
+        captureSession.cancel()
+        keyboardOutput.releaseAll()
+        for state in statesBySessionID.values {
+            _ = state.resolver.reset(mapping: state.mapping)
+            stopRepeat(state)
+        }
+    }
+
     func stop() {
         guard isOpen || configurationObserver != nil else { return }
+        endCapture()
         for state in statesBySessionID.values {
             publishRuntimeStatus(state, connected: false)
             stopRepeat(state)
@@ -233,6 +268,16 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
                   )
               )
         else { return }
+
+        if isCaptureMode {
+            guard let handler = captureHandler,
+                  case let .captured(candidate) = captureSession.observe(event),
+                  let bindingKey = candidate.persistentBindingKey
+            else { return }
+            captureHandler = nil
+            handler(state.logicalDeviceID, bindingKey)
+            return
+        }
 
         if case .released = event.phase { stopRepeat(state) }
         let events = state.resolver.resolve(event: event, mapping: state.mapping)
