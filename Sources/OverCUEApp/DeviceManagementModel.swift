@@ -26,7 +26,8 @@ private final class DeviceManagementObserverToken: @unchecked Sendable {
 final class DeviceManagementModel: ObservableObject {
     enum IdentifyPurpose: Equatable {
         case addACK05
-        case rebind(logicalDeviceID: String)
+        case addGenericHID
+        case rebind(logicalDeviceID: String, kind: HIDDeviceKind)
     }
 
     @Published private(set) var devices: [LogicalDeviceRow] = []
@@ -39,7 +40,8 @@ final class DeviceManagementModel: ObservableObject {
 
     private var configuration: OverCUEConfiguration = .defaultValue
     private var connectedLogicalDeviceIDs: Set<String> = []
-    private var monitor: ACK05DeviceIdentifierMonitor?
+    private var ack05Monitor: ACK05DeviceIdentifierMonitor?
+    private var genericHIDMonitor: GenericHIDDeviceIdentifierMonitor?
     private var configurationObserver: DeviceManagementObserverToken?
     private var runtimeObserver: DeviceManagementObserverToken?
 
@@ -77,7 +79,8 @@ final class DeviceManagementModel: ObservableObject {
     }
 
     deinit {
-        monitor?.stop()
+        ack05Monitor?.stop()
+        genericHIDMonitor?.stop()
         if let configurationObserver {
             DistributedNotificationCenter.default().removeObserver(configurationObserver.value)
         }
@@ -138,16 +141,29 @@ final class DeviceManagementModel: ObservableObject {
     }
 
     func beginAddACK05() throws {
-        try beginIdentify(.addACK05)
+        try beginIdentify(.addACK05, kind: .ack05)
     }
 
-    func beginRebind(logicalDeviceID: String) throws {
-        try beginIdentify(.rebind(logicalDeviceID: logicalDeviceID))
+    func beginAddGenericHID() throws {
+        try beginIdentify(.addGenericHID, kind: .genericHID)
+    }
+
+    func beginRebind(
+        logicalDeviceID: String,
+        kind requestedKind: HIDDeviceKind? = nil
+    ) throws {
+        let currentKind = configuration.physicalDeviceBindings.first {
+            $0.logicalDeviceID == logicalDeviceID
+        }?.kind
+        let kind = requestedKind ?? currentKind ?? .ack05
+        try beginIdentify(
+            .rebind(logicalDeviceID: logicalDeviceID, kind: kind),
+            kind: kind
+        )
     }
 
     func cancelIdentify() {
-        monitor?.stop()
-        monitor = nil
+        stopIdentifierMonitors()
         identifyPurpose = nil
         identifyCandidateCount = 0
         statusMessage = nil
@@ -228,17 +244,19 @@ final class DeviceManagementModel: ObservableObject {
         reload()
     }
 
-    private func beginIdentify(_ purpose: IdentifyPurpose) throws {
+    private func beginIdentify(_ purpose: IdentifyPurpose, kind: HIDDeviceKind) throws {
         cancelIdentify()
         errorMessage = nil
         statusMessage = L10n.text("devices.identify.prompt")
         identifyPurpose = purpose
 
-        let monitor = ACK05DeviceIdentifierMonitor()
-        monitor.onDevicesChanged = { [weak self] devices in
+        let devicesChanged: ([HIDPhysicalDeviceDescriptor]) -> Void = { [weak self] devices in
             Task { @MainActor in self?.identifyCandidateCount = devices.count }
         }
-        monitor.onIdentified = { [weak self] descriptor, connectedDevices in
+        let identified: (
+            HIDPhysicalDeviceDescriptor,
+            [HIDPhysicalDeviceDescriptor]
+        ) -> Void = { [weak self] descriptor, connectedDevices in
             Task { @MainActor in
                 self?.finishIdentify(
                     descriptor: descriptor,
@@ -246,10 +264,24 @@ final class DeviceManagementModel: ObservableObject {
                 )
             }
         }
+
         do {
-            try monitor.start()
-            self.monitor = monitor
+            switch kind {
+            case .ack05:
+                let monitor = ACK05DeviceIdentifierMonitor()
+                monitor.onDevicesChanged = devicesChanged
+                monitor.onIdentified = identified
+                try monitor.start()
+                ack05Monitor = monitor
+            case .genericHID:
+                let monitor = GenericHIDDeviceIdentifierMonitor()
+                monitor.onDevicesChanged = devicesChanged
+                monitor.onIdentified = identified
+                try monitor.start()
+                genericHIDMonitor = monitor
+            }
         } catch {
+            stopIdentifierMonitors()
             identifyPurpose = nil
             statusMessage = nil
             throw error
@@ -269,34 +301,52 @@ final class DeviceManagementModel: ObservableObject {
                     descriptor: descriptor,
                     connectedDevices: connectedDevices
                 )
-            case let .rebind(existingID):
+            case .addGenericHID:
+                logicalDeviceID = try registerGenericHID(
+                    descriptor: descriptor,
+                    connectedDevices: connectedDevices
+                )
+            case let .rebind(existingID, expectedKind):
+                guard descriptor.kind == expectedKind else {
+                    throw HIDDeviceBindingManagementError.missingPersistentIdentity(
+                        descriptor.sessionIdentifier
+                    )
+                }
                 logicalDeviceID = existingID
                 _ = try OverCUEConfigurationFileStore.updateCurrent(
                     at: OverCUEAppConfigurationLocation.url,
                     fallback: configuration
                 ) { latest in
-                    _ = try ACK05PairedDeviceBindingManager.rebind(
-                        logicalDeviceID: existingID,
-                        to: descriptor,
-                        among: connectedDevices,
-                        configuration: &latest
-                    )
+                    switch descriptor.kind {
+                    case .ack05:
+                        _ = try ACK05PairedDeviceBindingManager.rebind(
+                            logicalDeviceID: existingID,
+                            to: descriptor,
+                            among: connectedDevices,
+                            configuration: &latest
+                        )
+                    case .genericHID:
+                        _ = try HIDDeviceBindingManager.rebind(
+                            logicalDeviceID: existingID,
+                            to: descriptor,
+                            among: connectedDevices,
+                            configuration: &latest
+                        )
+                    }
                 }
                 OverCUEConfigurationChangedNotification.post()
             }
             selectedLogicalDeviceID = logicalDeviceID
             statusMessage = L10n.text("devices.identify.success")
             errorMessage = nil
-            monitor?.stop()
-            monitor = nil
+            stopIdentifierMonitors()
             identifyPurpose = nil
             identifyCandidateCount = 0
             reload()
         } catch {
             errorMessage = error.localizedDescription
             statusMessage = nil
-            monitor?.stop()
-            monitor = nil
+            stopIdentifierMonitors()
             identifyPurpose = nil
             identifyCandidateCount = 0
         }
@@ -347,6 +397,61 @@ final class DeviceManagementModel: ObservableObject {
         }
         OverCUEConfigurationChangedNotification.post()
         return createdID
+    }
+
+    private func registerGenericHID(
+        descriptor: HIDPhysicalDeviceDescriptor,
+        connectedDevices: [HIDPhysicalDeviceDescriptor]
+    ) throws -> String {
+        var createdID = ""
+        _ = try OverCUEConfigurationFileStore.updateCurrent(
+            at: OverCUEAppConfigurationLocation.url,
+            fallback: configuration
+        ) { latest in
+            let existingResolution = latest.bindingResolution(
+                for: descriptor,
+                among: connectedDevices
+            )
+            switch existingResolution {
+            case let .bound(logicalDeviceID):
+                createdID = logicalDeviceID
+                return
+            case let .ambiguous(logicalDeviceIDs):
+                throw HIDDeviceBindingManagementError.alreadyBound(
+                    logicalDeviceIDs: logicalDeviceIDs
+                )
+            case .unbound:
+                break
+            }
+
+            let ordinal = latest.physicalDeviceBindings.filter { $0.kind == .genericHID }.count + 1
+            let baseName = descriptor.productName ?? "Generic HID"
+            createdID = "logical-\(UUID().uuidString.lowercased())"
+            latest.logicalDevices[createdID] = OverCUELogicalDevice(
+                name: "\(baseName) \(ordinal)",
+                profileName: latest.defaultProfile
+            )
+            do {
+                _ = try HIDDeviceBindingManager.rebind(
+                    logicalDeviceID: createdID,
+                    to: descriptor,
+                    among: connectedDevices,
+                    configuration: &latest
+                )
+            } catch {
+                latest.logicalDevices.removeValue(forKey: createdID)
+                throw error
+            }
+        }
+        OverCUEConfigurationChangedNotification.post()
+        return createdID
+    }
+
+    private func stopIdentifierMonitors() {
+        ack05Monitor?.stop()
+        ack05Monitor = nil
+        genericHIDMonitor?.stop()
+        genericHIDMonitor = nil
     }
 
     private func applyRuntimeStatus(logicalDeviceID: String?, connected: Bool) {

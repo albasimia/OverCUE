@@ -2,7 +2,7 @@
 
 ## 現在のフェーズ
 
-Preset / Shortcut Scope version 10に、ACK05複数台の実機証拠を反映したDevices UI、Preset管理、Group Presetを追加した。Group Preset専用画面をトップレベルへ追加し、全Logical Deviceのinclusion / Preset参照を一画面で編集できるようにした。ACK05 USB接続については、Serial / PhysicalDeviceUniqueIDを取得できない実機に対し、USB topologyの`locationID`をSlot Identityとして使う実装を追加した。GitHub connector経由の実装なので、現HEADのローカルbuild / test / verifyは未実施。
+Preset / Shortcut Scope version 10に、ACK05複数台の実機証拠を反映したDevices UI、Preset管理、Group Presetを追加した。Group Preset専用画面をトップレベルへ追加し、全Logical Deviceのinclusion / Preset参照を一画面で編集できるようにした。ACK05 USB接続については、Serial / PhysicalDeviceUniqueIDを取得できない実機に対し、USB topologyの`locationID`をSlot Identityとして使う実装を追加した。Generic HIDについては`SDINNOVATION / SIDE-KEYBOARD`実機でSerialと全7入力descriptorを確認し、Serial Numberを持つGeneric HIDのDevices登録を有効化した。GitHub connector経由の実装なので、現HEADのローカルbuild / test / verifyは未実施。
 
 Group PresetはLogical Deviceごとに参照するPreset stable IDを保持する親設定とする。Group Preset切替時は接続中の各Logical Deviceへdevice-scoped runtime controlを送り、指定Presetを初期状態として適用する。以後のCycle Presetは各デバイスの一時runtime stateとして維持し、通常のstatus/config更新ではGroup Presetの初期値へ巻き戻さない。
 
@@ -29,14 +29,31 @@ Decision `20260901T234500-6f42c1`により、ACK05ではPhysicalDeviceUniqueID�
 
 Decision `20260902T215700-ack05-usb-slot-identity`により、ACK05 USBでは`locationID`を物理個体IDではなくUSB Slot Identityとして使う。同じslotの3 IOHID interfaceは1 runtime sessionへ束ね、ポートを移した場合は別slotとして扱う。Generic HIDへは一般化しない。
 
+## Generic HID 実機確認済み
+
+対象: `SDINNOVATION / SIDE-KEYBOARD`, VID `0x0816`, PID `0x246E`。
+
+- [x] Serial Number `3F8701678182`を取得。
+- [x] 1台が3 IOHID interfaceとして列挙され、3 interfaceでVID / PID / Serial / locationIDが一致。
+- [x] Key 1〜4: Keyboard page `0x0007`, usage `0x0059`〜`0x005C`, persistable=true。
+- [x] Knob Right: Consumer page `0x000C`, usage `0x00E9`, report 3, persistable=true。
+- [x] Knob Left: Consumer page `0x000C`, usage `0x00EA`, report 3, persistable=true。
+- [x] Knob Push: Consumer page `0x000C`, usage `0x00E2`, report 3, persistable=true。
+- [x] ノブはrelative deltaではなく、Right / Left / Pushが独立Consumer Control press/releaseとして取得される。
+
+Decision `20260902T231600-generic-hid-register`により、SerialをGeneric HID persistent identityとして使い、Identify中はpersistent identity + locationIDで同一live attachmentの複数interfaceを束ねる。locationID自体はpersistent identityへ昇格させず、同一Serialが別live attachmentに同時出現した場合はambiguityで拒否する。
+
 ## 今回実装したUI / 設定
 
 - [x] top navigation: Shortcuts / Devices / Group Preset / Settings。
 - [x] Shortcutsは既存2カラムを維持し、第3カラムを追加しない。
 - [x] Devices画面: Logical Device一覧 / detail。
 - [x] Add ACK05 / Identify / Rebind / Forget Binding。
+- [x] Add Generic HID / Serial binding / Generic HID Rebind。
+- [x] Generic HID Identifyで同一Serial + locationIDの複数interfaceを1 live Physical Device候補へ束ねる。
+- [x] Binding解除後はACK05 / Generic HIDのIdentify種別を明示して再登録できる。
 - [x] Logical Device rename / existing Profile assignment。
-- [x] Pairing IDとruntime connection状態表示。
+- [x] Physical IDとruntime connection状態表示。
 - [x] Identify中はACK05 runtimeを一時停止し、完了後に元の有効状態へ復帰。
 - [x] Preset Add / Rename / Delete。
 - [x] Preset上限24、opaque stable IDで追加。
@@ -81,9 +98,14 @@ Decision `20260902T215700-ack05-usb-slot-identity`により、ACK05 USBでは`lo
 
 ## Generic HID 実機ゲート
 
-- [ ] `overcue-probe --all`でKoolertron候補のVID / PID / Serial / Usage / Report ID / press-release / relative deltaを採取。
-- [ ] 同型Generic HID複数台のSerial有無と再接続時descriptor安定性を確認。
-- [ ] Generic HID identity証拠に基づいてDevicesのAdd Generic HID / Learnを有効化する。
+- [x] `overcue-probe --all`でSIDE-KEYBOARDのVID / PID / Serial / Usage / Report ID / press-release / persistabilityを採取。
+- [x] 4キー + Knob Right / Left / Pushのpersistent input descriptorを確認。
+- [x] Generic HID identity証拠に基づいてDevicesのAdd Generic HIDを有効化する。
+- [ ] Devices > Add Generic HIDでSIDE-KEYBOARDをLogical Deviceへ登録し、SerialがPhysical IDとして表示されることを確認。
+- [ ] 同じSIDE-KEYBOARDを抜き差しし、Serialが維持されることを確認。
+- [ ] 同型Generic HID複数台のSerialが個体ごとに異なるか確認。異ならない場合はambiguityで拒否されることを確認。
+- [ ] Generic HID Learn UIを有効化し、Key 1〜4 / Knob Right / Left / PushをそれぞれActionへ割り当てる。
+- [ ] Generic HID runtimeを既存Action Layerへ接続し、Group Preset / Logical Device scopeでACK05と同時使用する。
 
 ## その他
 

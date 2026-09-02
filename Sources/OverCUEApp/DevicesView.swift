@@ -75,13 +75,13 @@ struct DevicesView: View {
             .disabled(deviceModel.isIdentifying)
 
             Button {
-                operationError = L10n.text("devices.generic.pending")
+                beginIdentify { try deviceModel.beginAddGenericHID() }
             } label: {
                 Label(localization.text("devices.addGeneric"), systemImage: "plus.square.dashed")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
-            .help(localization.text("devices.generic.pending"))
+            .disabled(deviceModel.isIdentifying)
 
             if deviceModel.devices.isEmpty {
                 VStack(spacing: 12) {
@@ -202,7 +202,7 @@ struct DevicesView: View {
                             )
                             detailRow(
                                 localization.text("devices.hardware"),
-                                value: device.binding?.kind == .ack05 ? "ACK05" : localization.text("devices.binding.none")
+                                value: hardwareLabel(device)
                             )
                             detailRow(
                                 localization.text("devices.pairingId"),
@@ -278,23 +278,55 @@ struct DevicesView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
 
-                            HStack(spacing: 10) {
-                                Button {
-                                    beginIdentify {
-                                        try deviceModel.beginRebind(logicalDeviceID: device.id)
+                            if device.binding == nil {
+                                HStack(spacing: 10) {
+                                    Button {
+                                        beginIdentify {
+                                            try deviceModel.beginRebind(
+                                                logicalDeviceID: device.id,
+                                                kind: .ack05
+                                            )
+                                        }
+                                    } label: {
+                                        Label(
+                                            localization.text("devices.identify.ack05.action"),
+                                            systemImage: "scope"
+                                        )
                                     }
-                                } label: {
-                                    Label(
-                                        device.binding == nil
-                                            ? localization.text("devices.identify.action")
-                                            : localization.text("devices.rebind.action"),
-                                        systemImage: "scope"
-                                    )
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(deviceModel.isIdentifying)
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(deviceModel.isIdentifying)
 
-                                if device.binding != nil {
+                                    Button {
+                                        beginIdentify {
+                                            try deviceModel.beginRebind(
+                                                logicalDeviceID: device.id,
+                                                kind: .genericHID
+                                            )
+                                        }
+                                    } label: {
+                                        Label(
+                                            localization.text("devices.identify.generic.action"),
+                                            systemImage: "scope"
+                                        )
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(deviceModel.isIdentifying)
+                                }
+                            } else {
+                                HStack(spacing: 10) {
+                                    Button {
+                                        beginIdentify {
+                                            try deviceModel.beginRebind(logicalDeviceID: device.id)
+                                        }
+                                    } label: {
+                                        Label(
+                                            localization.text("devices.rebind.action"),
+                                            systemImage: "scope"
+                                        )
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(deviceModel.isIdentifying)
+
                                     Button(role: .destructive) {
                                         showForgetConfirmation = true
                                     } label: {
@@ -412,11 +444,29 @@ struct DevicesView: View {
         }
     }
 
+    private func hardwareLabel(_ device: LogicalDeviceRow) -> String {
+        switch device.binding?.kind {
+        case .ack05:
+            "ACK05"
+        case .genericHID:
+            "Generic HID"
+        case nil:
+            localization.text("devices.binding.none")
+        }
+    }
+
     private func pairingLabel(_ device: LogicalDeviceRow) -> String {
-        guard let pairingIdentifier = device.pairingIdentifier else {
+        guard let binding = device.binding else {
             return localization.text("devices.binding.none")
         }
-        return pairingIdentifier
+        switch binding.kind {
+        case .ack05:
+            return binding.serialNumber
+                ?? binding.legacyDeviceIdentifier
+                ?? localization.text("devices.binding.none")
+        case .genericHID:
+            return binding.serialNumber ?? localization.text("devices.binding.none")
+        }
     }
 
     private func syncNameDraft() {

@@ -69,6 +69,114 @@ final class GenericHIDReviewTests: XCTestCase {
         XCTAssertNil(pressedEvent.sourceID?.ack05Key)
     }
 
+    func testVerifiedMacroPadKeyboardAndConsumerControlsArePersistable() throws {
+        let inputs: [GenericHIDInputDescriptor] = [
+            GenericHIDInputDescriptor(usagePage: 0x07, usage: 0x59),
+            GenericHIDInputDescriptor(usagePage: 0x07, usage: 0x5A),
+            GenericHIDInputDescriptor(usagePage: 0x07, usage: 0x5B),
+            GenericHIDInputDescriptor(usagePage: 0x07, usage: 0x5C),
+            GenericHIDInputDescriptor(usagePage: 0x0C, usage: 0xE9, reportID: 3),
+            GenericHIDInputDescriptor(usagePage: 0x0C, usage: 0xEA, reportID: 3),
+            GenericHIDInputDescriptor(usagePage: 0x0C, usage: 0xE2, reportID: 3),
+        ]
+
+        for input in inputs {
+            let element = GenericHIDRuntimeElementDescriptor(
+                input: input,
+                cookie: 1,
+                isRelative: false,
+                matchingElementCount: 1
+            )
+            let event = try XCTUnwrap(
+                GenericHIDEventNormalizer.normalize(
+                    GenericHIDRawValue(
+                        sessionDeviceID: "macro-pad",
+                        element: element,
+                        value: 1
+                    )
+                )
+            )
+            XCTAssertEqual(event.phase, .pressed)
+            let candidate = GenericHIDLearnCandidate(event: event)
+            XCTAssertEqual(candidate.persistentInput, input)
+            XCTAssertEqual(candidate.activation, .press)
+            XCTAssertEqual(candidate.persistentBindingKey?.input, input)
+        }
+    }
+
+    func testGenericHIDSerialCanBindLogicalDevice() throws {
+        var configuration = OverCUEConfiguration.defaultValue
+        configuration.logicalDevices["deck-a"] = OverCUELogicalDevice(
+            name: "Deck A",
+            profileName: configuration.defaultProfile
+        )
+        let device = HIDPhysicalDeviceDescriptor(
+            kind: .genericHID,
+            vendorID: 0x0816,
+            productID: 0x246E,
+            serialNumber: "3F8701678182",
+            productName: "SIDE-KEYBOARD",
+            transport: "USB",
+            locationID: 17_903_616,
+            transportIdentifier: "aggregate-session-a"
+        )
+
+        let binding = try HIDDeviceBindingManager.rebind(
+            logicalDeviceID: "deck-a",
+            to: device,
+            among: [device],
+            configuration: &configuration
+        )
+
+        XCTAssertEqual(binding.kind, .genericHID)
+        XCTAssertEqual(binding.serialNumber, "3F8701678182")
+        XCTAssertEqual(
+            configuration.bindingResolution(for: device, among: [device]),
+            .bound(logicalDeviceID: "deck-a")
+        )
+    }
+
+    func testGenericHIDDuplicateSerialAcrossLiveAttachmentsIsAmbiguous() {
+        var configuration = OverCUEConfiguration.defaultValue
+        configuration.logicalDevices["deck-a"] = OverCUELogicalDevice(
+            name: "Deck A",
+            profileName: configuration.defaultProfile
+        )
+        let first = HIDPhysicalDeviceDescriptor(
+            kind: .genericHID,
+            vendorID: 0x0816,
+            productID: 0x246E,
+            serialNumber: "DUPLICATE",
+            transport: "USB",
+            locationID: 0x01110000,
+            transportIdentifier: "aggregate-session-a"
+        )
+        let second = HIDPhysicalDeviceDescriptor(
+            kind: .genericHID,
+            vendorID: 0x0816,
+            productID: 0x246E,
+            serialNumber: "DUPLICATE",
+            transport: "USB",
+            locationID: 0x01120000,
+            transportIdentifier: "aggregate-session-b"
+        )
+
+        XCTAssertThrowsError(
+            try HIDDeviceBindingManager.rebind(
+                logicalDeviceID: "deck-a",
+                to: first,
+                among: [first, second],
+                configuration: &configuration
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? HIDDeviceBindingManagementError,
+                .ambiguousPersistentIdentity(first.persistentIdentifier!)
+            )
+        }
+        XCTAssertTrue(configuration.physicalDeviceBindings.isEmpty)
+    }
+
     func testRebindRejectsDisconnectedIdentifyDescriptor() {
         var configuration = OverCUEConfiguration.defaultValue
         configuration.logicalDevices["deck-a"] = OverCUELogicalDevice(
