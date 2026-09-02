@@ -132,12 +132,13 @@ final class GenericHIDDeviceIdentifierMonitor: @unchecked Sendable {
     }
 
     private var connectedDevices: [HIDPhysicalDeviceDescriptor] {
-        groups.values.map(\.representative).sorted { lhs, rhs in
+        groups.values.map(\.representative).sorted(by: {
+            (lhs: HIDPhysicalDeviceDescriptor, rhs: HIDPhysicalDeviceDescriptor) in
             if lhs.displayName != rhs.displayName {
                 return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
             }
             return lhs.sessionIdentifier < rhs.sessionIdentifier
-        }
+        })
     }
 
     @discardableResult
