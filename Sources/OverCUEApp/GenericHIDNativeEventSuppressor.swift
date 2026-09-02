@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Dispatch
 import Foundation
 import IOKit.hid
 import OverCUECore
@@ -7,12 +8,12 @@ import OverCUECore
 /// Suppresses the ordinary macOS keyboard / media-key event emitted by a bound
 /// Generic HID while leaving the device itself open in shared mode.
 ///
-/// Keyboard-class HID devices cannot be reliably seized by an ordinary
-/// Developer ID application. Instead, observe only already-bound Generic HID
-/// devices through IOHID, remember the concrete physical input that just fired,
-/// and drop the matching downstream CGEvent. This keeps the user's normal
-/// keyboard usable because an event is removed only when it correlates with a
-/// physical event from a registered Generic HID.
+/// The IOHID callback intentionally runs on a dedicated run loop. CGEventTap and
+/// an IOHIDManager scheduled on the same main run loop cannot reliably correlate
+/// one physical input: if the CGEvent arrives first, the HID callback cannot run
+/// until the event-tap callback returns. Keeping HID observation on its own run
+/// loop lets the event tap wait a few milliseconds for the matching physical
+/// evidence without blocking that evidence from being delivered.
 final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
     private enum Phase: Equatable {
         case pressed
@@ -37,11 +38,16 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
     }
 
     private let manager: IOHIDManager
+    private let pendingCondition = NSCondition()
+    private let lifecycleLock = NSLock()
     private var eventTap: CFMachPort?
     private var eventTapSource: CFRunLoopSource?
     private var configurationObserver: ObserverToken?
     private var pendingEvents: [PendingEvent] = []
     private var isOpen = false
+    private var hidThread: Thread?
+    private var hidRunLoop: CFRunLoop?
+    private var hidThreadExit: DispatchSemaphore?
 
     var isRunning: Bool { isOpen && eventTap != nil }
 
@@ -53,29 +59,21 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
             genericHIDNativeSuppressionValueReceived,
             context
         )
-        IOHIDManagerScheduleWithRunLoop(
-            manager,
-            CFRunLoopGetMain(),
-            CFRunLoopMode.defaultMode.rawValue
-        )
     }
 
     deinit {
         stop()
-        IOHIDManagerUnscheduleFromRunLoop(
-            manager,
-            CFRunLoopGetMain(),
-            CFRunLoopMode.defaultMode.rawValue
-        )
     }
 
     func start() throws {
         guard !isRunning else { return }
         try configureDeviceMatching()
+        startHIDRunLoopIfNeeded()
 
         if !isOpen {
             let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
             guard result == kIOReturnSuccess else {
+                stopHIDRunLoop()
                 throw GenericHIDDeviceIdentifierMonitorError.openFailed(result)
             }
             isOpen = true
@@ -88,6 +86,7 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
                 IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
                 isOpen = false
             }
+            stopHIDRunLoop()
             throw error
         }
 
@@ -105,7 +104,7 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
     }
 
     func stop() {
-        pendingEvents = []
+        clearPendingEvents()
 
         if let configurationObserver {
             DistributedNotificationCenter.default().removeObserver(configurationObserver.value)
@@ -129,6 +128,7 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
             IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
             isOpen = false
         }
+        stopHIDRunLoop()
     }
 
     fileprivate func didReceiveValue(result: IOReturn, value: IOHIDValue) {
@@ -153,6 +153,7 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
 
         guard let nativeInput else { return }
         let now = ProcessInfo.processInfo.systemUptime
+        pendingCondition.lock()
         pendingEvents.removeAll { $0.expiresAt < now }
         pendingEvents.append(
             PendingEvent(
@@ -164,6 +165,8 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
         if pendingEvents.count > 16 {
             pendingEvents.removeFirst(pendingEvents.count - 16)
         }
+        pendingCondition.broadcast()
+        pendingCondition.unlock()
     }
 
     fileprivate func filter(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -178,19 +181,109 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
             return Unmanaged.passUnretained(event)
         }
 
-        let now = ProcessInfo.processInfo.systemUptime
-        pendingEvents.removeAll { $0.expiresAt < now }
-        guard let index = pendingEvents.firstIndex(where: { pending in
-            pending.input == observed.input
-                && (pending.phase == .either
-                    || observed.phase == .either
-                    || pending.phase == observed.phase)
-        }) else {
-            return Unmanaged.passUnretained(event)
+        if consumeMatchingPhysicalEvent(observed) {
+            return nil
+        }
+        return Unmanaged.passUnretained(event)
+    }
+
+    /// Wait only long enough for the independent IOHID run loop to deliver the
+    /// raw event that produced this CGEvent. Eight milliseconds is below the
+    /// interaction budget for a controller input while avoiding the previous
+    /// same-run-loop deadlock where the raw callback could never catch up.
+    private func consumeMatchingPhysicalEvent(
+        _ observed: (input: NativeInput, phase: Phase)
+    ) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: 0.008)
+        pendingCondition.lock()
+        defer { pendingCondition.unlock() }
+
+        while true {
+            let now = ProcessInfo.processInfo.systemUptime
+            pendingEvents.removeAll { $0.expiresAt < now }
+            if let index = pendingEvents.firstIndex(where: { pending in
+                pending.input == observed.input
+                    && (pending.phase == .either
+                        || observed.phase == .either
+                        || pending.phase == observed.phase)
+            }) {
+                pendingEvents.remove(at: index)
+                return true
+            }
+
+            if !pendingCondition.wait(until: deadline) {
+                return false
+            }
+        }
+    }
+
+    private func clearPendingEvents() {
+        pendingCondition.lock()
+        pendingEvents = []
+        pendingCondition.broadcast()
+        pendingCondition.unlock()
+    }
+
+    private func startHIDRunLoopIfNeeded() {
+        lifecycleLock.lock()
+        if hidThread != nil {
+            lifecycleLock.unlock()
+            return
         }
 
-        pendingEvents.remove(at: index)
-        return nil
+        let ready = DispatchSemaphore(value: 0)
+        let exit = DispatchSemaphore(value: 0)
+        let thread = Thread { [weak self] in
+            guard let self else {
+                ready.signal()
+                exit.signal()
+                return
+            }
+
+            let runLoop = CFRunLoopGetCurrent()
+            self.lifecycleLock.lock()
+            self.hidRunLoop = runLoop
+            self.lifecycleLock.unlock()
+
+            IOHIDManagerScheduleWithRunLoop(
+                self.manager,
+                runLoop,
+                CFRunLoopMode.defaultMode.rawValue
+            )
+            ready.signal()
+            CFRunLoopRun()
+            IOHIDManagerUnscheduleFromRunLoop(
+                self.manager,
+                runLoop,
+                CFRunLoopMode.defaultMode.rawValue
+            )
+
+            self.lifecycleLock.lock()
+            self.hidRunLoop = nil
+            self.hidThread = nil
+            self.hidThreadExit = nil
+            self.lifecycleLock.unlock()
+            exit.signal()
+        }
+        thread.name = "OverCUE Generic HID Suppression"
+        hidThread = thread
+        hidThreadExit = exit
+        lifecycleLock.unlock()
+
+        thread.start()
+        ready.wait()
+    }
+
+    private func stopHIDRunLoop() {
+        lifecycleLock.lock()
+        let runLoop = hidRunLoop
+        let exit = hidThreadExit
+        lifecycleLock.unlock()
+
+        guard let runLoop else { return }
+        CFRunLoopStop(runLoop)
+        CFRunLoopWakeUp(runLoop)
+        _ = exit?.wait(timeout: .now() + 1.0)
     }
 
     private func startEventTap() throws {
