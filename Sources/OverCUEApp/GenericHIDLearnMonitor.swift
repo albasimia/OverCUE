@@ -71,8 +71,13 @@ final class GenericHIDLearnMonitor: @unchecked Sendable {
 
         // Learn targets one already-bound Physical Device. Seize only that
         // VID/PID/Serial match so its native keyboard / Consumer Control action
-        // cannot reach macOS before OverCUE captures the descriptor.
-        let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
+        // cannot reach macOS before OverCUE captures the descriptor. If the
+        // normal runtime just released this composite HID, retry only the
+        // transient ExclusiveAccess handoff instead of making the UI guess a delay.
+        let result = HIDManagerOpenRetry.open(
+            manager,
+            options: IOOptionBits(kIOHIDOptionsTypeSeizeDevice)
+        )
         guard result == kIOReturnSuccess else {
             throw GenericHIDLearnMonitorError.openFailed(result)
         }
