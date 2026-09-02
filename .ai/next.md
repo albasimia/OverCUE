@@ -2,7 +2,7 @@
 
 ## 現在のフェーズ
 
-Preset / Shortcut Scope version 10に、ACK05複数台の実機証拠を反映したDevices UI、Preset管理、Group Presetを追加した。Group Preset専用画面をトップレベルへ追加し、全Logical Deviceのinclusion / Preset参照を一画面で編集できるようにした。ACK05 USB接続については、Serial / PhysicalDeviceUniqueIDを取得できない実機に対し、USB topologyの`locationID`をSlot Identityとして使う実装を追加した。Generic HIDについては`SDINNOVATION / SIDE-KEYBOARD`実機でSerialと全7入力descriptorを確認し、Serial Numberを持つGeneric HIDのDevices登録を有効化した。GitHub connector経由の実装なので、現HEADのローカルbuild / test / verifyは未実施。
+Preset / Shortcut Scope version 10に、Devices UI、Preset管理、Group Preset、Generic HIDのShortcuts統合Learn / runtime / native event suppressionを追加した。2026-09-03に`SDINNOVATION / SIDE-KEYBOARD`のraw IOHID→CGEvent経路を実機観測し、controller inputが有効なら現行SuppressorがKeypad / Volume / Muteをdropできることを確認した。症状発生時のUserDefaultsではcontroller inputがOFFで、Suppressorの`start()`自体が呼ばれていなかった。
 
 Group PresetはLogical Deviceごとに参照するPreset stable IDを保持する親設定とする。Group Preset切替時は接続中の各Logical Deviceへdevice-scoped runtime controlを送り、指定Presetを初期状態として適用する。以後のCycle Presetは各デバイスの一時runtime stateとして維持し、通常のstatus/config更新ではGroup Presetの初期値へ巻き戻さない。
 
@@ -40,6 +40,11 @@ Decision `20260902T215700-ack05-usb-slot-identity`により、ACK05 USBでは`lo
 - [x] Knob Left: Consumer page `0x000C`, usage `0x00EA`, report 3, persistable=true。
 - [x] Knob Push: Consumer page `0x000C`, usage `0x00E2`, report 3, persistable=true。
 - [x] ノブはrelative deltaではなく、Right / Left / Pushが独立Consumer Control press/releaseとして取得される。
+- [x] Key 1〜4はmacOS keyCode 83〜86としてCGEventTapへ到達。
+- [x] Knob Right / Left / Pushは`systemDefined` subtype 8、NX key type 0 / 1 / 7として到達。
+- [x] Input Monitoring / Accessibilityが許可された状態で、`.cghidEventTap / .headInsertEventTap / .defaultTap`から全7入力のpress / releaseをdrop。
+- [x] raw IOHID→CGEventの到達差は約0.3〜5msで、既存8ms相関待機内。
+- [x] controller input OFFではSuppressor / Generic HID runtimeを意図的に停止しnative入力をfail-openすることを確認。
 
 Decision `20260902T231600-generic-hid-register`により、SerialをGeneric HID persistent identityとして使い、Identify中はpersistent identity + locationIDで同一live attachmentの複数interfaceを束ねる。locationID自体はpersistent identityへ昇格させず、同一Serialが別live attachmentに同時出現した場合はambiguityで拒否する。
 
@@ -70,11 +75,12 @@ Decision `20260902T231600-generic-hid-register`により、SerialをGeneric HID 
 
 ## 最優先: macOSローカル検証
 
-- [ ] `aal context build --mode implementation`
-- [ ] `swift build`
-- [ ] `swift test`
-- [ ] `swift run overcue-checks`
-- [ ] `./Scripts/verify-macos.sh`
+- [x] `aal context build --mode implementation`
+- [x] `swift build`
+- [x] `swift test`（19件成功）
+- [x] `swift run overcue-checks`（397件成功）
+- [x] `./Scripts/build-app.sh`（Universal Binary生成・codesign確認）
+- [x] `./Scripts/verify-macos.sh`
 - [ ] `aal doctor`
 - [ ] `git diff --check`
 
@@ -101,11 +107,13 @@ Decision `20260902T231600-generic-hid-register`により、SerialをGeneric HID 
 - [x] `overcue-probe --all`でSIDE-KEYBOARDのVID / PID / Serial / Usage / Report ID / press-release / persistabilityを採取。
 - [x] 4キー + Knob Right / Left / Pushのpersistent input descriptorを確認。
 - [x] Generic HID identity証拠に基づいてDevicesのAdd Generic HIDを有効化する。
-- [ ] Devices > Add Generic HIDでSIDE-KEYBOARDをLogical Deviceへ登録し、SerialがPhysical IDとして表示されることを確認。
+- [x] Devices > Add Generic HIDでSIDE-KEYBOARDをLogical Deviceへ登録し、SerialをPhysical IDとして保存。
 - [ ] 同じSIDE-KEYBOARDを抜き差しし、Serialが維持されることを確認。
 - [ ] 同型Generic HID複数台のSerialが個体ごとに異なるか確認。異ならない場合はambiguityで拒否されることを確認。
-- [ ] Generic HID Learn UIを有効化し、Key 1〜4 / Knob Right / Left / PushをそれぞれActionへ割り当てる。
-- [ ] Generic HID runtimeを既存Action Layerへ接続し、Group Preset / Logical Device scopeでACK05と同時使用する。
+- [x] Generic HID mapping編集をShortcutsへ統合し、既存`generic-hid.json`にKey / Consumer descriptor割り当てが保存されることを確認。
+- [x] Generic HID runtimeを既存Action Layer / Preset / Logical Deviceへ接続。
+- [x] controller input有効時のSIDE-KEYBOARD native Keypad / Volume / Mute抑止を実機eventで確認。
+- [ ] rekordboxを最前面にして全7入力の割り当てActionが期待どおり発火することを実運用確認。
 
 ## その他
 

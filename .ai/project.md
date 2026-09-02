@@ -27,7 +27,7 @@ PERFORMANCE Deck 1〜4対応、複数Physical Deviceのruntime分離、Device Ma
 - ACK05 1台のProfile切り替えによるDeck 1〜3操作は、実際のDJ運用で成立済み。
 - DJM-750 original + macOS Tahoe 26.6.2 + DJM-750 driver 4.0.1 + rekordbox PERFORMANCE / External Mixerで、4ch独立出力を実機確認済み。
 - 標準物理リグは3Deckを基本とし、1DeckあたりACK05 + 小型Generic HID（4キー + endless encoder想定）を組み合わせる。ソフトウェア上は4Deck能力を維持する。
-- Generic HIDの候補実機としてKoolertron系小型マクロパッドを検証するが、OverCUEのUI・データモデルを特定製品へ依存させない。
+- Generic HID実機`SDINNOVATION / SIDE-KEYBOARD`はVID `0x0816` / PID `0x246E` / Serial `3F8701678182`で登録済み。1 physical deviceが同じpersistent identityを持つ3 IOHID interfaceとして列挙される。
 - CLI bridgeのlive session identityはIOHID接続インスタンス由来transport identifierを使い、Serial由来persistent identityと分離する。
 - ACK05実機2台ではSerial Numberを取得できず、macOS `PhysicalDeviceUniqueID`をACK05限定のPairing Identityとして使用する。Pairing Identityは電源OFF/ONとMac再起動では維持され、Bluetooth再ペアリングで変化する。
 - 同時接続deviceが同じpersistent identityを名乗る場合はbindingをambiguousとしてdefault Profileへ戻し、接続トポロジ変更を既存controllerへ即時通知する。
@@ -51,6 +51,10 @@ PERFORMANCE Deck 1〜4対応、複数Physical Deviceのruntime分離、Device Ma
 - Rebindは対象Physical Deviceのlive sessionが現在接続中であることを必須にし、stale descriptorを拒否する。
 - Generic HID eventは既存Action Layerへ変換し、rekordbox commandId解決やkeyboard送信をGeneric層へ直接持ち込まない。
 - `overcue-probe --all`はdevice metadata、Usage / Report、press/release、relative delta、永続化可否をdevice session別に観測できる。
+- Generic HID mapping編集はShortcutsへ統合済み。割り当ては`generic-hid.json`へLogical Device / Preset / descriptor単位で保存する。
+- keyboard-class Generic HIDのexclusive openが拒否された場合はshared IOHID + active CGEventTap相関へfallbackする。登録deviceのraw evidenceと一致したnative eventだけをdropする。
+- 2026-09-03実機観測でKeypad 1〜4はkeyCode 83〜86、Consumer Volume Up / Down / Muteは`systemDefined` subtype 8のNX key type 0 / 1 / 7として到達し、`.cghidEventTap / .headInsertEventTap / .defaultTap`でpress / releaseともdropできた。
+- controller input設定がOFFならGeneric HID runtime / Suppressorも意図的に停止し、native入力はfail-openする。設定ラベルはACK05専用ではなくcontroller input全体を示す。
 
 ## 制約
 
@@ -62,7 +66,7 @@ PERFORMANCE Deck 1〜4対応、複数Physical Deviceのruntime分離、Device Ma
 - 現在選択中の`Performance 1 (Preset)`ではDeck 1=`30xx`、Deck 2=`31xx`、Deck 3=`32xx`を実データで確認したが、Deck 4の割り当て行は存在しない。Deck 4=`33xx`は未確認事項として扱う。
 - Core checksの成功だけで実機確認済みとは扱わない。
 - Generic HIDはAdvanced / Best-effortとし、任意のvendor-specific HIDを無条件にサポートすると約束しない。
-- Generic HIDの実際のUsage / Report / encoder形式とpersistent descriptorは実機確認前に確定しない。
+- 未登録または未確認Generic HIDのUsage / Report / encoder形式とpersistent descriptorを推測で確定しない。
 - Presetはデータ構造として可変個とし、当面の製品上限を24とする。24固定配列として設計しない。
 - Group Presetは最低1個を維持する。
 
@@ -138,8 +142,8 @@ PERFORMANCE Deck 1〜4対応、複数Physical Deviceのruntime分離、Device Ma
 ## 未決事項
 
 - scope付きrekordbox action/shortcut referenceは`rekordbox-action:<semantic-action-id>:<commandId>`、Preset IDは順序意味を持たないopaque stringとして実装済み。v9 migration IDは決定的に生成し、既定値は明示IDを持つ。
-- Koolertron系Generic HIDのキー、encoder CW/CCW、encoder pushがmacOS IOHID上でどのUsage / Reportとして見えるか。
-- 同型Generic HIDが固有Serialを持たない場合のbinding永続化と再接続UX。
+- 同型SIDE-KEYBOARD 2台のSerialが個体ごとに異なるか。
+- Serialを持たないGeneric HIDのbinding永続化と再接続UX。
 - Group Preset / Devices UIの2台ACK05実機回帰と、Cycle Preset後の一時runtime state保持確認。
 - Deck 4の実際のKeyMapping commandIdを、Deck 4ショートカットが保存されたrekordbox XMLまたは実機動作で直接確認する。
 - GitHub Actionsを復旧する場合、独自手順を重複させず`Scripts/verify-macos.sh`を呼ぶ構造にする。

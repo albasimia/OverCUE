@@ -48,6 +48,9 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
     private var hidThread: Thread?
     private var hidRunLoop: CFRunLoop?
     private var hidThreadExit: DispatchSemaphore?
+    private let diagnosticsEnabled = ProcessInfo.processInfo.environment[
+        "OVERCUE_HID_SUPPRESSION_DIAGNOSTICS"
+    ] == "1"
 
     var isRunning: Bool { isOpen && eventTap != nil }
 
@@ -66,6 +69,10 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
     }
 
     func start() throws {
+        diagnosticLog(
+            "start requested listenAccess=\(CGPreflightListenEventAccess()) "
+                + "accessibility=\(AXIsProcessTrusted())"
+        )
         guard !isRunning else { return }
         try configureDeviceMatching()
         startHIDRunLoopIfNeeded()
@@ -77,10 +84,19 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
                 throw GenericHIDDeviceIdentifierMonitorError.openFailed(result)
             }
             isOpen = true
+            let matchedCount = IOHIDManagerCopyDevices(manager).map(CFSetGetCount) ?? 0
+            lifecycleLock.lock()
+            let hidThreadActive = hidThread != nil && hidRunLoop != nil
+            lifecycleLock.unlock()
+            diagnosticLog(
+                "IOHID shared open success matchedDevices=\(matchedCount) "
+                    + "hidThreadActive=\(hidThreadActive)"
+            )
         }
 
         do {
             try startEventTap()
+            diagnosticLog("event tap started enabled=\(eventTap.map(CGEvent.tapIsEnabled) ?? false)")
         } catch {
             if isOpen {
                 IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
@@ -104,6 +120,7 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
     }
 
     func stop() {
+        diagnosticLog("stop requested")
         clearPendingEvents()
 
         if let configurationObserver {
@@ -132,7 +149,10 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
     }
 
     fileprivate func didReceiveValue(result: IOReturn, value: IOHIDValue) {
-        guard result == kIOReturnSuccess else { return }
+        guard result == kIOReturnSuccess else {
+            diagnosticLog(String(format: "IOHID callback error=0x%08X", result))
+            return
+        }
         let element = IOHIDValueGetElement(value)
         let usagePage = IOHIDElementGetUsagePage(element)
         let usage = IOHIDElementGetUsage(element)
@@ -140,6 +160,16 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
 
         let integerValue = IOHIDValueGetIntegerValue(value)
         let phase: Phase = integerValue == 0 ? .released : .pressed
+        diagnosticLog(
+            String(
+                format: "IOHID page=0x%04X usage=0x%04X report=%u value=%lld phase=%@",
+                usagePage,
+                usage,
+                IOHIDElementGetReportID(element),
+                integerValue,
+                String(describing: phase)
+            )
+        )
         let nativeInput: NativeInput?
 
         switch usagePage {
@@ -171,6 +201,7 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
 
     fileprivate func filter(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            diagnosticLog("CGEvent tap disabled type=\(type.rawValue); re-enabling")
             if let eventTap {
                 CGEvent.tapEnable(tap: eventTap, enable: true)
             }
@@ -178,10 +209,16 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
         }
 
         guard let observed = nativeEvent(type: type, event: event) else {
+            diagnosticLog("CGEvent type=\(type.rawValue) not recognized")
             return Unmanaged.passUnretained(event)
         }
 
-        if consumeMatchingPhysicalEvent(observed) {
+        let dropped = consumeMatchingPhysicalEvent(observed)
+        diagnosticLog(
+            "CGEvent type=\(type.rawValue) input=\(observed.input) "
+                + "phase=\(observed.phase) action=\(dropped ? "drop" : "pass")"
+        )
+        if dropped {
             return nil
         }
         return Unmanaged.passUnretained(event)
@@ -252,6 +289,7 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
             self.lifecycleLock.lock()
             self.hidRunLoop = runLoop
             self.lifecycleLock.unlock()
+            self.diagnosticLog("IOHID run loop ready")
 
             IOHIDManagerScheduleWithRunLoop(
                 self.manager,
@@ -260,6 +298,7 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
             )
             ready.signal()
             CFRunLoopRun()
+            self.diagnosticLog("IOHID run loop returned")
             IOHIDManagerUnscheduleFromRunLoop(
                 self.manager,
                 runLoop,
@@ -352,6 +391,7 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
         } else {
             IOHIDManagerSetDeviceMatchingMultiple(manager, matches as CFArray)
         }
+        diagnosticLog("configured registered Generic HID matches=\(matches.count)")
     }
 
     private func nativeEvent(
@@ -360,27 +400,60 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
     ) -> (input: NativeInput, phase: Phase)? {
         switch type {
         case .keyDown:
+            diagnosticLog(
+                "CGEvent keyDown keyCode="
+                    + "\(event.getIntegerValueField(.keyboardEventKeycode))"
+            )
             return (
                 .keyboard(CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))),
                 .pressed
             )
         case .keyUp:
+            diagnosticLog(
+                "CGEvent keyUp keyCode="
+                    + "\(event.getIntegerValueField(.keyboardEventKeycode))"
+            )
             return (
                 .keyboard(CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))),
                 .released
             )
         case .flagsChanged:
+            diagnosticLog(
+                "CGEvent flagsChanged keyCode="
+                    + "\(event.getIntegerValueField(.keyboardEventKeycode))"
+            )
             return (
                 .keyboard(CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))),
                 .either
             )
         case .systemDefined:
-            guard let nsEvent = NSEvent(cgEvent: event), nsEvent.subtype.rawValue == 8 else {
+            guard let nsEvent = NSEvent(cgEvent: event) else {
+                diagnosticLog("CGEvent systemDefined could not convert to NSEvent")
+                return nil
+            }
+            diagnosticLog(
+                String(
+                    format: "CGEvent systemDefined raw subtype=%d data1=0x%08X data2=0x%08X",
+                    nsEvent.subtype.rawValue,
+                    UInt32(bitPattern: Int32(nsEvent.data1)),
+                    UInt32(bitPattern: Int32(nsEvent.data2))
+                )
+            )
+            guard nsEvent.subtype.rawValue == 8 else {
                 return nil
             }
             let data1 = UInt32(bitPattern: Int32(nsEvent.data1))
             let mediaKey = Int((data1 & 0xFFFF0000) >> 16)
             let state = data1 & 0x0000FF00
+            diagnosticLog(
+                String(
+                    format: "CGEvent systemDefined subtype=%d data1=0x%08X mediaKey=%d state=0x%04X",
+                    nsEvent.subtype.rawValue,
+                    data1,
+                    mediaKey,
+                    state
+                )
+            )
             let phase: Phase
             switch state {
             case 0x0A00: phase = .pressed
@@ -433,6 +506,17 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
             0xE4: 62, 0xE5: 60, 0xE6: 61, 0xE7: 54,
         ]
         return table[usage]
+    }
+
+    private func diagnosticLog(_ message: @autoclosure () -> String) {
+        guard diagnosticsEnabled else { return }
+        let uptime = ProcessInfo.processInfo.systemUptime
+        let thread = Thread.isMainThread ? "main" : (Thread.current.name ?? "background")
+        fputs(
+            String(format: "[HID-SUPPRESS %.6f %@] %@\n", uptime, thread, message()),
+            stderr
+        )
+        fflush(stderr)
     }
 }
 

@@ -347,7 +347,11 @@ Generic HIDはAdvanced / Best-effort機能として扱う。Coreはkeyboard usag
 
 Generic HID Learnは最初のactivationを送ったPhysical Deviceへsource lockし、別device入力を混在させない。source切断時はcancelする。synthetic Generic HID eventは既存`ActionTarget` / `ActionEvent`へ変換でき、hold、accelerating repeat、relative triggerを既存Action Layerへ渡す。Generic HID層はrekordbox commandIdを保持せず、keyboard shortcutを直接送信しない。
 
-Generic HID mappingはまだconfigへ永続化しない。version 10への更新理由はPreset Group / shortcut scope移行であり、Generic HID mapping schemaは実機でdescriptorの安定性と重複elementを確認した後に別途判断する。Devices / Identify / Rebind / LearnのSwiftUI画面も未実装である。
+Serialを持つGeneric HIDはDevicesでPhysical Bindingへ登録できる。Action Mappingの編集面はShortcutsへ統一し、ACK05と登録済みGeneric HIDのどちらか先に入力されたPhysical Inputを現在Presetの選択Actionへ割り当てる。adapter固有の割り当てはversion 1の`generic-hid.json`へLogical Device ID / Preset stable ID / input descriptor単位で保存する。main configはversion 10を維持する。
+
+通常runtimeは登録済みGeneric HIDだけをIOHIDで監視する。keyboard-class HIDのexclusive openが`kIOReturnNotPrivileged`になった場合はshared openへfallbackし、同じ登録deviceから得たraw IOHID usageとdownstream CGEventを短時間相関する。相関したkeyboard / Consumer Control eventだけを`.cghidEventTap / .headInsertEventTap / .defaultTap`でdropし、相関できない通常キーボード入力はfail-openとする。「入力を有効にする」がOFFの場合はACK05 / Generic HID runtimeとSuppressorを意図的に停止し、native入力を抑止しない。
+
+2026-09-03にSIDE-KEYBOARD実機で、Keypad 1〜4がmacOS keyCode 83〜86、Volume Up / Down / Muteが`systemDefined` subtype 8のNX key type 0 / 1 / 7として届くことを確認した。raw IOHID callbackからCGEvent callbackまでの差は約0.3〜5msで、press / releaseはいずれもactive tapからnilを返してdropできた。Input MonitoringとAccessibilityは双方許可済みだった。`OVERCUE_HID_SUPPRESSION_DIAGNOSTICS=1`で起動すると、Suppressor lifecycle、権限、match interface数、raw usage、CGEvent、相関結果をstderrへ記録できる。
 
 ## 10. MIDIモード
 
@@ -442,6 +446,5 @@ swift run OverCUE
 - 同じ物理キーをコード修飾キーにすると、単体操作は解放時実行になる。
 - 複数ACK05の入力状態は物理deviceごとに分離したが、2台以上での同時操作、再接続、異なるLogical Device / Profileへの割り当ては実機未検証。
 - Devices UIとIdentify / Rebind / Forget / Learn UIは未実装。対応する非UI Core/APIは実装済み。
-- Generic HIDの実runtime mappingとconfig永続化は未実装。probe、event normalization、Learn、Action変換Coreまで実装済み。
-- ACK05および候補Generic HIDが固有Serialを公開するか、同型複数台で常に一意かは実機未検証。
-- Koolertron候補機のencoderがrelative axis、keyboard event、vendor-specific Reportのどれとして見えるかは実機未検証。
+- Generic HID runtime、Shortcuts統合Learn、adapter sidecar永続化は実装済み。SIDE-KEYBOARDのnative Keypad / Volume / Mute抑止も実機eventで確認済み。
+- SIDE-KEYBOARD 1台は固有Serialを公開したが、同型2台のSerialが個体ごとに異なるかは実機未検証。同一identityが同時接続された場合はambiguityへ倒す。
