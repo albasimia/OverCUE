@@ -23,6 +23,7 @@ final class OverCUECLIRuntime {
     var onStatusChanged: ((Status) -> Void)?
 
     private var process: Process?
+    private let genericHIDRuntime = GenericHIDRuntimeCoordinator()
     private(set) var status: Status = .stopped {
         didSet { onStatusChanged?(status) }
     }
@@ -48,6 +49,7 @@ final class OverCUECLIRuntime {
             Task { @MainActor in
                 guard let self, self.process === terminatedProcess else { return }
                 self.process = nil
+                self.genericHIDRuntime.stop()
                 if exitStatus == 0 {
                     self.status = .stopped
                 } else {
@@ -62,8 +64,21 @@ final class OverCUECLIRuntime {
         do {
             try process.run()
             self.process = process
+            do {
+                try genericHIDRuntime.start()
+            } catch {
+                if process.isRunning {
+                    process.terminate()
+                    process.waitUntilExit()
+                }
+                self.process = nil
+                genericHIDRuntime.stop()
+                status = .failed(error.localizedDescription)
+                return
+            }
             status = .running
         } catch {
+            genericHIDRuntime.stop()
             status = .failed(error.localizedDescription)
         }
     }
@@ -87,6 +102,7 @@ final class OverCUECLIRuntime {
     }
 
     func stop() {
+        genericHIDRuntime.stop()
         guard let process else {
             status = .stopped
             return
