@@ -25,6 +25,8 @@ final class OverCUECLIRuntime {
 
     private var process: Process?
     private let genericHIDRuntime = GenericHIDRuntimeCoordinator()
+    private var isShortcutCaptureActive = false
+    private var genericRuntimeStartedForCapture = false
     private(set) var status: Status = .stopped {
         didSet { onStatusChanged?(status) }
     }
@@ -33,49 +35,69 @@ final class OverCUECLIRuntime {
         stop()
         status = .starting
 
-        guard let launch = launchConfiguration(mode: mode, group: group) else {
-            status = .failed(L10n.text("cli.notFound"))
+        do {
+            try startACK05Process(mode: mode, group: group)
+            try startGenericHIDRuntimeWithHandoffRetry()
+            status = .running
+        } catch {
+            stopACK05Process()
+            genericHIDRuntime.stop()
+            status = .failed(error.localizedDescription)
+        }
+    }
+
+    func beginShortcutCapture(
+        onGenericHIDCaptured: @escaping (String, GenericHIDInputBindingKey) -> Void
+    ) throws {
+        if isShortcutCaptureActive {
+            genericHIDRuntime.beginCapture(onCaptured: onGenericHIDCaptured)
             return
         }
 
-        let process = Process()
-        let errorPipe = Pipe()
-        process.executableURL = launch.executableURL
-        process.arguments = launch.arguments
-        process.currentDirectoryURL = launch.currentDirectoryURL
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = errorPipe
-        process.terminationHandler = { [weak self] terminatedProcess in
-            let exitStatus = terminatedProcess.terminationStatus
-            Task { @MainActor in
-                guard let self, self.process === terminatedProcess else { return }
-                self.process = nil
-                self.genericHIDRuntime.stop()
-                if exitStatus == 0 {
-                    self.status = .stopped
-                } else {
-                    let detail = Self.errorDetail(from: errorPipe)
-                    self.status = .failed(
-                        detail ?? L10n.text("cli.exited", exitStatus)
-                    )
-                }
-            }
+        genericRuntimeStartedForCapture = !genericHIDRuntime.isRunning
+        if genericRuntimeStartedForCapture {
+            try startGenericHIDRuntimeWithHandoffRetry()
         }
 
-        do {
-            try process.run()
-            self.process = process
-            do {
-                try startGenericHIDRuntimeWithHandoffRetry()
-            } catch {
-                if process.isRunning {
-                    process.terminate()
-                    process.waitUntilExit()
-                }
-                self.process = nil
+        // ACK05 uses its existing direct capture monitor. Generic HID remains
+        // open in this process and switches to capture mode, so the exclusive
+        // SIDE-KEYBOARD owner never changes during a Shortcuts edit session.
+        stopACK05Process()
+        genericHIDRuntime.beginCapture(onCaptured: onGenericHIDCaptured)
+        isShortcutCaptureActive = true
+        status = .running
+    }
+
+    func endShortcutCapture(
+        mode: RekordboxMappingMode,
+        group: Int,
+        resumeRuntime: Bool
+    ) {
+        guard isShortcutCaptureActive else {
+            if !resumeRuntime, genericRuntimeStartedForCapture {
                 genericHIDRuntime.stop()
-                status = .failed(error.localizedDescription)
-                return
+                genericRuntimeStartedForCapture = false
+            }
+            return
+        }
+
+        genericHIDRuntime.endCapture()
+        isShortcutCaptureActive = false
+
+        guard resumeRuntime else {
+            stopACK05Process()
+            if genericRuntimeStartedForCapture {
+                genericHIDRuntime.stop()
+            }
+            genericRuntimeStartedForCapture = false
+            status = .stopped
+            return
+        }
+
+        genericRuntimeStartedForCapture = false
+        do {
+            if process == nil {
+                try startACK05Process(mode: mode, group: group)
             }
             status = .running
         } catch {
@@ -105,6 +127,53 @@ final class OverCUECLIRuntime {
         }
     }
 
+    private func startACK05Process(mode: RekordboxMappingMode, group: Int) throws {
+        guard process == nil else { return }
+        guard let launch = launchConfiguration(mode: mode, group: group) else {
+            throw NSError(
+                domain: "OverCUE.CLI",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: L10n.text("cli.notFound")]
+            )
+        }
+
+        let process = Process()
+        let errorPipe = Pipe()
+        process.executableURL = launch.executableURL
+        process.arguments = launch.arguments
+        process.currentDirectoryURL = launch.currentDirectoryURL
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = errorPipe
+        process.terminationHandler = { [weak self] terminatedProcess in
+            let exitStatus = terminatedProcess.terminationStatus
+            Task { @MainActor in
+                guard let self, self.process === terminatedProcess else { return }
+                self.process = nil
+                guard !self.isShortcutCaptureActive else { return }
+                self.genericHIDRuntime.stop()
+                if exitStatus == 0 {
+                    self.status = .stopped
+                } else {
+                    let detail = Self.errorDetail(from: errorPipe)
+                    self.status = .failed(
+                        detail ?? L10n.text("cli.exited", exitStatus)
+                    )
+                }
+            }
+        }
+        try process.run()
+        self.process = process
+    }
+
+    private func stopACK05Process() {
+        guard let process else { return }
+        self.process = nil
+        if process.isRunning {
+            process.terminate()
+            process.waitUntilExit()
+        }
+    }
+
     private static func errorDetail(from pipe: Pipe) -> String? {
         guard let data = try? pipe.fileHandleForReading.readToEnd(),
               let output = String(data: data, encoding: .utf8)
@@ -124,16 +193,11 @@ final class OverCUECLIRuntime {
     }
 
     func stop() {
+        isShortcutCaptureActive = false
+        genericRuntimeStartedForCapture = false
+        genericHIDRuntime.endCapture()
         genericHIDRuntime.stop()
-        guard let process else {
-            status = .stopped
-            return
-        }
-        self.process = nil
-        if process.isRunning {
-            process.terminate()
-            process.waitUntilExit()
-        }
+        stopACK05Process()
         status = .stopped
     }
 
