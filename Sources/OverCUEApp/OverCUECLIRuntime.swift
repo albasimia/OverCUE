@@ -32,6 +32,14 @@ final class OverCUECLIRuntime {
     }
 
     func start(mode: RekordboxMappingMode, group: Int) {
+        // Existing ShortcutSettingsModel resumes runtime by calling start().
+        // If this was a unified capture, resume only ACK05 and leave the same
+        // Generic HID exclusive owner alive instead of close/reopen handoff.
+        if isShortcutCaptureActive {
+            endShortcutCapture(mode: mode, group: group, resumeRuntime: true)
+            return
+        }
+
         stop()
         status = .starting
 
@@ -59,9 +67,6 @@ final class OverCUECLIRuntime {
             try startGenericHIDRuntimeWithHandoffRetry()
         }
 
-        // ACK05 uses its existing direct capture monitor. Generic HID remains
-        // open in this process and switches to capture mode, so the exclusive
-        // SIDE-KEYBOARD owner never changes during a Shortcuts edit session.
         stopACK05Process()
         genericHIDRuntime.beginCapture(onCaptured: onGenericHIDCaptured)
         isShortcutCaptureActive = true
@@ -193,6 +198,29 @@ final class OverCUECLIRuntime {
     }
 
     func stop() {
+        // Shortcuts prepares this one-shot handoff immediately before its
+        // existing beginCapture() calls runtimeBridge.stop(). Consume it here:
+        // stop ACK05 only and keep Generic HID open in capture mode.
+        if let handler = GenericHIDShortcutCaptureBroker.shared.takePreparedHandler() {
+            do {
+                genericRuntimeStartedForCapture = !genericHIDRuntime.isRunning
+                if genericRuntimeStartedForCapture {
+                    try startGenericHIDRuntimeWithHandoffRetry()
+                }
+                stopACK05Process()
+                genericHIDRuntime.beginCapture(onCaptured: handler)
+                isShortcutCaptureActive = true
+                status = .running
+            } catch {
+                genericRuntimeStartedForCapture = false
+                isShortcutCaptureActive = false
+                genericHIDRuntime.stop()
+                stopACK05Process()
+                status = .failed(error.localizedDescription)
+            }
+            return
+        }
+
         isShortcutCaptureActive = false
         genericRuntimeStartedForCapture = false
         genericHIDRuntime.endCapture()
