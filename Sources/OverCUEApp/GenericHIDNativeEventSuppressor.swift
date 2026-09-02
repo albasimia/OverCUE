@@ -211,7 +211,10 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
             throw NSError(
                 domain: "OverCUE.GenericHIDNativeEventSuppressor",
                 code: 1,
-                userInfo: [NSLocalizedDescriptionKey: L10n.text("cli.inputPermission")]
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Input Monitoring permission is required for Generic HID input filtering."
+                ]
             )
         }
 
