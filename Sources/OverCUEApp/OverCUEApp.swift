@@ -264,7 +264,7 @@ private struct ContentView: View {
     private var bridgeStatusColor: Color {
         switch model.bridgeStatus {
         case .running: .green
-        case .starting: .orange
+        case .starting, .degraded: .orange
         case .stopped: .secondary
         case .failed: .red
         }

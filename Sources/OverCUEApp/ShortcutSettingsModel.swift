@@ -415,6 +415,23 @@ final class ShortcutSettingsModel: ObservableObject {
         }
     }
 
+    /// Device identification needs exclusive access to the physical input, but
+    /// it must not change the user's persisted Controller Input preference.
+    func pauseRuntimeForDeviceIdentification() {
+        guard isBridgeEnabled else { return }
+        runtimeBridge.stop()
+        pressedDeviceKeys = []
+        activeDialDirection = nil
+    }
+
+    func resumeRuntimeAfterDeviceIdentification() {
+        guard isBridgeEnabled, !isCapturing else { return }
+        runtimeMode = mode
+        runtimeGroup = selectedGroup
+        clearRuntimeDeviceScope()
+        runtimeBridge.start(mode: mode, group: selectedGroup)
+    }
+
     func shutdown() {
         stopCaptureMonitor()
         runtimeBridge.stop()

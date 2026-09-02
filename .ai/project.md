@@ -52,8 +52,12 @@ PERFORMANCE Deck 1〜4対応、複数Physical Deviceのruntime分離、Device Ma
 - Generic HID eventは既存Action Layerへ変換し、rekordbox commandId解決やkeyboard送信をGeneric層へ直接持ち込まない。
 - `overcue-probe --all`はdevice metadata、Usage / Report、press/release、relative delta、永続化可否をdevice session別に観測できる。
 - Generic HID mapping編集はShortcutsへ統合済み。割り当ては`generic-hid.json`へLogical Device / Preset / descriptor単位で保存する。
-- keyboard-class Generic HIDのexclusive openが拒否された場合はshared IOHID + active CGEventTap相関へfallbackする。登録deviceのraw evidenceと一致したnative eventだけをdropする。
+- keyboard-class Generic HIDはAction runtime / native suppressorともshared IOHIDで監視する。遅延match時はmanager openがsuccessでも後続exclusive claimだけ失敗してinput callbackが来ない実機挙動があるため、Action runtimeはexclusive openを試みない。登録deviceのraw evidenceと一致したnative eventだけをdropする。
 - 2026-09-03実機観測でKeypad 1〜4はkeyCode 83〜86、Consumer Volume Up / Down / Muteは`systemDefined` subtype 8のNX key type 0 / 1 / 7として到達し、`.cghidEventTap / .headInsertEventTap / .defaultTap`でpress / releaseともdropできた。
+- 2026-09-03実機観測で登録済みSIDE-KEYBOARDのKey2 / Key3 / Knob Rightはraw inputからLearn済みAction、rekordbox shortcut解決、最前面rekordboxへのCGEvent送信まで到達した。
+- 同時接続中の2台目SIDE-KEYBOARDはSerial `592B14678182`で、登録済み`3F8701678182`と異なるpersistent identityを持つ。未登録個体は安全のため抑止・Action変換しない。
+- ACK05 CLIとGeneric HID runtimeは独立backendとして起動・停止する。一方のfailureで他方を停止せず、片方だけ動作中はdegraded statusを表示する。アプリ起動CLIはparent PIDを監視してGUI消失時に終了する。
+- Devices Identify / Rebindによるruntime停止は一時停止であり、controller inputのUserDefaultsを変更しない。
 - controller input設定がOFFならGeneric HID runtime / Suppressorも意図的に停止し、native入力はfail-openする。設定ラベルはACK05専用ではなくcontroller input全体を示す。
 
 ## 制約
@@ -142,7 +146,7 @@ PERFORMANCE Deck 1〜4対応、複数Physical Deviceのruntime分離、Device Ma
 ## 未決事項
 
 - scope付きrekordbox action/shortcut referenceは`rekordbox-action:<semantic-action-id>:<commandId>`、Preset IDは順序意味を持たないopaque stringとして実装済み。v9 migration IDは決定的に生成し、既定値は明示IDを持つ。
-- 同型SIDE-KEYBOARD 2台のSerialが個体ごとに異なるか。
+- 2台目SIDE-KEYBOARD `592B14678182`をDevicesで明示Bindingし、Logical Device別Shortcuts割り当てとnative抑止を実運用確認する。
 - Serialを持たないGeneric HIDのbinding永続化と再接続UX。
 - Group Preset / Devices UIの2台ACK05実機回帰と、Cycle Preset後の一時runtime state保持確認。
 - Deck 4の実際のKeyMapping commandIdを、Deck 4ショートカットが保存されたrekordbox XMLまたは実機動作で直接確認する。
@@ -165,6 +169,7 @@ PERFORMANCE Deck 1〜4対応、複数Physical Deviceのruntime分離、Device Ma
 - `.ai/decisions/20260901T110701-e31a76.md`
 - `.ai/decisions/20260901T125000-8f0c2a.md`
 - `.ai/decisions/20260902T003000-group-preset.md`
+- `.ai/decisions/20260903T025020-generic-hid-shared-runtimeとinput-backend分離を採用する.md`
 - `.ai/history/20260901T201000-91c4e7.md`
 
 ## 有効なモード

@@ -4,6 +4,15 @@ import Foundation
 import IOKit.hid
 import OverCUECore
 
+private let genericHIDRuntimeDiagnosticsEnabled = ProcessInfo.processInfo.environment[
+    "OVERCUE_GENERIC_HID_DIAGNOSTICS"
+] == "1"
+
+private func genericHIDRuntimeLog(_ message: @autoclosure () -> String) {
+    guard genericHIDRuntimeDiagnosticsEnabled else { return }
+    FileHandle.standardError.write(Data("[GenericHIDRuntime] \(message())\n".utf8))
+}
+
 private final class GenericHIDRuntimeObserverToken: @unchecked Sendable {
     let value: any NSObjectProtocol
     init(_ value: any NSObjectProtocol) { self.value = value }
@@ -44,7 +53,13 @@ private final class GenericHIDKeyboardOutput {
     private var heldBySource: [ActionSourceID: RekordboxKeyboardShortcut] = [:]
 
     func trigger(_ shortcut: RekordboxKeyboardShortcut, count: Int = 1) {
-        guard isRekordboxFrontmostForGenericHID() else { return }
+        guard isRekordboxFrontmostForGenericHID() else {
+            genericHIDRuntimeLog("shortcut skipped: rekordbox is not frontmost")
+            return
+        }
+        genericHIDRuntimeLog(
+            "shortcut trigger keyCode=\(shortcut.keyCode) modifiers=\(shortcut.modifiers) count=\(count)"
+        )
         for _ in 0..<max(1, count) {
             post(shortcut, keyDown: true)
             post(shortcut, keyDown: false)
@@ -54,7 +69,13 @@ private final class GenericHIDKeyboardOutput {
     func press(_ shortcut: RekordboxKeyboardShortcut, sourceID: ActionSourceID) {
         guard heldBySource[sourceID] == nil,
               isRekordboxFrontmostForGenericHID()
-        else { return }
+        else {
+            genericHIDRuntimeLog("shortcut hold skipped source=\(sourceID)")
+            return
+        }
+        genericHIDRuntimeLog(
+            "shortcut press keyCode=\(shortcut.keyCode) modifiers=\(shortcut.modifiers) source=\(sourceID)"
+        )
         post(shortcut, keyDown: true)
         heldBySource[sourceID] = shortcut
     }
@@ -86,10 +107,11 @@ private final class GenericHIDKeyboardOutput {
     }
 }
 
-/// Runtime capture is exclusive only for Generic HID devices already bound in
-/// config. Shortcuts Learn reuses this same exclusive owner instead of closing
-/// the runtime and opening a second IOHIDManager, so composite devices never
-/// cross an exclusive handoff boundary during mapping edits.
+/// Runtime observation is shared and restricted to Generic HID devices already
+/// bound in config. Keyboard-class interfaces can reject a late exclusive claim
+/// after IOHIDManagerOpen itself has already returned success, leaving the
+/// manager connected but without input callbacks. Native output is suppressed
+/// separately by GenericHIDNativeEventSuppressor.
 final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     private struct LiveGroupKey: Hashable {
         let persistentIdentifier: String
@@ -144,6 +166,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
 
     func start() throws {
         guard !isOpen else { return }
+        genericHIDRuntimeLog("start requested")
         configuration = try OverCUEConfigurationFileStore.readCurrent(
             at: OverCUEAppConfigurationLocation.url
         )
@@ -154,15 +177,13 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         configureDeviceMatching()
         installObservers()
 
-        let result = HIDManagerOpenRetry.open(
-            manager,
-            options: IOOptionBits(kIOHIDOptionsTypeSeizeDevice)
-        )
+        let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         guard result == kIOReturnSuccess else {
             removeObservers()
             throw GenericHIDDeviceIdentifierMonitorError.openFailed(result)
         }
         isOpen = true
+        genericHIDRuntimeLog("IOHID manager open success")
     }
 
     func beginCapture(
@@ -211,8 +232,11 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
 
     fileprivate func didMatch(device: IOHIDDevice, result: IOReturn) {
         guard result == kIOReturnSuccess,
-              registerInterface(device) != nil
+              let descriptor = registerInterface(device)
         else { return }
+        genericHIDRuntimeLog(
+            "matched interface representative=\(descriptor.sessionIdentifier)"
+        )
         refreshRuntimeStates()
     }
 
@@ -269,6 +293,19 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
               )
         else { return }
 
+        genericHIDRuntimeLog(
+            String(
+                format: "input session=%@ logical=%@ preset=%@ page=0x%04X usage=0x%04X report=%u phase=%@",
+                descriptor.sessionIdentifier,
+                state.logicalDeviceID,
+                state.presetID,
+                input.usage.page,
+                input.usage.usage,
+                reportID,
+                String(describing: event.phase)
+            )
+        )
+
         if isCaptureMode {
             guard let handler = captureHandler,
                   case let .captured(candidate) = captureSession.observe(event),
@@ -281,7 +318,17 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
 
         if case .released = event.phase { stopRepeat(state) }
         let events = state.resolver.resolve(event: event, mapping: state.mapping)
-        guard !events.isEmpty else { return }
+        guard !events.isEmpty else {
+            genericHIDRuntimeLog(
+                "mapping miss binding="
+                    + (GenericHIDLearnCandidate(event: event).persistentBindingKey?
+                        .overCUEStableSortKey ?? "unpersistable")
+            )
+            return
+        }
+        genericHIDRuntimeLog(
+            "mapping hit actions=\(events.map { $0.target.configurationValue }.joined(separator: ","))"
+        )
         publishRuntimeStatus(state, connected: true)
         for event in events { route(event, state: state) }
     }
@@ -430,6 +477,10 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
                 mapping: mapping
             )
             statesBySessionID[descriptor.sessionIdentifier] = state
+            genericHIDRuntimeLog(
+                "state ready session=\(descriptor.sessionIdentifier) logical=\(logicalDeviceID) "
+                    + "profile=\(logicalDevice.profileName) preset=\(presetID) mappings=\(mapping.count)"
+            )
             publishRuntimeStatus(state, connected: true)
         }
     }
@@ -507,7 +558,15 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
             handleInternal(action, state: state)
             return
         }
-        guard let shortcut = shortcut(for: event.target, mode: state.mode) else { return }
+        guard let shortcut = shortcut(for: event.target, mode: state.mode) else {
+            genericHIDRuntimeLog(
+                "route miss target=\(event.target.configurationValue) mode=\(state.mode.rawValue)"
+            )
+            return
+        }
+        genericHIDRuntimeLog(
+            "route target=\(event.target.configurationValue) mode=\(state.mode.rawValue) phase=\(event.phase)"
+        )
         switch event.phase {
         case .triggered, .repeated:
             keyboardOutput.trigger(shortcut, count: event.activationCount)
@@ -646,17 +705,33 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         for target: ActionTarget,
         mode: RekordboxMappingMode
     ) -> RekordboxKeyboardShortcut? {
-        guard let commandID = RekordboxActionAdapter.commandID(for: target) else { return nil }
+        guard let commandID = RekordboxActionAdapter.commandID(for: target) else {
+            genericHIDRuntimeLog("no command ID target=\(target.configurationValue)")
+            return nil
+        }
         let mapping: RekordboxKeyMapping
         if let cached = keyMappingsByMode[mode] {
             mapping = cached
         } else {
-            guard let loaded = try? loader.load(mode: mode).mapping else { return nil }
+            guard let loaded = try? loader.load(mode: mode).mapping else {
+                genericHIDRuntimeLog("key mapping load failed mode=\(mode.rawValue)")
+                return nil
+            }
             keyMappingsByMode[mode] = loaded
             mapping = loaded
         }
-        guard let raw = mapping.shortcut(for: commandID) else { return nil }
-        return try? RekordboxKeyboardShortcut(rawValue: raw)
+        guard let raw = mapping.shortcut(for: commandID) else {
+            genericHIDRuntimeLog("command has no shortcut commandID=\(commandID) mode=\(mode.rawValue)")
+            return nil
+        }
+        do {
+            let shortcut = try RekordboxKeyboardShortcut(rawValue: raw)
+            genericHIDRuntimeLog("resolved commandID=\(commandID) shortcut=\(raw)")
+            return shortcut
+        } catch {
+            genericHIDRuntimeLog("shortcut parse failed commandID=\(commandID) raw=\(raw) error=\(error)")
+            return nil
+        }
     }
 
     private func publishRuntimeStatus(_ state: GenericHIDDeviceRuntimeState, connected: Bool) {

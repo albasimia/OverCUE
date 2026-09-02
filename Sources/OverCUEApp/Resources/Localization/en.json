@@ -6,6 +6,7 @@
   "app.status.stopped": "ACK05 stopped",
   "app.status.starting": "Starting ACK05",
   "app.status.running": "Waiting for ACK05 input",
+  "app.status.degraded": "Input active with warning: %@",
   "app.status.failed": "ACK05 failed to start: %@",
   "app.status.accessibility": "OverCUE %@ Preset %d",
   "nav.shortcuts": "Shortcuts",

@@ -9,6 +9,7 @@ final class OverCUECLIRuntime {
         case stopped
         case starting
         case running
+        case degraded(String)
         case failed(String)
 
         var displayText: String {
@@ -16,6 +17,7 @@ final class OverCUECLIRuntime {
             case .stopped: L10n.text("app.status.stopped")
             case .starting: L10n.text("app.status.starting")
             case .running: L10n.text("app.status.running")
+            case let .degraded(message): L10n.text("app.status.degraded", message)
             case let .failed(message): L10n.text("app.status.failed", message)
             }
         }
@@ -44,16 +46,24 @@ final class OverCUECLIRuntime {
         stop()
         status = .starting
 
+        var failures: [String] = []
         do {
             try startACK05Process(mode: mode, group: group)
+        } catch {
+            failures.append(error.localizedDescription)
+        }
+        do {
             try genericHIDNativeEventSuppressor.start()
             try startGenericHIDRuntimeWithHandoffRetry()
-            status = .running
         } catch {
-            stopACK05Process()
             genericHIDRuntime.stop()
             genericHIDNativeEventSuppressor.stop()
-            status = .failed(error.localizedDescription)
+            failures.append(error.localizedDescription)
+        }
+        if process != nil || genericHIDRuntime.isRunning {
+            status = failures.isEmpty ? .running : .degraded(failures.joined(separator: " "))
+        } else {
+            status = .failed(failures.joined(separator: " "))
         }
     }
 
@@ -106,6 +116,7 @@ final class OverCUECLIRuntime {
         }
 
         genericRuntimeStartedForCapture = false
+        var failure: String?
         do {
             if !genericHIDNativeEventSuppressor.isRunning {
                 try genericHIDNativeEventSuppressor.start()
@@ -113,11 +124,13 @@ final class OverCUECLIRuntime {
             if process == nil {
                 try startACK05Process(mode: mode, group: group)
             }
-            status = .running
         } catch {
-            genericHIDRuntime.stop()
-            genericHIDNativeEventSuppressor.stop()
-            status = .failed(error.localizedDescription)
+            failure = error.localizedDescription
+        }
+        if process != nil || genericHIDRuntime.isRunning {
+            status = failure.map(Status.degraded) ?? .running
+        } else {
+            status = .failed(failure ?? L10n.text("cli.exited", 1))
         }
     }
 
@@ -165,15 +178,14 @@ final class OverCUECLIRuntime {
                 guard let self, self.process === terminatedProcess else { return }
                 self.process = nil
                 guard !self.isShortcutCaptureActive else { return }
-                self.genericHIDRuntime.stop()
-                self.genericHIDNativeEventSuppressor.stop()
-                if exitStatus == 0 {
+                let detail = Self.errorDetail(from: errorPipe)
+                    ?? L10n.text("cli.exited", exitStatus)
+                if self.genericHIDRuntime.isRunning {
+                    self.status = .degraded(detail)
+                } else if exitStatus == 0 {
                     self.status = .stopped
                 } else {
-                    let detail = Self.errorDetail(from: errorPipe)
-                    self.status = .failed(
-                        detail ?? L10n.text("cli.exited", exitStatus)
-                    )
+                    self.status = .failed(detail)
                 }
             }
         }
@@ -251,6 +263,7 @@ final class OverCUECLIRuntime {
             "--rekordbox-mode", mode.rawValue,
             "--group", String(group),
             "--no-accessibility-prompt",
+            "--parent-pid", String(ProcessInfo.processInfo.processIdentifier),
         ]
         let fileManager = FileManager.default
         var candidates: [URL] = []

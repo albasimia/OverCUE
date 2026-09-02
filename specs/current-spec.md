@@ -349,7 +349,9 @@ Generic HID Learnは最初のactivationを送ったPhysical Deviceへsource lock
 
 Serialを持つGeneric HIDはDevicesでPhysical Bindingへ登録できる。Action Mappingの編集面はShortcutsへ統一し、ACK05と登録済みGeneric HIDのどちらか先に入力されたPhysical Inputを現在Presetの選択Actionへ割り当てる。adapter固有の割り当てはversion 1の`generic-hid.json`へLogical Device ID / Preset stable ID / input descriptor単位で保存する。main configはversion 10を維持する。
 
-通常runtimeは登録済みGeneric HIDだけをIOHIDで監視する。keyboard-class HIDのexclusive openが`kIOReturnNotPrivileged`になった場合はshared openへfallbackし、同じ登録deviceから得たraw IOHID usageとdownstream CGEventを短時間相関する。相関したkeyboard / Consumer Control eventだけを`.cghidEventTap / .headInsertEventTap / .defaultTap`でdropし、相関できない通常キーボード入力はfail-openとする。「入力を有効にする」がOFFの場合はACK05 / Generic HID runtimeとSuppressorを意図的に停止し、native入力を抑止しない。
+通常runtimeは登録済みGeneric HIDだけをshared IOHIDで監視する。keyboard-class interfaceがmanager open後にmatchすると、exclusive manager open自体は成功しても後続claimだけ失敗しinput callbackが届かない場合があるため、Action runtimeは`SeizeDevice`を使わない。同じ登録deviceから得たraw IOHID usageとdownstream CGEventを短時間相関し、相関したkeyboard / Consumer Control eventだけを`.cghidEventTap / .headInsertEventTap / .defaultTap`でdropする。相関できない通常キーボード入力はfail-openとする。「入力を有効にする」がOFFの場合はACK05 / Generic HID runtimeとSuppressorを意図的に停止し、native入力を抑止しない。
+
+ACK05 CLIとGeneric HID runtimeは独立input backendである。一方の起動失敗・終了時も他方は継続し、部分稼働はdegraded statusとして表示する。アプリが起動した`overcue-cli`はparent PIDを監視し、親GUIが消失した場合に終了してexclusive ACK05 claimを残さない。Devices Identify / Rebind中はruntimeだけを一時停止し、controller inputの永続ON/OFF設定は変更しない。
 
 2026-09-03にSIDE-KEYBOARD実機で、Keypad 1〜4がmacOS keyCode 83〜86、Volume Up / Down / Muteが`systemDefined` subtype 8のNX key type 0 / 1 / 7として届くことを確認した。raw IOHID callbackからCGEvent callbackまでの差は約0.3〜5msで、press / releaseはいずれもactive tapからnilを返してdropできた。Input MonitoringとAccessibilityは双方許可済みだった。`OVERCUE_HID_SUPPRESSION_DIAGNOSTICS=1`で起動すると、Suppressor lifecycle、権限、match interface数、raw usage、CGEvent、相関結果をstderrへ記録できる。
 

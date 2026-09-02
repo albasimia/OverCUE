@@ -2,7 +2,9 @@
 
 ## 現在のフェーズ
 
-Preset / Shortcut Scope version 10に、Devices UI、Preset管理、Group Preset、Generic HIDのShortcuts統合Learn / runtime / native event suppressionを追加した。2026-09-03に`SDINNOVATION / SIDE-KEYBOARD`のraw IOHID→CGEvent経路を実機観測し、controller inputが有効なら現行SuppressorがKeypad / Volume / Muteをdropできることを確認した。症状発生時のUserDefaultsではcontroller inputがOFFで、Suppressorの`start()`自体が呼ばれていなかった。
+Preset / Shortcut Scope version 10に、Devices UI、Preset管理、Group Preset、Generic HIDのShortcuts統合Learn / runtime / native event suppressionを追加した。2026-09-03に`SDINNOVATION / SIDE-KEYBOARD`のraw IOHID→CGEvent経路を実機観測し、controller inputが有効ならSuppressorがKeypad / Volume / Muteをdropできることを確認した。Action runtimeはshared IOHIDへ統一し、登録済み個体のKey2 / Key3 / Knob RightがLearn済みActionからrekordbox shortcut送信まで到達することを確認した。
+
+ACK05 CLIとGeneric HID runtimeは独立backendとし、一方のfailureで他方を停止しない。Devices Identify / Rebindはcontroller input設定を永続OFFにせずruntimeだけを一時停止する。アプリ起動CLIはparent PIDを監視し、GUI消失後の孤児化を防ぐ。
 
 Group PresetはLogical Deviceごとに参照するPreset stable IDを保持する親設定とする。Group Preset切替時は接続中の各Logical Deviceへdevice-scoped runtime controlを送り、指定Presetを初期状態として適用する。以後のCycle Presetは各デバイスの一時runtime stateとして維持し、通常のstatus/config更新ではGroup Presetの初期値へ巻き戻さない。
 
@@ -45,6 +47,8 @@ Decision `20260902T215700-ack05-usb-slot-identity`により、ACK05 USBでは`lo
 - [x] Input Monitoring / Accessibilityが許可された状態で、`.cghidEventTap / .headInsertEventTap / .defaultTap`から全7入力のpress / releaseをdrop。
 - [x] raw IOHID→CGEventの到達差は約0.3〜5msで、既存8ms相関待機内。
 - [x] controller input OFFではSuppressor / Generic HID runtimeを意図的に停止しnative入力をfail-openすることを確認。
+- [x] 登録済み個体のKey2 / Key3 / Knob Rightがraw HID→mapping→rekordbox shortcut送信まで到達。
+- [x] 同時接続中の2台目はSerial `592B14678182`で、登録済み個体と異なるpersistent identityを持つ。
 
 Decision `20260902T231600-generic-hid-register`により、SerialをGeneric HID persistent identityとして使い、Identify中はpersistent identity + locationIDで同一live attachmentの複数interfaceを束ねる。locationID自体はpersistent identityへ昇格させず、同一Serialが別live attachmentに同時出現した場合はambiguityで拒否する。
 
@@ -81,8 +85,8 @@ Decision `20260902T231600-generic-hid-register`により、SerialをGeneric HID 
 - [x] `swift run overcue-checks`（397件成功）
 - [x] `./Scripts/build-app.sh`（Universal Binary生成・codesign確認）
 - [x] `./Scripts/verify-macos.sh`
-- [ ] `aal doctor`
-- [ ] `git diff --check`
+- [x] `aal doctor`（0 failures / 0 warnings）
+- [x] `git diff --check`
 
 ## UI実機ゲート
 
@@ -109,11 +113,12 @@ Decision `20260902T231600-generic-hid-register`により、SerialをGeneric HID 
 - [x] Generic HID identity証拠に基づいてDevicesのAdd Generic HIDを有効化する。
 - [x] Devices > Add Generic HIDでSIDE-KEYBOARDをLogical Deviceへ登録し、SerialをPhysical IDとして保存。
 - [ ] 同じSIDE-KEYBOARDを抜き差しし、Serialが維持されることを確認。
-- [ ] 同型Generic HID複数台のSerialが個体ごとに異なるか確認。異ならない場合はambiguityで拒否されることを確認。
+- [x] 同型Generic HID 2台のSerialが`3F8701678182` / `592B14678182`として異なることを確認。
+- [ ] 2台目`592B14678182`をDevicesでLogical Deviceへ明示Bindingし、Shortcutsで個別割り当てする。
 - [x] Generic HID mapping編集をShortcutsへ統合し、既存`generic-hid.json`にKey / Consumer descriptor割り当てが保存されることを確認。
 - [x] Generic HID runtimeを既存Action Layer / Preset / Logical Deviceへ接続。
 - [x] controller input有効時のSIDE-KEYBOARD native Keypad / Volume / Mute抑止を実機eventで確認。
-- [ ] rekordboxを最前面にして全7入力の割り当てActionが期待どおり発火することを実運用確認。
+- [ ] rekordboxを最前面にして残り4入力を含む全7入力の割り当てActionが期待どおり発火することを実運用確認（Key2 / Key3 / Knob Rightは送信確認済み）。
 
 ## その他
 

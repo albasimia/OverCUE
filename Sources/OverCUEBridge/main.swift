@@ -31,6 +31,7 @@ private struct BridgeOptions {
     var invertDial = false
     var promptForAccessibility = true
     var configPath: String?
+    var parentPID: pid_t?
 
     static func parse(_ arguments: [String]) throws -> BridgeOptions {
         var options = BridgeOptions()
@@ -81,6 +82,10 @@ private struct BridgeOptions {
                 options.promptForAccessibility = false
             case "--config":
                 options.configPath = try stringValue(after: argument, arguments: arguments, index: &index)
+            case "--parent-pid":
+                options.parentPID = pid_t(
+                    try integerValue(after: argument, arguments: arguments, index: &index)
+                )
             case "--help", "-h":
                 printUsage()
                 exit(EXIT_SUCCESS)
@@ -111,6 +116,9 @@ private struct BridgeOptions {
         guard options.maximumDragPixels >= options.dragPixels else {
             throw BridgeError.invalidValue("--max-drag-pixels must be greater than or equal to --drag-pixels")
         }
+        if let parentPID = options.parentPID, parentPID <= 1 {
+            throw BridgeError.invalidValue("--parent-pid must be greater than 1")
+        }
 
         return options
     }
@@ -136,6 +144,7 @@ private struct BridgeOptions {
               --invert-dial          Reverse the mouse drag direction.
               --no-accessibility-prompt Do not show the macOS permission prompt. Used by OverCUE.app.
               --config <path>        Settings JSON path. Default: ~/Library/Application Support/OverCUE/config.json.
+              --parent-pid <pid>     Exit when the launching OverCUE process exits.
               --shared               Do not suppress ACK05 factory keyboard input.
               -h, --help             Show this help.
 
@@ -2151,6 +2160,16 @@ do {
 
     log(options.seizeDevice ? "ACK05 exclusive input is ON." : "ACK05 shared input is ON.")
     log("Rotate the ACK05 dial. Press Control-C to stop.")
+
+    if let expectedParentPID = options.parentPID {
+        let parentMonitor = Timer(timeInterval: 1, repeats: true) { _ in
+            if getppid() != expectedParentPID || kill(expectedParentPID, 0) != 0 {
+                log("Launching OverCUE process exited; stopping ACK05 input.")
+                exit(EXIT_SUCCESS)
+            }
+        }
+        RunLoop.current.add(parentMonitor, forMode: .common)
+    }
 
     CFRunLoopRun()
 } catch {

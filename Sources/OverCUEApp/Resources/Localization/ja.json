@@ -6,6 +6,7 @@
   "app.status.stopped": "入力停止中",
   "app.status.starting": "入力起動中",
   "app.status.running": "入力待機中",
+  "app.status.degraded": "一部入力のみ動作中: %@",
   "app.status.failed": "入力起動失敗: %@",
   "app.status.accessibility": "OverCUE %@ プリセット%d",
   "nav.shortcuts": "ショートカット",

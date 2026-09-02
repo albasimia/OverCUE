@@ -6,6 +6,7 @@
   "app.status.stopped": "ACK05 已停止",
   "app.status.starting": "正在启动 ACK05",
   "app.status.running": "等待 ACK05 输入",
+  "app.status.degraded": "部分输入可用：%@",
   "app.status.failed": "ACK05 启动失败：%@",
   "app.status.accessibility": "OverCUE %@ 预设 %d",
   "nav.shortcuts": "快捷键",

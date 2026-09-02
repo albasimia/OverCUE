@@ -479,7 +479,7 @@ struct DevicesView: View {
         let wasEnabled = shortcutModel.isBridgeEnabled
         restoreBridgeAfterIdentify = wasEnabled
         if wasEnabled {
-            shortcutModel.setBridgeEnabled(false)
+            shortcutModel.pauseRuntimeForDeviceIdentification()
         }
         do {
             try action()
@@ -492,7 +492,7 @@ struct DevicesView: View {
     private func restoreRuntimeIfNeeded() {
         guard restoreBridgeAfterIdentify else { return }
         restoreBridgeAfterIdentify = false
-        shortcutModel.setBridgeEnabled(true)
+        shortcutModel.resumeRuntimeAfterDeviceIdentification()
     }
 
     private func perform(_ action: () throws -> Void) {
