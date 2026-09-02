@@ -135,6 +135,7 @@ private struct MenuBarContent: View {
 private enum MainSection: String, CaseIterable, Identifiable {
     case shortcuts
     case devices
+    case groupPresets
     case settings
 
     var id: String { rawValue }
@@ -143,6 +144,7 @@ private enum MainSection: String, CaseIterable, Identifiable {
         switch self {
         case .shortcuts: "nav.shortcuts"
         case .devices: "nav.devices"
+        case .groupPresets: "groupPreset.title"
         case .settings: "nav.settings"
         }
     }
@@ -202,6 +204,8 @@ private struct ContentView: View {
             }
         case .devices:
             DevicesView(deviceModel: deviceModel, shortcutModel: model)
+        case .groupPresets:
+            GroupPresetsView(deviceModel: deviceModel)
         case .settings:
             OverCUESettingsTabView(model: model)
         }
@@ -237,7 +241,7 @@ private struct ContentView: View {
             }
             .labelsHidden()
             .pickerStyle(.segmented)
-            .frame(width: 360)
+            .frame(width: 500)
 
             Spacer(minLength: 20)
 

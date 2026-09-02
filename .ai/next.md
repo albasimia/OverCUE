@@ -2,7 +2,7 @@
 
 ## 現在のフェーズ
 
-Preset / Shortcut Scope version 10に、ACK05複数台の実機証拠を反映したDevices UI、Preset管理、Group Presetを追加した。GitHub connector経由の実装なので、現HEADのローカルbuild / test / verifyは未実施。
+Preset / Shortcut Scope version 10に、ACK05複数台の実機証拠を反映したDevices UI、Preset管理、Group Presetを追加した。Group Preset専用画面をトップレベルへ追加し、全Logical Deviceのinclusion / Preset参照を一画面で編集できるようにした。GitHub connector経由の実装なので、現HEADのローカルbuild / test / verifyは未実施。
 
 Group PresetはLogical Deviceごとに参照するPreset stable IDを保持する親設定とする。Group Preset切替時は接続中の各Logical Deviceへdevice-scoped runtime controlを送り、指定Presetを初期状態として適用する。以後のCycle Presetは各デバイスの一時runtime stateとして維持し、通常のstatus/config更新ではGroup Presetの初期値へ巻き戻さない。
 
@@ -20,7 +20,7 @@ Decision `20260901T234500-6f42c1`により、ACK05ではPhysicalDeviceUniqueID�
 
 ## 今回実装したUI / 設定
 
-- [x] top navigation: Shortcuts / Devices / Settings。
+- [x] top navigation: Shortcuts / Devices / Group Preset / Settings。
 - [x] Shortcutsは既存2カラムを維持し、第3カラムを追加しない。
 - [x] Devices画面: Logical Device一覧 / detail。
 - [x] Add ACK05 / Identify / Rebind / Forget Binding。
@@ -33,6 +33,8 @@ Decision `20260901T234500-6f42c1`により、ACK05ではPhysicalDeviceUniqueID�
 - [x] UI上の旧Preset Group表記をPresetへ統一。
 - [x] Group Preset Add / Rename / Delete / active selector。
 - [x] Group PresetごとにLogical Device inclusionと参照Presetを設定。
+- [x] Group Preset専用画面で全Logical Deviceのinclusion / Preset参照を一覧編集。
+- [x] Devices画面内のGroup Preset個別編集導線も維持。
 - [x] Preset削除・Profile変更時にGroup Presetのdangling referenceを残さない。
 - [x] Group Preset assignmentをconfig 3-way merge対象に追加。
 - [x] Settings top-level画面。
@@ -57,6 +59,7 @@ Decision `20260901T234500-6f42c1`により、ACK05ではPhysicalDeviceUniqueID�
 - [ ] Presetを5個以上まで追加し、name selector / Cycle Presetが存在するPresetだけをorder順に巡回する。
 - [ ] Preset rename / delete後もstable ID選択とruntime controlが破綻しない。
 - [ ] Group Presetを複数作成し、ACK05ごとに異なるPresetを指定して一括切替できる。
+- [ ] Group Preset専用画面で複数Logical Deviceを一覧し、include / Presetを横断編集できる。
 - [ ] Group Preset切替後に各ACK05でCycle Presetし、他ACK05操作や通常config更新で初期Presetへ巻き戻らない。
 - [ ] Group Presetから除外したLogical Deviceのruntime stateを意図せず変更しない。
 
