@@ -9,6 +9,7 @@ struct GenericHIDMappingSection: View {
     @State private var showActionPicker = false
     @State private var actionSearch = ""
     @State private var restoreBridgeAfterLearn = false
+    @State private var pendingLearnTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -36,7 +37,7 @@ struct GenericHIDMappingSection: View {
                     Label(localization.text("genericHID.learn"), systemImage: "waveform.badge.plus")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(model.isLearning || model.selectedPresetID == nil)
+                .disabled(model.isLearning || pendingLearnTask != nil || model.selectedPresetID == nil)
             }
 
             if model.rows.isEmpty {
@@ -63,7 +64,7 @@ struct GenericHIDMappingSection: View {
                             }
                             .buttonStyle(.borderless)
                             .help(localization.text("genericHID.remove"))
-                            .disabled(model.isLearning)
+                            .disabled(model.isLearning || pendingLearnTask != nil)
                         }
                         .padding(.vertical, 9)
                         if row.id != model.rows.last?.id {
@@ -73,7 +74,7 @@ struct GenericHIDMappingSection: View {
                 }
             }
 
-            if model.isLearning {
+            if pendingLearnTask != nil || model.isLearning {
                 HStack(spacing: 10) {
                     ProgressView()
                         .controlSize(.small)
@@ -81,7 +82,10 @@ struct GenericHIDMappingSection: View {
                         .font(.subheadline.weight(.medium))
                     Spacer()
                     Button(localization.text("common.cancel")) {
+                        pendingLearnTask?.cancel()
+                        pendingLearnTask = nil
                         model.cancelLearn()
+                        restoreRuntimeIfNeeded()
                     }
                     .buttonStyle(.bordered)
                 }
@@ -105,14 +109,18 @@ struct GenericHIDMappingSection: View {
             model.configure(device: device)
         }
         .onChange(of: device.id) { _ in
+            pendingLearnTask?.cancel()
+            pendingLearnTask = nil
             restoreRuntimeIfNeeded()
             model.configure(device: device)
         }
         .onChange(of: model.isLearning) { learning in
-            guard !learning else { return }
+            guard !learning, pendingLearnTask == nil else { return }
             restoreRuntimeIfNeeded()
         }
         .onDisappear {
+            pendingLearnTask?.cancel()
+            pendingLearnTask = nil
             model.cancelLearn()
             restoreRuntimeIfNeeded()
         }
@@ -183,15 +191,27 @@ struct GenericHIDMappingSection: View {
     }
 
     private func beginLearn(_ choice: GenericHIDActionChoice) {
+        pendingLearnTask?.cancel()
         let wasEnabled = shortcutModel.isBridgeEnabled
         restoreBridgeAfterLearn = wasEnabled
         if wasEnabled {
             shortcutModel.setBridgeEnabled(false)
         }
-        do {
-            try model.beginLearn(target: choice.target)
-        } catch {
-            restoreRuntimeIfNeeded()
+
+        // The normal Generic HID runtime opens registered devices with
+        // kIOHIDOptionsTypeSeizeDevice so Consumer Control inputs do not leak to
+        // macOS. IOHIDManagerClose is synchronous at our API boundary, but the
+        // kernel can briefly keep the exclusive claim while the close propagates.
+        // Give that claim time to drain before Learn opens the same device shared.
+        pendingLearnTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            guard !Task.isCancelled else { return }
+            pendingLearnTask = nil
+            do {
+                try model.beginLearn(target: choice.target)
+            } catch {
+                restoreRuntimeIfNeeded()
+            }
         }
     }
 
