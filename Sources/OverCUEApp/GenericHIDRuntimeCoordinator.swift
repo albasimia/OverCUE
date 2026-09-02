@@ -6,13 +6,10 @@ import OverCUECore
 
 private final class GenericHIDRuntimeObserverToken: @unchecked Sendable {
     let value: any NSObjectProtocol
-
-    init(_ value: any NSObjectProtocol) {
-        self.value = value
-    }
+    init(_ value: any NSObjectProtocol) { self.value = value }
 }
 
-private final class GenericHIDDeviceRuntimeState {
+private final class GenericHIDDeviceRuntimeState: @unchecked Sendable {
     let descriptor: HIDPhysicalDeviceDescriptor
     var logicalDeviceID: String
     var profileName: String
@@ -40,9 +37,7 @@ private final class GenericHIDDeviceRuntimeState {
         self.mapping = mapping
     }
 
-    deinit {
-        repeatTimer?.invalidate()
-    }
+    deinit { repeatTimer?.invalidate() }
 }
 
 private final class GenericHIDKeyboardOutput {
@@ -57,8 +52,9 @@ private final class GenericHIDKeyboardOutput {
     }
 
     func press(_ shortcut: RekordboxKeyboardShortcut, sourceID: ActionSourceID) {
-        guard heldBySource[sourceID] == nil else { return }
-        guard isRekordboxFrontmostForGenericHID() else { return }
+        guard heldBySource[sourceID] == nil,
+              isRekordboxFrontmostForGenericHID()
+        else { return }
         post(shortcut, keyDown: true)
         heldBySource[sourceID] = shortcut
     }
@@ -69,7 +65,7 @@ private final class GenericHIDKeyboardOutput {
     }
 
     func releaseAll() {
-        for (sourceID, _) in heldBySource {
+        for sourceID in Array(heldBySource.keys) {
             release(sourceID: sourceID)
         }
     }
@@ -90,9 +86,9 @@ private final class GenericHIDKeyboardOutput {
     }
 }
 
-/// App-side Generic HID runtime. It observes only serial-backed Physical Device
-/// bindings already present in config, keeps IOHID access shared, and routes
-/// learned descriptor inputs through the same ActionTarget semantics used by ACK05.
+/// Runtime capture is exclusive only for Generic HID devices already bound in
+/// config. Identify/Learn remain shared-mode so ordinary keyboards are never
+/// globally seized by discovery.
 final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     private struct LiveGroupKey: Hashable {
         let persistentIdentifier: String
@@ -120,7 +116,6 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
 
     init() {
         manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-        IOHIDManagerSetDeviceMatching(manager, nil)
         let context = Unmanaged.passUnretained(self).toOpaque()
         IOHIDManagerRegisterDeviceMatchingCallback(manager, genericRuntimeDeviceMatched, context)
         IOHIDManagerRegisterDeviceRemovalCallback(manager, genericRuntimeDeviceRemoved, context)
@@ -150,9 +145,10 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         groupKeyByInterfaceID = [:]
         statesBySessionID = [:]
         keyMappingsByMode = [:]
+        configureDeviceMatching()
         installObservers()
 
-        let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
         guard result == kIOReturnSuccess else {
             removeObservers()
             throw GenericHIDDeviceIdentifierMonitorError.openFailed(result)
@@ -179,8 +175,9 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     }
 
     fileprivate func didMatch(device: IOHIDDevice, result: IOReturn) {
-        guard result == kIOReturnSuccess else { return }
-        guard registerInterface(device) != nil else { return }
+        guard result == kIOReturnSuccess,
+              registerInterface(device) != nil
+        else { return }
         refreshRuntimeStates()
     }
 
@@ -192,9 +189,9 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         else { return }
         group.interfaceIDs.remove(interfaceID)
         if group.interfaceIDs.isEmpty {
-            let removedSessionID = group.representative.sessionIdentifier
+            let sessionID = group.representative.sessionIdentifier
             groups.removeValue(forKey: groupKey)
-            if let state = statesBySessionID.removeValue(forKey: removedSessionID) {
+            if let state = statesBySessionID.removeValue(forKey: sessionID) {
                 publishRuntimeStatus(state, connected: false)
                 stopRepeat(state)
             }
@@ -237,15 +234,34 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
               )
         else { return }
 
-        if case .released = event.phase {
-            stopRepeat(state)
-        }
-
-        let actionEvents = state.resolver.resolve(event: event, mapping: state.mapping)
-        guard !actionEvents.isEmpty else { return }
+        if case .released = event.phase { stopRepeat(state) }
+        let events = state.resolver.resolve(event: event, mapping: state.mapping)
+        guard !events.isEmpty else { return }
         publishRuntimeStatus(state, connected: true)
-        for actionEvent in actionEvents {
-            route(actionEvent, state: state)
+        for event in events { route(event, state: state) }
+    }
+
+    private func configureDeviceMatching() {
+        let matches: [[String: Any]] = configuration.physicalDeviceBindings.compactMap { binding in
+            guard binding.kind == .genericHID,
+                  let serial = binding.serialNumber
+            else { return nil }
+            return [
+                kIOHIDVendorIDKey as String: binding.vendorID,
+                kIOHIDProductIDKey as String: binding.productID,
+                kIOHIDSerialNumberKey as String: serial,
+            ]
+        }
+        if matches.isEmpty {
+            IOHIDManagerSetDeviceMatching(
+                manager,
+                [
+                    kIOHIDVendorIDKey as String: Int.max,
+                    kIOHIDProductIDKey as String: Int.max,
+                ] as CFDictionary
+            )
+        } else {
+            IOHIDManagerSetDeviceMatchingMultiple(manager, matches as CFArray)
         }
     }
 
@@ -255,27 +271,21 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
                 forName: OverCUEConfigurationChangedNotification.name,
                 object: nil,
                 queue: .main
-            ) { [weak self] _ in
-                self?.reloadConfigurationAndMappings()
-            }
+            ) { [weak self] _ in self?.reloadConfigurationAndMappings() }
         )
         genericMappingObserver = GenericHIDRuntimeObserverToken(
             NotificationCenter.default.addObserver(
                 forName: GenericHIDMappingChangedNotification.name,
                 object: nil,
                 queue: .main
-            ) { [weak self] _ in
-                self?.reloadLearnedMappings()
-            }
+            ) { [weak self] _ in self?.reloadLearnedMappings() }
         )
         runtimeControlObserver = GenericHIDRuntimeObserverToken(
             DistributedNotificationCenter.default().addObserver(
                 forName: OverCUERuntimeControlNotification.name,
                 object: nil,
                 queue: .main
-            ) { [weak self] notification in
-                self?.applyRuntimeControl(notification)
-            }
+            ) { [weak self] notification in self?.applyRuntimeControl(notification) }
         )
     }
 
@@ -299,6 +309,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
             at: OverCUEAppConfigurationLocation.url
         ) else { return }
         configuration = latest
+        configureDeviceMatching()
         keyMappingsByMode = [:]
         refreshRuntimeStates()
         reloadLearnedMappings()
@@ -307,9 +318,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     private func reloadLearnedMappings() {
         keyboardOutput.releaseAll()
         for state in statesBySessionID.values {
-            for event in state.resolver.reset(mapping: state.mapping) {
-                route(event, state: state)
-            }
+            _ = state.resolver.reset(mapping: state.mapping)
             stopRepeat(state)
             state.mapping = (try? GenericHIDMappingStore.mapping(
                 logicalDeviceID: state.logicalDeviceID,
@@ -321,7 +330,6 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     private func refreshRuntimeStates() {
         let connected = connectedDescriptors
         let connectedSessionIDs = Set(connected.map(\.sessionIdentifier))
-
         for sessionID in Array(statesBySessionID.keys) where !connectedSessionIDs.contains(sessionID) {
             if let state = statesBySessionID.removeValue(forKey: sessionID) {
                 publishRuntimeStatus(state, connected: false)
@@ -330,8 +338,10 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         }
 
         for descriptor in connected {
-            let resolution = configuration.bindingResolution(for: descriptor, among: connected)
-            guard case let .bound(logicalDeviceID) = resolution,
+            guard case let .bound(logicalDeviceID) = configuration.bindingResolution(
+                for: descriptor,
+                among: connected
+            ),
                   let logicalDevice = configuration.logicalDevices[logicalDeviceID],
                   let profile = configuration.profiles[logicalDevice.profileName],
                   let presetID = initialPresetID(
@@ -339,25 +349,22 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
                       profile: profile
                   )
             else {
-                if let previous = statesBySessionID.removeValue(
-                    forKey: descriptor.sessionIdentifier
-                ) {
-                    publishRuntimeStatus(previous, connected: false)
-                    stopRepeat(previous)
+                if let state = statesBySessionID.removeValue(forKey: descriptor.sessionIdentifier) {
+                    publishRuntimeStatus(state, connected: false)
+                    stopRepeat(state)
                 }
                 continue
             }
 
             if let state = statesBySessionID[descriptor.sessionIdentifier] {
-                if state.logicalDeviceID != logicalDeviceID
-                    || state.profileName != logicalDevice.profileName {
-                    publishRuntimeStatus(state, connected: false)
-                    stopRepeat(state)
-                    statesBySessionID.removeValue(forKey: descriptor.sessionIdentifier)
-                } else {
+                if state.logicalDeviceID == logicalDeviceID,
+                   state.profileName == logicalDevice.profileName {
                     publishRuntimeStatus(state, connected: true)
                     continue
                 }
+                publishRuntimeStatus(state, connected: false)
+                stopRepeat(state)
+                statesBySessionID.removeValue(forKey: descriptor.sessionIdentifier)
             }
 
             let mode = modeForPreset(
@@ -365,7 +372,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
                 profile: profile,
                 fallback: .performance
             )
-            let learned = (try? GenericHIDMappingStore.mapping(
+            let mapping = (try? GenericHIDMappingStore.mapping(
                 logicalDeviceID: logicalDeviceID,
                 presetID: presetID
             )) ?? [:]
@@ -375,7 +382,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
                 profileName: logicalDevice.profileName,
                 presetID: presetID,
                 mode: mode,
-                mapping: learned
+                mapping: mapping
             )
             statesBySessionID[descriptor.sessionIdentifier] = state
             publishRuntimeStatus(state, connected: true)
@@ -394,10 +401,10 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     }
 
     private func applyRuntimeControl(_ notification: Notification) {
-        guard let targetDeviceID = notification.userInfo?[
+        guard let deviceID = notification.userInfo?[
             OverCUERuntimeControlNotification.deviceIDKey
         ] as? String,
-              let state = statesBySessionID[targetDeviceID],
+              let state = statesBySessionID[deviceID],
               let profile = configuration.profiles[state.profileName]
         else { return }
 
@@ -409,11 +416,10 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         ] as? Int
         let requestedMode = (notification.userInfo?[
             OverCUERuntimeControlNotification.modeKey
-        ] as? String).flatMap(RekordboxMappingMode.init(rawValue:))
+        ] as? String).flatMap { RekordboxMappingMode(rawValue: $0) }
 
         let nextPresetID: String?
-        if let requestedPresetID,
-           profile.presetGroup(id: requestedPresetID) != nil {
+        if let requestedPresetID, profile.presetGroup(id: requestedPresetID) != nil {
             nextPresetID = requestedPresetID
         } else if let requestedGroup,
                   profile.orderedPresetGroups.indices.contains(requestedGroup - 1) {
@@ -422,11 +428,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
             nextPresetID = nil
         }
         guard let nextPresetID else { return }
-        switchPreset(
-            state,
-            to: nextPresetID,
-            preferredMode: requestedMode
-        )
+        switchPreset(state, to: nextPresetID, preferredMode: requestedMode)
     }
 
     private func switchPreset(
@@ -438,9 +440,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
               profile.presetGroup(id: presetID) != nil
         else { return }
         keyboardOutput.releaseAll()
-        for event in state.resolver.reset(mapping: state.mapping) {
-            route(event, state: state)
-        }
+        _ = state.resolver.reset(mapping: state.mapping)
         stopRepeat(state)
         state.presetID = presetID
         state.mode = preferredMode ?? modeForPreset(
@@ -462,7 +462,6 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
             handleInternal(action, state: state)
             return
         }
-
         guard let shortcut = shortcut(for: event.target, mode: state.mode) else { return }
         switch event.phase {
         case .triggered, .repeated:
@@ -478,9 +477,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
                 }
             }
         case .released:
-            if let sourceID = event.sourceID {
-                keyboardOutput.release(sourceID: sourceID)
-            }
+            if let sourceID = event.sourceID { keyboardOutput.release(sourceID: sourceID) }
         }
     }
 
@@ -517,21 +514,19 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
 
     private func captureWaveformPosition(_ state: GenericHIDDeviceRuntimeState) {
         guard let location = CGEvent(source: nil)?.location else { return }
-        do {
-            configuration = try OverCUEConfigurationFileStore.updateCurrent(
-                at: OverCUEAppConfigurationLocation.url,
-                fallback: configuration
-            ) { latest in
-                guard var profile = latest.profiles[state.profileName] else { return }
+        guard let latest = try? OverCUEConfigurationFileStore.updateCurrent(
+            at: OverCUEAppConfigurationLocation.url,
+            fallback: configuration,
+            { config in
+                guard var profile = config.profiles[state.profileName] else { return }
                 var mapping = profile.mapping(forPresetID: state.presetID)
                 mapping.waveformPosition = WaveformPosition(x: location.x, y: location.y)
                 profile.setMapping(mapping, forPresetID: state.presetID)
-                latest.profiles[state.profileName] = profile
+                config.profiles[state.profileName] = profile
             }
-            OverCUEConfigurationChangedNotification.post()
-        } catch {
-            return
-        }
+        ) else { return }
+        configuration = latest
+        OverCUEConfigurationChangedNotification.post()
     }
 
     private func jogSearch(_ state: GenericHIDDeviceRuntimeState, direction: CGFloat) {
@@ -559,17 +554,11 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         event.post(tap: .cghidEventTap)
     }
 
-    private func startRepeat(
-        _ state: GenericHIDDeviceRuntimeState,
-        sourceID: ActionSourceID
-    ) {
+    private func startRepeat(_ state: GenericHIDDeviceRuntimeState, sourceID: ActionSourceID) {
         stopRepeat(state)
         state.repeatSourceID = sourceID
         state.repeatStartedAt = ProcessInfo.processInfo.systemUptime
-        scheduleRepeat(
-            state,
-            afterMilliseconds: repeatProfile.initialDelayMilliseconds
-        )
+        scheduleRepeat(state, afterMilliseconds: repeatProfile.initialDelayMilliseconds)
     }
 
     private func scheduleRepeat(
@@ -577,10 +566,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         afterMilliseconds delay: Double
     ) {
         state.repeatTimer?.invalidate()
-        let timer = Timer(
-            timeInterval: delay / 1_000,
-            repeats: false
-        ) { [weak self, weak state] _ in
+        let timer = Timer(timeInterval: delay / 1_000, repeats: false) { [weak self, weak state] _ in
             guard let self, let state else { return }
             self.repeatTimerFired(state)
         }
@@ -591,10 +577,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     private func repeatTimerFired(_ state: GenericHIDDeviceRuntimeState) {
         guard let sourceID = state.repeatSourceID,
               let startedAt = state.repeatStartedAt,
-              let event = state.resolver.repeatedEvent(
-                  for: sourceID,
-                  mapping: state.mapping
-              )
+              let event = state.resolver.repeatedEvent(for: sourceID, mapping: state.mapping)
         else {
             stopRepeat(state)
             return
@@ -603,9 +586,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         let heldMilliseconds = (ProcessInfo.processInfo.systemUptime - startedAt) * 1_000
         scheduleRepeat(
             state,
-            afterMilliseconds: repeatProfile.repeatInterval(
-                heldMilliseconds: heldMilliseconds
-            )
+            afterMilliseconds: repeatProfile.repeatInterval(heldMilliseconds: heldMilliseconds)
         )
     }
 
@@ -629,34 +610,27 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
             keyMappingsByMode[mode] = loaded
             mapping = loaded
         }
-        guard let rawShortcut = mapping.shortcut(for: commandID) else { return nil }
-        return try? RekordboxKeyboardShortcut(rawValue: rawShortcut)
+        guard let raw = mapping.shortcut(for: commandID) else { return nil }
+        return try? RekordboxKeyboardShortcut(rawValue: raw)
     }
 
-    private func publishRuntimeStatus(
-        _ state: GenericHIDDeviceRuntimeState,
-        connected: Bool
-    ) {
+    private func publishRuntimeStatus(_ state: GenericHIDDeviceRuntimeState, connected: Bool) {
         guard let profile = configuration.profiles[state.profileName],
-              let index = profile.orderedPresetGroups.firstIndex(where: {
-                  $0.id == state.presetID
-              })
+              let index = profile.orderedPresetGroups.firstIndex(where: { $0.id == state.presetID })
         else { return }
-        let userInfo: [String: Any] = [
-            OverCUERuntimeStatusNotification.modeKey: state.mode.rawValue,
-            OverCUERuntimeStatusNotification.groupKey: index + 1,
-            OverCUERuntimeStatusNotification.presetGroupIDKey: state.presetID,
-            OverCUERuntimeStatusNotification.scopeKey:
-                OverCUERuntimeNotificationScope.device.rawValue,
-            OverCUERuntimeStatusNotification.deviceIDKey: state.descriptor.sessionIdentifier,
-            OverCUERuntimeStatusNotification.logicalDeviceIDKey: state.logicalDeviceID,
-            OverCUERuntimeStatusNotification.profileNameKey: state.profileName,
-            OverCUERuntimeStatusNotification.connectedKey: connected,
-        ]
         DistributedNotificationCenter.default().postNotificationName(
             OverCUERuntimeStatusNotification.name,
             object: nil,
-            userInfo: userInfo,
+            userInfo: [
+                OverCUERuntimeStatusNotification.modeKey: state.mode.rawValue,
+                OverCUERuntimeStatusNotification.groupKey: index + 1,
+                OverCUERuntimeStatusNotification.presetGroupIDKey: state.presetID,
+                OverCUERuntimeStatusNotification.scopeKey: OverCUERuntimeNotificationScope.device.rawValue,
+                OverCUERuntimeStatusNotification.deviceIDKey: state.descriptor.sessionIdentifier,
+                OverCUERuntimeStatusNotification.logicalDeviceIDKey: state.logicalDeviceID,
+                OverCUERuntimeStatusNotification.profileNameKey: state.profileName,
+                OverCUERuntimeStatusNotification.connectedKey: connected,
+            ],
             deliverImmediately: true
         )
     }
@@ -670,15 +644,13 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     }
 
     private var connectedDescriptors: [HIDPhysicalDeviceDescriptor] {
-        groups.values.map(\.representative).sorted {
-            $0.sessionIdentifier < $1.sessionIdentifier
-        }
+        groups.values.map(\.representative).sorted { $0.sessionIdentifier < $1.sessionIdentifier }
     }
 
     @discardableResult
     private func registerInterface(_ device: IOHIDDevice) -> HIDPhysicalDeviceDescriptor? {
-        guard let rawDescriptor = candidateDescriptor(for: device),
-              let persistentIdentifier = rawDescriptor.persistentIdentifier
+        guard let raw = candidateDescriptor(for: device),
+              let persistentIdentifier = raw.persistentIdentifier
         else { return nil }
         let interfaceID = interfaceIdentifier(device)
         if let existingKey = groupKeyByInterfaceID[interfaceID],
@@ -687,10 +659,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         }
         let key = LiveGroupKey(
             persistentIdentifier: persistentIdentifier,
-            connectionQualifier: connectionQualifier(
-                descriptor: rawDescriptor,
-                interfaceID: interfaceID
-            )
+            connectionQualifier: connectionQualifier(descriptor: raw, interfaceID: interfaceID)
         )
         groupKeyByInterfaceID[interfaceID] = key
         if var group = groups[key] {
@@ -698,11 +667,8 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
             groups[key] = group
             return group.representative
         }
-        groups[key] = LiveGroup(
-            representative: rawDescriptor,
-            interfaceIDs: [interfaceID]
-        )
-        return rawDescriptor
+        groups[key] = LiveGroup(representative: raw, interfaceIDs: [interfaceID])
+        return raw
     }
 
     private func candidateDescriptor(for device: IOHIDDevice) -> HIDPhysicalDeviceDescriptor? {
@@ -710,21 +676,21 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         let productID = (property(device, kIOHIDProductIDKey) as? NSNumber)?.intValue ?? 0
         guard vendorID != 0,
               productID != 0,
-              let serialNumber = (property(device, kIOHIDSerialNumberKey) as? String)?
+              let serial = (property(device, kIOHIDSerialNumberKey) as? String)?
                   .trimmingCharacters(in: .whitespacesAndNewlines),
-              !serialNumber.isEmpty,
+              !serial.isEmpty,
               configuration.physicalDeviceBindings.contains(where: {
                   $0.kind == .genericHID
                       && $0.vendorID == vendorID
                       && $0.productID == productID
-                      && $0.serialNumber == serialNumber
+                      && $0.serialNumber == serial
               })
         else { return nil }
         return HIDPhysicalDeviceDescriptor(
             kind: .genericHID,
             vendorID: vendorID,
             productID: productID,
-            serialNumber: serialNumber,
+            serialNumber: serial,
             productName: property(device, kIOHIDProductKey) as? String,
             manufacturerName: property(device, kIOHIDManufacturerKey) as? String,
             transport: property(device, kIOHIDTransportKey) as? String,
@@ -751,12 +717,10 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         var path: [HIDUsage] = []
         var parent = IOHIDElementGetParent(element)
         while let current = parent {
-            path.append(
-                HIDUsage(
-                    page: IOHIDElementGetUsagePage(current),
-                    usage: IOHIDElementGetUsage(current)
-                )
-            )
+            path.append(HIDUsage(
+                page: IOHIDElementGetUsagePage(current),
+                usage: IOHIDElementGetUsage(current)
+            ))
             parent = IOHIDElementGetParent(current)
         }
         return path.reversed()
