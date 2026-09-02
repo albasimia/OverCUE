@@ -1,4 +1,5 @@
 import Foundation
+import IOKit.hid
 import OverCUECore
 
 @MainActor
@@ -65,7 +66,7 @@ final class OverCUECLIRuntime {
             try process.run()
             self.process = process
             do {
-                try genericHIDRuntime.start()
+                try startGenericHIDRuntimeWithHandoffRetry()
             } catch {
                 if process.isRunning {
                     process.terminate()
@@ -80,6 +81,27 @@ final class OverCUECLIRuntime {
         } catch {
             genericHIDRuntime.stop()
             status = .failed(error.localizedDescription)
+        }
+    }
+
+    private func startGenericHIDRuntimeWithHandoffRetry() throws {
+        let maximumAttempts = 16
+        let retryInterval: TimeInterval = 0.10
+
+        for attempt in 1...maximumAttempts {
+            do {
+                try genericHIDRuntime.start()
+                return
+            } catch let error as GenericHIDDeviceIdentifierMonitorError {
+                guard case let .openFailed(status) = error,
+                      status == kIOReturnExclusiveAccess,
+                      attempt < maximumAttempts
+                else {
+                    throw error
+                }
+                genericHIDRuntime.stop()
+                Thread.sleep(forTimeInterval: retryInterval)
+            }
         }
     }
 
