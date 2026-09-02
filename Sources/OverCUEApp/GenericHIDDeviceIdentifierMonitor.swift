@@ -82,7 +82,10 @@ final class GenericHIDDeviceIdentifierMonitor: @unchecked Sendable {
         groupKeyByInterfaceID = [:]
         didIdentify = false
 
-        let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        let result = HIDManagerOpenRetry.open(
+            manager,
+            options: IOOptionBits(kIOHIDOptionsTypeNone)
+        )
         guard result == kIOReturnSuccess else {
             throw GenericHIDDeviceIdentifierMonitorError.openFailed(result)
         }
