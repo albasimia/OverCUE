@@ -240,7 +240,15 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
                 return
             }
 
-            let runLoop = CFRunLoopGetCurrent()
+            guard let runLoop = CFRunLoopGetCurrent() else {
+                self.lifecycleLock.lock()
+                self.hidThread = nil
+                self.hidThreadExit = nil
+                self.lifecycleLock.unlock()
+                ready.signal()
+                exit.signal()
+                return
+            }
             self.lifecycleLock.lock()
             self.hidRunLoop = runLoop
             self.lifecycleLock.unlock()
