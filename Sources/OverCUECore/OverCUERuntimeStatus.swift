@@ -14,8 +14,54 @@ public enum OverCUERuntimeNotificationScope: String, Equatable, Sendable {
     }
 }
 
+/// Process-local gate used while Shortcuts is learning a physical input.
+///
+/// Multiple Logical Devices can legitimately run different Presets at the same
+/// time. Runtime status therefore must not be allowed to retarget the editor in
+/// the middle of Learn. The ACK05 helper is a separate process, so its gate is
+/// independent; the GUI stops that helper before opening the ACK05 capture
+/// monitor. Generic HID stays inside the GUI process and uses this gate while
+/// the unified capture is active.
+public final class OverCUERuntimeStatusDeliveryGate: @unchecked Sendable {
+    public static let shared = OverCUERuntimeStatusDeliveryGate()
+
+    private let lock = NSLock()
+    private var suppressionDepth = 0
+
+    private init() {}
+
+    public var isSuppressed: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return suppressionDepth > 0
+    }
+
+    public func beginSuppression() {
+        lock.lock()
+        suppressionDepth += 1
+        lock.unlock()
+    }
+
+    public func endSuppression() {
+        lock.lock()
+        suppressionDepth = max(0, suppressionDepth - 1)
+        lock.unlock()
+    }
+}
+
 public enum OverCUERuntimeStatusNotification {
-    public static let name = Notification.Name("com.overcue.runtime-status-changed")
+    private static let liveName = Notification.Name("com.overcue.runtime-status-changed")
+    private static let suppressedName = Notification.Name(
+        "com.overcue.runtime-status-changed.suppressed-during-shortcut-learn"
+    )
+
+    /// Observers register the live name during normal app startup. Publishers
+    /// resolve this property at post time, so GUI-process runtime updates emitted
+    /// during Learn are intentionally routed away from the editor observer.
+    public static var name: Notification.Name {
+        OverCUERuntimeStatusDeliveryGate.shared.isSuppressed ? suppressedName : liveName
+    }
+
     public static let modeKey = "mode"
     public static let groupKey = "group"
     public static let presetGroupIDKey = "presetGroupID"
