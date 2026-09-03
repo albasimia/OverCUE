@@ -208,6 +208,14 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
             return Unmanaged.passUnretained(event)
         }
 
+        let sourcePID = event.getIntegerValueField(.eventSourceUnixProcessID)
+        if sourcePID == Int64(ProcessInfo.processInfo.processIdentifier) {
+            diagnosticLog(
+                "CGEvent type=\(type.rawValue) sourcePID=\(sourcePID) action=pass-self"
+            )
+            return Unmanaged.passUnretained(event)
+        }
+
         guard let observed = nativeEvent(type: type, event: event) else {
             diagnosticLog("CGEvent type=\(type.rawValue) not recognized")
             return Unmanaged.passUnretained(event)
