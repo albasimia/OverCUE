@@ -20,8 +20,8 @@ struct GenericHIDShortcutBinding: Identifiable, Equatable {
 ///
 /// Shortcuts remains the only mapping editor. ACK05 uses its existing direct
 /// capture monitor. Generic HID never opens a second manager for Learn: the
-/// already-running exclusive Generic HID runtime temporarily intercepts the
-/// first persistable descriptor and reports it through the capture broker.
+/// already-running Generic HID runtime temporarily intercepts the first
+/// persistable descriptor and reports it through the capture broker.
 @MainActor
 final class GenericHIDShortcutCaptureModel: ObservableObject {
     @Published private(set) var bindingsByTarget: [String: [GenericHIDShortcutBinding]] = [:]
@@ -33,6 +33,7 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
     private var capturedTarget: ActionTarget?
     private var capturedFallbackPresetID: String?
     private var finishingCapture = false
+    private var runtimeStatusSuppressed = false
     private let diagnosticsEnabled = ProcessInfo.processInfo.environment[
         "OVERCUE_GENERIC_HID_DIAGNOSTICS"
     ] == "1"
@@ -122,6 +123,7 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
         captureEntryID = entry.id
         captureMessage = L10n.text("message.capturePrompt")
         isCapturing = true
+        beginRuntimeStatusSuppressionIfNeeded()
         diagnosticLog(
             "begin entry=\(entry.commandID) target=\(target(for: entry).configurationValue) fallbackPreset=\(fallbackPresetID)"
         )
@@ -140,7 +142,7 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
 
         // This is the existing ACK05 Shortcuts capture entry point. Its
         // runtimeBridge.stop() call consumes the broker and switches Generic HID
-        // into capture mode without closing its exclusive IOHIDManager.
+        // into capture mode without closing the already-running manager.
         shortcutModel.beginCapture(for: entry)
         diagnosticLog("begin ACK05 capture active=\(shortcutModel.isCapturing)")
         if !shortcutModel.isCapturing {
@@ -271,12 +273,27 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
     private func finishCapture(shortcutModel: ShortcutSettingsModel) {
         diagnosticLog("finish")
         GenericHIDShortcutCaptureBroker.shared.cancelPrepared()
+        endRuntimeStatusSuppressionIfNeeded()
         capturedTarget = nil
         capturedFallbackPresetID = nil
         captureEntryID = nil
         captureMessage = nil
         isCapturing = false
         finishingCapture = false
+    }
+
+    private func beginRuntimeStatusSuppressionIfNeeded() {
+        guard !runtimeStatusSuppressed else { return }
+        OverCUERuntimeStatusDeliveryGate.shared.beginSuppression()
+        runtimeStatusSuppressed = true
+        diagnosticLog("runtime status suppression ON")
+    }
+
+    private func endRuntimeStatusSuppressionIfNeeded() {
+        guard runtimeStatusSuppressed else { return }
+        OverCUERuntimeStatusDeliveryGate.shared.endSuppression()
+        runtimeStatusSuppressed = false
+        diagnosticLog("runtime status suppression OFF")
     }
 
     private func diagnosticLog(_ message: String) {
