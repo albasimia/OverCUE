@@ -32,6 +32,7 @@ PERFORMANCE Deck 1〜4対応、複数Physical Deviceのruntime分離、Device Ma
 - ACK05実機2台ではSerial Numberを取得できず、macOS `PhysicalDeviceUniqueID`をACK05限定のPairing Identityとして使用する。Pairing Identityは電源OFF/ONとMac再起動では維持され、Bluetooth再ペアリングで変化する。
 - 同時接続deviceが同じpersistent identityを名乗る場合はbindingをambiguousとしてdefault Profileへ戻し、接続トポロジ変更を既存controllerへ即時通知する。
 - Runtime Status / Controlはsession device ID、Logical Device ID、Profile名とdevice / global scopeを保持する。GUIはstatus受信だけで設定を書き戻さない。
+- ShortcutsのPreset選択はeditor専用stateであり、Runtime Statusは選択Preset、表示Mode、mapping表示を変更しない。runtimeのPreset / ModeはLogical Deviceごとのdevice-scoped state、Group Presetはそのruntime開始構成を適用するorchestrationとして分離する。
 - Group Preset切替・assignment変更・対象device接続時は既存device-scoped runtime controlで参照Presetを適用する。同じGroup Preset assignmentのままCycle Presetした状態は通常status/config更新では初期Presetへ巻き戻さない。
 - default Profile用GUIのruntime targetはdefault Profileのdeviceだけで更新する。non-default Profileのstatusはdefault UIのcontrol targetを奪わない。
 - CLIは通常のACK05キー／ダイヤル入力時にもdevice-scoped runtime statusをpublishし、default Profile UIのcontrol targetを実際に操作したdeviceへ追従させる。
@@ -52,6 +53,8 @@ PERFORMANCE Deck 1〜4対応、複数Physical Deviceのruntime分離、Device Ma
 - Generic HID eventは既存Action Layerへ変換し、rekordbox commandId解決やkeyboard送信をGeneric層へ直接持ち込まない。
 - `overcue-probe --all`はdevice metadata、Usage / Report、press/release、relative delta、永続化可否をdevice session別に観測できる。
 - Generic HID mapping編集はShortcutsへ統合済み。割り当ては`generic-hid.json`へLogical Device / Preset / descriptor単位で保存する。
+- Generic HID mappingの表示・保存・削除scopeは、入力元Logical DeviceとShortcutsで選択したeditor Presetの組み合わせである。Learn開始時のeditor Preset stable IDをsessionへ固定し、途中のruntime statusやGroup Preset assignmentでは保存先を変更しない。
+- Unified Learnは単一session state machineが所有し、ACK05とGeneric HIDを独立backendとして開始する。一方の開始失敗で他方を終了せず、最初に入力をclaimしたbackendだけが保存と終了を行う。進行中sessionを別のLearn要求で置換しない。
 - keyboard-class Generic HIDはAction runtime / native suppressorともshared IOHIDで監視する。遅延match時はmanager openがsuccessでも後続exclusive claimだけ失敗してinput callbackが来ない実機挙動があるため、Action runtimeはexclusive openを試みない。登録deviceのraw evidenceと一致したnative eventだけをdropする。
 - 2026-09-03実機観測でKeypad 1〜4はkeyCode 83〜86、Consumer Volume Up / Down / Muteは`systemDefined` subtype 8のNX key type 0 / 1 / 7として到達し、`.cghidEventTap / .headInsertEventTap / .defaultTap`でpress / releaseともdropできた。
 - 2026-09-03実機観測で登録済みSIDE-KEYBOARDのKey2 / Key3 / Knob Rightはraw inputからLearn済みAction、rekordbox shortcut解決、最前面rekordboxへのCGEvent送信まで到達した。
@@ -99,6 +102,7 @@ PERFORMANCE Deck 1〜4対応、複数Physical Deviceのruntime分離、Device Ma
 - 未登録Generic HIDの検出は受動的に行い、勝手に登録・画面遷移しない。登録はDevicesからAdd Generic Device → Identify/Learnで明示的に行う。
 - 物理デバイス識別は固有Serialを最優先し、ACK05では実機証拠に基づきPairing Identityを使う。USB topology / locationは補助ヒントに留める。曖昧な場合はユーザーに対象デバイスを操作してもらいIdentify / Rebindする。
 - runtime statusは「現在の画面の編集対象」と「他Profileの演奏状態」を混同しない。default Profile UIはnon-default Profileのstatusでcontrol targetを書き換えない。
+- Shortcutsのeditor PresetとLogical Device別runtime Presetを同一stateにしない。Runtime Statusからeditor selectionを変更せず、ShortcutsのPreset操作からdevice runtime controlを送らない。
 - `config.json`は単一ファイルを正本とし、複数processがそれぞれ古い全体snapshotを後勝ち保存しない。永続更新はlock付き最新read-modify-writeまたはbaseline差分のmergeとして扱う。
 - Device Registryは接続sessionのruntime状態だけを管理し、永続bindingの正本はconfigのPhysical Binding / Logical Deviceとする。
 - Identifyは最初に操作された候補sessionを返し、RebindはPhysical Bindingだけを交換する。LocationIDや曖昧なidentityを自動確定に使わない。

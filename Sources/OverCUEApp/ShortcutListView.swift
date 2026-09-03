@@ -22,17 +22,9 @@ struct ShortcutListView: View {
             genericHIDModel.reload(shortcutModel: model)
         }
         .onChange(of: model.selectedGroup) { _ in
-            // Runtime status from another Logical Device must not terminate an
-            // in-flight Learn. The capture model pins its fallback Preset and
-            // resolves Generic HID storage from the captured Logical Device.
+            // Learn pins the editor Preset selected at session start.
             guard !genericHIDModel.isCapturing else { return }
             genericHIDModel.reload(shortcutModel: model)
-        }
-        .onChange(of: model.isCapturing) { capturing in
-            genericHIDModel.shortcutCaptureDidChange(
-                isCapturing: capturing,
-                shortcutModel: model
-            )
         }
         .onChange(of: model.selectedEntryID) { newValue in
             guard let newValue,

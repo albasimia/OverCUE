@@ -305,7 +305,7 @@ CLIはACK05 report処理前にもconfig file revisionを確認する。変更時
 
 Preset切り替えActionは先頭Presetで設定するProfile共通割り当てで、存在するPresetを`order`順に循環し末尾と先頭でwrapする。旧`cycle_group` Actionは次Presetとして扱う。EXPORT / PERFORMANCE切り替えActionは、CLIが参照するrekordboxショートカットセットを切り替える。
 
-GUIは番号segmentではなくPreset名のmenuで選択し、CLIの実行Presetとstable ID付きruntime status/controlで双方向同期する。Modeと波形ドラッグ座標はPresetごとに独立して保存・復元する。Deckや対象scopeは割り当てたshortcut自身が保持するため、追加のDeck selectorは表示しない。
+GUIは番号segmentではなくPreset名のmenuで編集対象を選択する。このShortcuts Presetはeditor専用stateであり、Logical Deviceごとの実行Presetとは同期しない。Runtime Statusはdevice-scopedな実行Preset / Modeの表示情報だけを更新し、editorの選択Preset、Mode、mappingを変更しない。ShortcutsのPreset / Mode操作もdevice runtime controlを送らない。Modeと波形ドラッグ座標はPresetごとに独立して保存・復元する。Deckや対象scopeは割り当てたshortcut自身が保持するため、追加のDeck selectorは表示しない。
 
 GUIからPreset / Modeのruntime controlを送る場合、CLIは適用直前に最新version 10 stateをreloadし、Physical Binding / Logical Device / Profileとstable Preset IDを再評価してmappingを再構築する。同一Presetへのcontrolでもhold、key repeat、波形dragを終了してから最新mapping、Mode、waveform位置へ更新する。
 
@@ -345,9 +345,9 @@ Generic HIDはAdvanced / Best-effort機能として扱う。Coreはkeyboard usag
 
 永続候補の入力descriptorはUsage Page、Usage、Report ID、親collection pathで構成する。IOHIDElement cookieは再接続時の安定性を仮定せず、runtime診断にだけ使用する。同一device内に同じdescriptorのelementが複数ある場合は、実機根拠なしに永続bindingへ確定しない。
 
-Generic HID Learnは最初のactivationを送ったPhysical Deviceへsource lockし、別device入力を混在させない。source切断時はcancelする。synthetic Generic HID eventは既存`ActionTarget` / `ActionEvent`へ変換でき、hold、accelerating repeat、relative triggerを既存Action Layerへ渡す。Generic HID層はrekordbox commandIdを保持せず、keyboard shortcutを直接送信しない。
+Generic HID Learnは最初のactivationを送ったPhysical Deviceへsource lockし、別device入力を混在させない。source切断時はcancelする。Unified Learn全体は単一session state machineが所有し、ACK05 captureとGeneric HID captureを独立backendとして開始する。一方の開始失敗は他方を終了させず、最初に入力をclaimしたbackendだけが保存とterminal cleanupを行う。進行中sessionは別の編集要求で置換しない。synthetic Generic HID eventは既存`ActionTarget` / `ActionEvent`へ変換でき、hold、accelerating repeat、relative triggerを既存Action Layerへ渡す。Generic HID層はrekordbox commandIdを保持せず、keyboard shortcutを直接送信しない。
 
-Serialを持つGeneric HIDはDevicesでPhysical Bindingへ登録できる。Action Mappingの編集面はShortcutsへ統一し、ACK05と登録済みGeneric HIDのどちらか先に入力されたPhysical Inputを現在Presetの選択Actionへ割り当てる。adapter固有の割り当てはversion 1の`generic-hid.json`へLogical Device ID / Preset stable ID / input descriptor単位で保存する。main configはversion 10を維持する。
+Serialを持つGeneric HIDはDevicesでPhysical Bindingへ登録できる。Action Mappingの編集面はShortcutsへ統一し、ACK05と登録済みGeneric HIDのどちらか先に入力されたPhysical Inputを選択Actionへ割り当てる。Generic HIDの保存scopeは入力元Logical Device ID + Learn開始時に選択されていたeditor Preset stable IDで固定する。Group Preset assignmentやLearn途中のRuntime Statusは保存先に使わない。表示・削除もShortcutsで現在選択しているeditor Presetと対象Logical Deviceの同じscopeを使う。adapter固有の割り当てはversion 1の`generic-hid.json`へLogical Device ID / Preset stable ID / input descriptor単位で保存する。main configはversion 10を維持する。
 
 通常runtimeは登録済みGeneric HIDだけをshared IOHIDで監視する。keyboard-class interfaceがmanager open後にmatchすると、exclusive manager open自体は成功しても後続claimだけ失敗しinput callbackが届かない場合があるため、Action runtimeは`SeizeDevice`を使わない。同じ登録deviceから得たraw IOHID usageとdownstream CGEventを短時間相関し、相関したkeyboard / Consumer Control eventだけを`.cghidEventTap / .headInsertEventTap / .defaultTap`でdropする。相関できない通常キーボード入力はfail-openとする。「入力を有効にする」がOFFの場合はACK05 / Generic HID runtimeとSuppressorを意図的に停止し、native入力を抑止しない。
 

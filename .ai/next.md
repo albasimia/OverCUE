@@ -6,6 +6,8 @@ Preset / Shortcut Scope version 10に、Devices UI、Preset管理、Group Preset
 
 ACK05 CLIとGeneric HID runtimeは独立backendとし、一方のfailureで他方を停止しない。Devices Identify / Rebindはcontroller input設定を永続OFFにせずruntimeだけを一時停止する。アプリ起動CLIはparent PIDを監視し、GUI消失後の孤児化を防ぐ。
 
+ShortcutsのPresetはeditor専用、Group Presetはruntime orchestration専用へ分離した。Runtime Statusはdevice-scoped表示情報だけを更新し、editor Preset / Mode / mappingを変更しない。Generic HID mappingは入力元Logical Device + Learn開始時editor Presetへ保存し、表示・削除も同じscopeを使う。Unified Learnは単一session ownerがACK05 / Generic HIDを独立backendとして管理し、一方の開始失敗後も他方を利用できる。
+
 Group PresetはLogical Deviceごとに参照するPreset stable IDを保持する親設定とする。Group Preset切替時は接続中の各Logical Deviceへdevice-scoped runtime controlを送り、指定Presetを初期状態として適用する。以後のCycle Presetは各デバイスの一時runtime stateとして維持し、通常のstatus/config更新ではGroup Presetの初期値へ巻き戻さない。
 
 ## ACK05複数台 実機確認済み
@@ -81,8 +83,8 @@ Decision `20260902T231600-generic-hid-register`により、SerialをGeneric HID 
 
 - [x] `aal context build --mode implementation`
 - [x] `swift build`
-- [x] `swift test`（19件成功）
-- [x] `swift run overcue-checks`（397件成功）
+- [x] `swift test`（28件成功）
+- [x] `swift run overcue-checks`（405件成功）
 - [x] `./Scripts/build-app.sh`（Universal Binary生成・codesign確認）
 - [x] `./Scripts/verify-macos.sh`
 - [x] `aal doctor`（0 failures / 0 warnings）
@@ -105,6 +107,8 @@ Decision `20260902T231600-generic-hid-register`により、SerialをGeneric HID 
 - [ ] Group Preset専用画面で複数Logical Deviceを一覧し、include / Presetを横断編集できる。
 - [ ] Group Preset切替後に各ACK05でCycle Presetし、他ACK05操作や通常config更新で初期Presetへ巻き戻らない。
 - [ ] Group Presetから除外したLogical Deviceのruntime stateを意図せず変更しない。
+- [ ] ShortcutsでPresetを切り替えてもRuntime Statusによる旧Presetとの往復表示が発生しない。
+- [ ] 複数Logical Deviceが異なるruntime Presetを使用中でもShortcutsのeditor Presetが変化しない。
 
 ## Generic HID 実機ゲート
 
@@ -115,6 +119,8 @@ Decision `20260902T231600-generic-hid-register`により、SerialをGeneric HID 
 - [ ] 同じSIDE-KEYBOARDを抜き差しし、Serialが維持されることを確認。
 - [x] 同型Generic HID 2台のSerialが`3F8701678182` / `592B14678182`として異なることを確認。
 - [ ] 2台目`592B14678182`をDevicesでLogical Deviceへ明示Bindingし、Shortcutsで個別割り当てする。
+- [ ] 同じShortcuts ActionでLearnを2回以上連続実行し、ACK05 / SIDE-KEYBOARDのどちらでも毎回保存・runtime復帰できる。
+- [ ] Group Preset assignmentと異なるeditor Presetを選び、SIDE-KEYBOARD Learnがeditor Preset側へ保存・表示・削除される。
 - [x] Generic HID mapping編集をShortcutsへ統合し、既存`generic-hid.json`にKey / Consumer descriptor割り当てが保存されることを確認。
 - [x] Generic HID runtimeを既存Action Layer / Preset / Logical Deviceへ接続。
 - [x] controller input有効時のSIDE-KEYBOARD native Keypad / Volume / Mute抑止を実機eventで確認。

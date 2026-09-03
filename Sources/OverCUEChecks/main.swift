@@ -1359,6 +1359,129 @@ check(
     runtimeTarget?.deviceID == "ack05-a-reconnected",
     "replace the runtime target with the reconnected default Profile session"
 )
+var runtimeRegistry = OverCUERuntimeStateRegistry()
+runtimeRegistry.apply(
+    mode: .performance,
+    group: 1,
+    presetGroupID: "preset-a",
+    deviceID: "side-a",
+    logicalDeviceID: "logical-a",
+    profileName: "default",
+    defaultProfileName: "default",
+    connected: true
+)
+runtimeRegistry.apply(
+    mode: .export,
+    group: 2,
+    presetGroupID: "preset-b",
+    deviceID: "side-b",
+    logicalDeviceID: "logical-b",
+    profileName: "default",
+    defaultProfileName: "default",
+    connected: true
+)
+check(
+    runtimeRegistry.statesByDeviceID["side-a"]?.presetGroupID == "preset-a"
+        && runtimeRegistry.statesByDeviceID["side-b"]?.presetGroupID == "preset-b",
+    "keep simultaneous runtime Presets device scoped"
+)
+runtimeRegistry.apply(
+    mode: .performance,
+    group: 3,
+    presetGroupID: "other",
+    deviceID: "side-other",
+    logicalDeviceID: "logical-other",
+    profileName: "alternate",
+    defaultProfileName: "default",
+    connected: true
+)
+check(
+    runtimeRegistry.focusedState?.target.deviceID == "side-b",
+    "non-default runtime status cannot retarget default runtime focus"
+)
+runtimeRegistry.apply(
+    mode: .export,
+    group: 2,
+    presetGroupID: "preset-b",
+    deviceID: "side-b",
+    logicalDeviceID: "logical-b",
+    profileName: "default",
+    defaultProfileName: "default",
+    connected: false
+)
+check(
+    runtimeRegistry.focusedState == nil
+        && runtimeRegistry.statesByDeviceID["side-a"] != nil,
+    "focused disconnect clears focus without promoting another runtime device"
+)
+
+var unifiedLearn = UnifiedShortcutLearnSession()
+unifiedLearn.begin(editorPresetID: "editor-preset", target: .action(.playPause))
+unifiedLearn.backendStarted(.genericHID)
+unifiedLearn.backendFailed(.ack05)
+check(
+    unifiedLearn.claim(by: .genericHID)?.editorPresetID == "editor-preset",
+    "Generic HID Learn survives ACK05 capture failure and pins editor Preset"
+)
+var oppositeBackendLearn = UnifiedShortcutLearnSession()
+oppositeBackendLearn.begin(editorPresetID: "editor-preset", target: .action(.cue))
+oppositeBackendLearn.backendFailed(.genericHID)
+oppositeBackendLearn.backendStarted(.ack05)
+check(
+    oppositeBackendLearn.claim(by: .ack05) != nil,
+    "ACK05 Learn survives Generic HID capture failure"
+)
+check(
+    oppositeBackendLearn.claim(by: .genericHID) == nil,
+    "Unified Learn accepts only the first backend winner"
+)
+var activeLearnOwnership = UnifiedShortcutLearnSession()
+let originalLearn = activeLearnOwnership.begin(
+    editorPresetID: "editor-preset",
+    target: .action(.playPause)
+)
+activeLearnOwnership.backendStarted(.genericHID)
+let replacementLearn = activeLearnOwnership.begin(
+    editorPresetID: "other-preset",
+    target: .action(.cue)
+)
+check(
+    originalLearn != nil
+        && replacementLearn == nil
+        && activeLearnOwnership.claim(by: .genericHID)?.editorPresetID == "editor-preset",
+    "active Unified Learn session cannot be replaced by another editor request"
+)
+
+var editorScopeConfiguration = OverCUEConfiguration.defaultValue
+let runtimeAssignedPresetID = editorScopeConfiguration.profiles["default"]!
+    .orderedPresetGroups[0].id
+for logicalDeviceID in ["side-a", "side-b"] {
+    editorScopeConfiguration.logicalDevices[logicalDeviceID] = OverCUELogicalDevice(
+        name: logicalDeviceID,
+        profileName: "default"
+    )
+    editorScopeConfiguration.physicalDeviceBindings.append(
+        OverCUEPhysicalDeviceBinding(
+            logicalDeviceID: logicalDeviceID,
+            kind: .genericHID,
+            vendorID: 0x0816,
+            productID: 0x246E,
+            serialNumber: logicalDeviceID
+        )
+    )
+    editorScopeConfiguration.groupPresets[0]
+        .devicePresetAssignments[logicalDeviceID] = runtimeAssignedPresetID
+}
+let editorScopes = GenericHIDShortcutEditorScopeResolver.scopes(
+    configuration: editorScopeConfiguration,
+    profileName: "default",
+    editorPresetID: "editor-selected-preset"
+)
+check(
+    editorScopes.count == 2
+        && editorScopes.allSatisfy { $0.presetID == "editor-selected-preset" },
+    "Generic HID display and deletion use editor Preset instead of Group Preset assignment"
+)
 var globalGroupProfile = OverCUEProfile.defaultValue
 globalGroupProfile.chordMap["K7+K8+K1"] = ActionID.cycleGroup.rawValue
 check(

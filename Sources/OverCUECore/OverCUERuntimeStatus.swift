@@ -14,53 +14,8 @@ public enum OverCUERuntimeNotificationScope: String, Equatable, Sendable {
     }
 }
 
-/// Process-local gate used while Shortcuts is learning a physical input.
-///
-/// Multiple Logical Devices can legitimately run different Presets at the same
-/// time. Runtime status therefore must not be allowed to retarget the editor in
-/// the middle of Learn. The ACK05 helper is a separate process, so its gate is
-/// independent; the GUI stops that helper before opening the ACK05 capture
-/// monitor. Generic HID stays inside the GUI process and uses this gate while
-/// the unified capture is active.
-public final class OverCUERuntimeStatusDeliveryGate: @unchecked Sendable {
-    public static let shared = OverCUERuntimeStatusDeliveryGate()
-
-    private let lock = NSLock()
-    private var suppressionDepth = 0
-
-    private init() {}
-
-    public var isSuppressed: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return suppressionDepth > 0
-    }
-
-    public func beginSuppression() {
-        lock.lock()
-        suppressionDepth += 1
-        lock.unlock()
-    }
-
-    public func endSuppression() {
-        lock.lock()
-        suppressionDepth = max(0, suppressionDepth - 1)
-        lock.unlock()
-    }
-}
-
 public enum OverCUERuntimeStatusNotification {
-    private static let liveName = Notification.Name("com.overcue.runtime-status-changed")
-    private static let suppressedName = Notification.Name(
-        "com.overcue.runtime-status-changed.suppressed-during-shortcut-learn"
-    )
-
-    /// Observers register the live name during normal app startup. Publishers
-    /// resolve this property at post time, so GUI-process runtime updates emitted
-    /// during Learn are intentionally routed away from the editor observer.
-    public static var name: Notification.Name {
-        OverCUERuntimeStatusDeliveryGate.shared.isSuppressed ? suppressedName : liveName
-    }
+    public static let name = Notification.Name("com.overcue.runtime-status-changed")
 
     public static let modeKey = "mode"
     public static let groupKey = "group"
@@ -70,6 +25,70 @@ public enum OverCUERuntimeStatusNotification {
     public static let logicalDeviceIDKey = "logicalDeviceID"
     public static let profileNameKey = "profileName"
     public static let connectedKey = "connected"
+}
+
+public struct OverCUERuntimeDeviceState: Equatable, Sendable {
+    public let mode: RekordboxMappingMode
+    public let group: Int
+    public let presetGroupID: String?
+    public let target: OverCUERuntimeTarget
+
+    public init(
+        mode: RekordboxMappingMode,
+        group: Int,
+        presetGroupID: String?,
+        target: OverCUERuntimeTarget
+    ) {
+        self.mode = mode
+        self.group = group
+        self.presetGroupID = presetGroupID
+        self.target = target
+    }
+}
+
+/// Device-scoped runtime status storage. It deliberately contains no editor
+/// selection: Shortcuts Preset selection belongs to the editor, not runtime.
+public struct OverCUERuntimeStateRegistry: Equatable, Sendable {
+    public private(set) var statesByDeviceID: [String: OverCUERuntimeDeviceState] = [:]
+    public private(set) var focusedDeviceID: String?
+
+    public init() {}
+
+    @discardableResult
+    public mutating func apply(
+        mode: RekordboxMappingMode,
+        group: Int,
+        presetGroupID: String?,
+        deviceID: String,
+        logicalDeviceID: String?,
+        profileName: String,
+        defaultProfileName: String,
+        connected: Bool
+    ) -> OverCUERuntimeDeviceState? {
+        guard profileName == defaultProfileName else { return focusedState }
+        if !connected {
+            statesByDeviceID.removeValue(forKey: deviceID)
+            if focusedDeviceID == deviceID { focusedDeviceID = nil }
+            return focusedState
+        }
+        let state = OverCUERuntimeDeviceState(
+            mode: mode,
+            group: group,
+            presetGroupID: presetGroupID,
+            target: OverCUERuntimeTarget(
+                deviceID: deviceID,
+                logicalDeviceID: logicalDeviceID,
+                profileName: profileName
+            )
+        )
+        statesByDeviceID[deviceID] = state
+        focusedDeviceID = deviceID
+        return state
+    }
+
+    public var focusedState: OverCUERuntimeDeviceState? {
+        focusedDeviceID.flatMap { statesByDeviceID[$0] }
+    }
 }
 
 public struct OverCUERuntimeTarget: Equatable, Sendable {

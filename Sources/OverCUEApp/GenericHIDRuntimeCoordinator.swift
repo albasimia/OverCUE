@@ -469,7 +469,13 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
 
             if let state = statesBySessionID[descriptor.sessionIdentifier] {
                 if state.logicalDeviceID == logicalDeviceID,
-                   state.profileName == logicalDevice.profileName {
+                   state.profileName == logicalDevice.profileName,
+                   profile.presetGroup(id: state.presetID) != nil {
+                    state.mode = modeForPreset(
+                        presetID: state.presetID,
+                        profile: profile,
+                        fallback: state.mode
+                    )
                     publishRuntimeStatus(state, connected: true)
                     continue
                 }

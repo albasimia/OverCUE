@@ -69,6 +69,11 @@ struct OverwriteConfirmation: Identifiable {
     let message: String
 }
 
+struct UnifiedShortcutCaptureAvailability {
+    var startedBackends: Set<UnifiedShortcutLearnBackend> = []
+    var errors: [UnifiedShortcutLearnBackend: String] = [:]
+}
+
 private final class SendableObserverToken: @unchecked Sendable {
     let value: any NSObjectProtocol
 
@@ -127,6 +132,13 @@ final class ShortcutSettingsModel: ObservableObject {
     private var configurationChangedObserver: SendableObserverToken?
     private var pendingAssignment: PendingAssignment?
     private var selectedPresetGroupID: String?
+    private var runtimeStateRegistry = OverCUERuntimeStateRegistry()
+    private var capturePresetGroupID: String?
+    private var captureTarget: ActionTarget?
+    private var captureEntryDescription: String?
+    private var ack05OwnsUnifiedSession = false
+    private var claimACK05Capture: (() -> Bool)?
+    private var completeACK05Capture: ((String?) -> Void)?
 
     var internalEntries: [RekordboxShortcutEntry] {
         [
@@ -377,13 +389,8 @@ final class ShortcutSettingsModel: ObservableObject {
 
     func setMode(_ newMode: RekordboxMappingMode) {
         guard mode != newMode else { return }
-        let wasCapturing = isCapturing
-        if isCapturing {
-            stopCaptureMonitor()
-        }
         saveMode(newMode, for: selectedGroup)
         mode = newMode
-        runtimeMode = newMode
         UserDefaults.standard.set(newMode.rawValue, forKey: "rekordboxMappingMode")
         selectedEntryID = nil
         selectedDeviceKey = nil
@@ -391,8 +398,6 @@ final class ShortcutSettingsModel: ObservableObject {
         captureMessage = nil
         captureError = nil
         reload()
-        if wasCapturing { startRuntimeIfEnabled() }
-        postRuntimeControl(group: selectedGroup, mode: newMode)
         showToast(L10n.text("message.modeUpdated", newMode.displayName), style: .success)
     }
 
@@ -402,10 +407,8 @@ final class ShortcutSettingsModel: ObservableObject {
         UserDefaults.standard.set(enabled, forKey: "ack05BridgeEnabled")
         if enabled {
             guard !isCapturing else { return }
-            runtimeMode = mode
-            runtimeGroup = selectedGroup
             clearRuntimeDeviceScope()
-            runtimeBridge.start(mode: mode, group: selectedGroup)
+            startRuntimeBridge()
             showToast(L10n.text("message.inputEnabled"), style: .info)
         } else {
             runtimeBridge.stop()
@@ -426,10 +429,8 @@ final class ShortcutSettingsModel: ObservableObject {
 
     func resumeRuntimeAfterDeviceIdentification() {
         guard isBridgeEnabled, !isCapturing else { return }
-        runtimeMode = mode
-        runtimeGroup = selectedGroup
         clearRuntimeDeviceScope()
-        runtimeBridge.start(mode: mode, group: selectedGroup)
+        startRuntimeBridge()
     }
 
     func shutdown() {
@@ -470,26 +471,17 @@ final class ShortcutSettingsModel: ObservableObject {
 
     func setGroup(_ group: Int) {
         guard availablePresetGroups.indices.contains(group - 1), selectedGroup != group else { return }
-        let wasCapturing = isCapturing
-        if wasCapturing { stopCaptureMonitor() }
         refreshConfigurationFromDisk()
-        guard availablePresetGroups.indices.contains(group - 1) else {
-            if wasCapturing { startRuntimeIfEnabled() }
-            return
-        }
+        guard availablePresetGroups.indices.contains(group - 1) else { return }
         selectedGroup = group
         selectedPresetGroupID = availablePresetGroups[group - 1].id
         mode = configuredMode(for: group)
-        runtimeGroup = group
-        runtimeMode = mode
         UserDefaults.standard.set(mode.rawValue, forKey: "rekordboxMappingMode")
         selectedDeviceKey = nil
         selectedDialDirection = nil
         rebuildBindings()
         selectedEntryID = nil
         reload()
-        if wasCapturing { startRuntimeIfEnabled() }
-        postRuntimeControl(group: group, mode: mode)
         showToast(
             L10n.text("message.groupSwitched", presetName(for: group), mode.displayName),
             style: .info
@@ -580,12 +572,24 @@ final class ShortcutSettingsModel: ObservableObject {
         !bindingsByTarget[bindingKey(for: entry), default: []].isEmpty
     }
 
-    func beginCapture(for entry: RekordboxShortcutEntry) {
+    func beginUnifiedCapture(
+        for entry: RekordboxShortcutEntry,
+        onGenericHIDCaptured: @escaping (String, GenericHIDInputBindingKey) -> Void,
+        claimACK05: @escaping () -> Bool,
+        onACK05Completed: @escaping (String?) -> Void
+    ) -> UnifiedShortcutCaptureAvailability {
         stopCaptureMonitor()
-        runtimeBridge.stop()
-
         select(entry)
-        editingEntryID = entry.id
+        capturePresetGroupID = selectedPresetGroupID ?? (
+            availablePresetGroups.indices.contains(selectedGroup - 1)
+                ? availablePresetGroups[selectedGroup - 1].id
+                : nil
+        )
+        captureTarget = target(for: entry)
+        captureEntryDescription = entry.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        claimACK05Capture = claimACK05
+        completeACK05Capture = onACK05Completed
+        ack05OwnsUnifiedSession = false
         previousCaptureKeys = []
         capturedKeyOrder = []
         captureError = nil
@@ -595,6 +599,14 @@ final class ShortcutSettingsModel: ObservableObject {
             style: .info,
             durationNanoseconds: 6_000_000_000
         )
+
+        var availability = UnifiedShortcutCaptureAvailability()
+        do {
+            try runtimeBridge.beginShortcutCapture(onGenericHIDCaptured: onGenericHIDCaptured)
+            availability.startedBackends.insert(.genericHID)
+        } catch {
+            availability.errors[.genericHID] = error.localizedDescription
+        }
 
         let monitor = ACK05InputMonitor()
         monitor.onConnectionChanged = { [weak self] deviceID, connected in
@@ -606,7 +618,8 @@ final class ShortcutSettingsModel: ObservableObject {
                     }
                 } else if self.captureDeviceLock.deviceDisconnected(deviceID) {
                     self.captureError = L10n.text("message.captureDeviceDisconnected")
-                    self.cancelCaptureKeepingError()
+                    let message = self.captureError
+                    self.finishACK05Capture(message)
                 } else if self.captureDeviceLock.deviceID == nil {
                     self.captureMessage = L10n.text("message.waitingDevice")
                 }
@@ -619,6 +632,11 @@ final class ShortcutSettingsModel: ObservableObject {
                     ? self.captureDeviceLock.acceptsStateChange(from: deviceID)
                     : self.captureDeviceLock.acceptsInput(from: deviceID)
                 guard accepted else { return }
+                if !keys.isEmpty, !self.ack05OwnsUnifiedSession {
+                    guard self.claimACK05Capture?() ?? true else { return }
+                    self.ack05OwnsUnifiedSession = true
+                }
+                guard self.ack05OwnsUnifiedSession else { return }
                 self.pressedDeviceKeys = keys
                 self.handleCapturedKeys(keys)
             }
@@ -627,6 +645,10 @@ final class ShortcutSettingsModel: ObservableObject {
             guard let self else { return }
             Task { @MainActor in
                 guard self.captureDeviceLock.acceptsInput(from: deviceID) else { return }
+                guard self.ack05OwnsUnifiedSession
+                        || (self.claimACK05Capture?() ?? true)
+                else { return }
+                self.ack05OwnsUnifiedSession = true
                 self.showDialInput(direction)
                 self.commitDialCapture(direction, heldKeys: self.capturedKeyOrder)
             }
@@ -635,18 +657,29 @@ final class ShortcutSettingsModel: ObservableObject {
         do {
             try monitor.start()
             inputMonitor = monitor
+            editingEntryID = entry.id
+            availability.startedBackends.insert(.ack05)
         } catch {
             editingEntryID = nil
             captureMessage = nil
             captureError = error.localizedDescription
-            showToast(error.localizedDescription, style: .error)
-            startRuntimeIfEnabled()
+            availability.errors[.ack05] = error.localizedDescription
         }
+        return availability
+    }
+
+    func endUnifiedCapture() {
+        stopCaptureMonitor()
+        let initialGroup = 1
+        runtimeBridge.endShortcutCapture(
+            mode: configuredMode(for: initialGroup),
+            group: initialGroup,
+            resumeRuntime: isBridgeEnabled
+        )
     }
 
     func cancelCapture() {
-        stopCaptureMonitor()
-        startRuntimeIfEnabled()
+        endUnifiedCapture()
         showToast(L10n.text("message.editCancelled"), style: .info)
     }
 
@@ -709,8 +742,9 @@ final class ShortcutSettingsModel: ObservableObject {
     }
 
     private func commitCapture(allowOverwrite: Bool = false) {
-        guard let editingEntryID,
-              let entry = allEntries.first(where: { $0.id == editingEntryID }),
+        guard let target = captureTarget,
+              let entryDescription = captureEntryDescription,
+              let editedGroup = captureGroup,
               var profile = configuration.profiles[configuration.defaultProfile]
         else {
             captureError = L10n.text("message.profileMissing")
@@ -718,18 +752,18 @@ final class ShortcutSettingsModel: ObservableObject {
             return
         }
 
-        let target = target(for: entry)
         let targetKey = target.configurationValue
         if let conflict = keyAssignmentConflict(
             keys: capturedKeyOrder,
             target: target,
-            profile: profile
+            profile: profile,
+            selectedGroup: editedGroup
         ) {
             if case .occupied = conflict.kind, !allowOverwrite {
                 requestOverwrite(
                     conflict: conflict,
                     target: target,
-                    assignment: .keys(entryID: entry.id, keys: capturedKeyOrder)
+                    assignment: .keys(entryID: editingEntryID ?? "", keys: capturedKeyOrder)
                 )
                 return
             } else if !allowOverwrite || !isOccupied(conflict) {
@@ -737,8 +771,8 @@ final class ShortcutSettingsModel: ObservableObject {
                 return
             }
         }
-        let editedGroup = isGroupCycle(target) ? 1 : selectedGroup
-        var mapping = profile.storedMapping(for: editedGroup)
+        let mappingGroup = isGroupCycle(target) ? 1 : editedGroup
+        var mapping = profile.storedMapping(for: mappingGroup)
         for (rawKey, value) in mapping.keyMap where value == targetKey {
             mapping.keyMap[rawKey] = "unassigned"
         }
@@ -762,31 +796,27 @@ final class ShortcutSettingsModel: ObservableObject {
             return
         }
 
-        profile.setMapping(mapping, for: editedGroup)
+        profile.setMapping(mapping, for: mappingGroup)
         configuration.profiles[configuration.defaultProfile] = profile
         do {
             try saveConfiguration()
             rebuildBindings()
-            selectedEntryID = entry.id
+            selectedEntryID = editingEntryID
             selectedDeviceKey = highlightedKeys.sorted(by: keyOrder).first
             selectedDialDirection = nil
             captureError = nil
             captureMessage = L10n.text(
                 "message.bindingSet",
-                entry.description.trimmingCharacters(in: .whitespacesAndNewlines),
+                entryDescription,
                 capturedKeyOrder.map { $0.rawValue.uppercased() }.joined(separator: " + ")
             )
             showToast(captureMessage ?? L10n.text("message.bindingUpdated"), style: .success)
-            inputMonitor?.stop()
-            inputMonitor = nil
-            self.editingEntryID = nil
-            previousCaptureKeys = []
-            capturedKeyOrder = []
-            startRuntimeIfEnabled()
+            finishACK05Capture(nil)
         } catch {
             captureError = L10n.text("message.saveFailed", error.localizedDescription)
             showToast(captureError ?? error.localizedDescription, style: .error)
-            cancelCaptureKeepingError()
+            let message = captureError
+            finishACK05Capture(message)
         }
     }
 
@@ -795,23 +825,28 @@ final class ShortcutSettingsModel: ObservableObject {
         heldKeys: [ACK05Key],
         allowOverwrite: Bool = false
     ) {
-        guard let editingEntryID,
-              let entry = allEntries.first(where: { $0.id == editingEntryID }),
+        guard let target = captureTarget,
+              let entryDescription = captureEntryDescription,
+              let editedGroup = captureGroup,
               var profile = configuration.profiles[configuration.defaultProfile]
         else { return }
 
-        let target = target(for: entry)
         if let conflict = dialAssignmentConflict(
             direction: direction,
             heldKeys: heldKeys,
             target: target,
-            profile: profile
+            profile: profile,
+            selectedGroup: editedGroup
         ) {
             if case .occupied = conflict.kind, !allowOverwrite {
                 requestOverwrite(
                     conflict: conflict,
                     target: target,
-                    assignment: .dial(entryID: entry.id, direction: direction, heldKeys: heldKeys)
+                    assignment: .dial(
+                        entryID: editingEntryID ?? "",
+                        direction: direction,
+                        heldKeys: heldKeys
+                    )
                 )
                 return
             } else if !allowOverwrite || !isOccupied(conflict) {
@@ -820,8 +855,8 @@ final class ShortcutSettingsModel: ObservableObject {
             }
         }
         let targetKey = target.configurationValue
-        let editedGroup = isGroupCycle(target) ? 1 : selectedGroup
-        var mapping = profile.storedMapping(for: editedGroup)
+        let mappingGroup = isGroupCycle(target) ? 1 : editedGroup
+        var mapping = profile.storedMapping(for: mappingGroup)
         for (rawDirection, value) in mapping.dialMap where value == targetKey {
             mapping.dialMap.removeValue(forKey: rawDirection)
         }
@@ -837,35 +872,32 @@ final class ShortcutSettingsModel: ObservableObject {
             mapping.dialChordMap[chord.label] = targetKey
             inputLabel = ACK05PhysicalInput.dialChord(chord).label
         }
-        profile.setMapping(mapping, for: editedGroup)
+        profile.setMapping(mapping, for: mappingGroup)
         configuration.profiles[configuration.defaultProfile] = profile
 
         do {
             try saveConfiguration()
             rebuildBindings()
-            selectedEntryID = entry.id
+            selectedEntryID = editingEntryID
             selectedDeviceKey = highlightedKeys.sorted(by: keyOrder).first
             selectedDialDirection = direction
             captureError = nil
-            captureMessage = L10n.text("message.bindingSet", entry.description, inputLabel)
+            captureMessage = L10n.text("message.bindingSet", entryDescription, inputLabel)
             showToast(captureMessage ?? L10n.text("message.dialUpdated"), style: .success)
-            inputMonitor?.stop()
-            inputMonitor = nil
-            self.editingEntryID = nil
-            previousCaptureKeys = []
-            capturedKeyOrder = []
-            startRuntimeIfEnabled()
+            finishACK05Capture(nil)
         } catch {
             captureError = L10n.text("message.saveFailed", error.localizedDescription)
             showToast(captureError ?? error.localizedDescription, style: .error)
-            cancelCaptureKeepingError()
+            let message = captureError
+            finishACK05Capture(message)
         }
     }
 
     private func keyAssignmentConflict(
         keys: [ACK05Key],
         target: ActionTarget,
-        profile: OverCUEProfile
+        profile: OverCUEProfile,
+        selectedGroup: Int
     ) -> ActionMappingConflict? {
         guard !keys.isEmpty else { return nil }
         let input: ACK05PhysicalInput = keys.count == 1
@@ -883,7 +915,8 @@ final class ShortcutSettingsModel: ObservableObject {
         direction: DialDirection,
         heldKeys: [ACK05Key],
         target: ActionTarget,
-        profile: OverCUEProfile
+        profile: OverCUEProfile,
+        selectedGroup: Int
     ) -> ActionMappingConflict? {
         let input: ACK05PhysicalInput = heldKeys.isEmpty
             ? .dial(direction)
@@ -943,8 +976,7 @@ final class ShortcutSettingsModel: ObservableObject {
     func cancelOverwrite() {
         overwriteConfirmation = nil
         pendingAssignment = nil
-        stopCaptureMonitor()
-        startRuntimeIfEnabled()
+        finishACK05Capture(L10n.text("message.overwriteCancelled"))
         showToast(L10n.text("message.overwriteCancelled"), style: .info)
     }
 
@@ -1004,8 +1036,22 @@ final class ShortcutSettingsModel: ObservableObject {
     }
 
     private func cancelCaptureKeepingError() {
+        finishACK05Capture(captureError)
+    }
+
+    private var captureGroup: Int? {
+        guard let capturePresetGroupID else { return nil }
+        return availablePresetGroups.firstIndex(where: { $0.id == capturePresetGroupID }).map { $0 + 1 }
+    }
+
+    private func finishACK05Capture(_ errorMessage: String?) {
+        let completion = completeACK05Capture
         stopCaptureMonitor()
-        startRuntimeIfEnabled()
+        if let completion {
+            completion(errorMessage)
+        } else {
+            startRuntimeIfEnabled()
+        }
     }
 
     private func stopCaptureMonitor() {
@@ -1020,6 +1066,12 @@ final class ShortcutSettingsModel: ObservableObject {
         captureDeviceLock.reset()
         pressedDeviceKeys = []
         activeDialDirection = nil
+        capturePresetGroupID = nil
+        captureTarget = nil
+        captureEntryDescription = nil
+        ack05OwnsUnifiedSession = false
+        claimACK05Capture = nil
+        completeACK05Capture = nil
     }
 
     private func startRuntimeIfEnabled() {
@@ -1027,10 +1079,8 @@ final class ShortcutSettingsModel: ObservableObject {
             runtimeBridge.stop()
             return
         }
-        runtimeMode = mode
-        runtimeGroup = selectedGroup
         clearRuntimeDeviceScope()
-        runtimeBridge.start(mode: mode, group: selectedGroup)
+        startRuntimeBridge()
     }
 
     private func restartRuntimeIfEnabled() {
@@ -1038,13 +1088,18 @@ final class ShortcutSettingsModel: ObservableObject {
             runtimeBridge.stop()
             return
         }
-        runtimeMode = mode
-        runtimeGroup = selectedGroup
         clearRuntimeDeviceScope()
-        runtimeBridge.restart(mode: mode, group: selectedGroup)
+        let initialGroup = 1
+        runtimeBridge.restart(mode: configuredMode(for: initialGroup), group: initialGroup)
+    }
+
+    private func startRuntimeBridge() {
+        let initialGroup = 1
+        runtimeBridge.start(mode: configuredMode(for: initialGroup), group: initialGroup)
     }
 
     private func clearRuntimeDeviceScope() {
+        runtimeStateRegistry = OverCUERuntimeStateRegistry()
         runtimeDeviceID = nil
         runtimeLogicalDeviceID = nil
         runtimeProfileName = nil
@@ -1176,6 +1231,7 @@ final class ShortcutSettingsModel: ObservableObject {
         configuration.profiles[configuration.defaultProfile] = profile
         do {
             try saveConfiguration()
+            OverCUEConfigurationChangedNotification.post()
         } catch {
             showToast(L10n.text("message.modeSaveFailed", error.localizedDescription), style: .error)
         }
@@ -1190,104 +1246,48 @@ final class ShortcutSettingsModel: ObservableObject {
         profileName: String,
         connected: Bool
     ) {
-        let currentTarget = runtimeDeviceID.map {
-            OverCUERuntimeTarget(
-                deviceID: $0,
-                logicalDeviceID: runtimeLogicalDeviceID,
-                profileName: runtimeProfileName ?? configuration.defaultProfile
-            )
-        }
-        let statusChanged = runtimeMode != newMode
-            || runtimeGroup != group
-            || currentTarget?.deviceID != deviceID
-            || currentTarget?.logicalDeviceID != logicalDeviceID
-            || currentTarget?.profileName != profileName
-        if connected,
-           statusChanged,
-           profileName == configuration.defaultProfile {
-            guard refreshConfigurationFromDisk() else { return }
-        }
         guard profileName == configuration.defaultProfile else { return }
         let resolvedGroup: Int
-        if let presetGroupID {
-            guard let index = availablePresetGroups.firstIndex(where: { $0.id == presetGroupID })
-            else { return }
+        if let presetGroupID,
+           let index = availablePresetGroups.firstIndex(where: { $0.id == presetGroupID }) {
             resolvedGroup = index + 1
         } else {
             resolvedGroup = group
         }
-        guard availablePresetGroups.indices.contains(resolvedGroup - 1) else { return }
-        let nextTarget = OverCUERuntimeTargetPolicy.updatedTarget(
-            current: currentTarget,
-            defaultProfileName: configuration.defaultProfile,
+        guard !connected || availablePresetGroups.indices.contains(resolvedGroup - 1) else { return }
+        let previousFocusedState = runtimeStateRegistry.focusedState
+        let nextState = runtimeStateRegistry.apply(
+            mode: newMode,
+            group: resolvedGroup,
+            presetGroupID: presetGroupID,
             deviceID: deviceID,
             logicalDeviceID: logicalDeviceID,
             profileName: profileName,
+            defaultProfileName: configuration.defaultProfile,
             connected: connected
         )
-        guard let nextTarget else {
-            if currentTarget != nil {
-                clearRuntimeDeviceScope()
-                pressedDeviceKeys = []
-                activeDialDirection = nil
-            }
+        guard let nextState else {
+            runtimeDeviceID = nil
+            runtimeLogicalDeviceID = nil
+            runtimeProfileName = nil
+            pressedDeviceKeys = []
+            activeDialDirection = nil
             return
         }
-        let didChange = runtimeMode != newMode
-            || runtimeGroup != resolvedGroup
-            || currentTarget != nextTarget
-        runtimeMode = newMode
-        runtimeGroup = resolvedGroup
-        runtimeDeviceID = nextTarget.deviceID
-        runtimeLogicalDeviceID = nextTarget.logicalDeviceID
-        runtimeProfileName = nextTarget.profileName
+        let didChange = previousFocusedState != nextState
+        runtimeMode = nextState.mode
+        runtimeGroup = nextState.group
+        runtimeDeviceID = nextState.target.deviceID
+        runtimeLogicalDeviceID = nextState.target.logicalDeviceID
+        runtimeProfileName = nextState.target.profileName
         guard didChange else { return }
-
-        selectedGroup = resolvedGroup
-        selectedPresetGroupID = availablePresetGroups[resolvedGroup - 1].id
-        mode = newMode
-        UserDefaults.standard.set(newMode.rawValue, forKey: "rekordboxMappingMode")
-        selectedDeviceKey = nil
-        selectedDialDirection = nil
-        selectedEntryID = nil
-        rebuildBindings()
-        reload()
         showToast(
-            L10n.text("message.runtimeState", newMode.displayName, presetName(for: resolvedGroup)),
+            L10n.text(
+                "message.runtimeState",
+                nextState.mode.displayName,
+                presetName(for: nextState.group)
+            ),
             style: .info
-        )
-    }
-
-    private func postRuntimeControl(group: Int, mode: RekordboxMappingMode) {
-        guard isBridgeEnabled else { return }
-        let target = runtimeDeviceID.map {
-            OverCUERuntimeTarget(
-                deviceID: $0,
-                logicalDeviceID: runtimeLogicalDeviceID,
-                profileName: runtimeProfileName ?? configuration.defaultProfile
-            )
-        }
-        guard let targetDeviceID = OverCUERuntimeTargetPolicy.controlDeviceID(
-            target: target,
-            defaultProfileName: configuration.defaultProfile
-        ) else { return }
-        var userInfo: [String: Any] = [
-            OverCUERuntimeControlNotification.groupKey: group,
-            OverCUERuntimeControlNotification.modeKey: mode.rawValue,
-            OverCUERuntimeControlNotification.scopeKey:
-                OverCUERuntimeNotificationScope.device.rawValue,
-            OverCUERuntimeControlNotification.deviceIDKey: targetDeviceID,
-            OverCUERuntimeControlNotification.profileNameKey: configuration.defaultProfile,
-        ]
-        if availablePresetGroups.indices.contains(group - 1) {
-            userInfo[OverCUERuntimeControlNotification.presetGroupIDKey]
-                = availablePresetGroups[group - 1].id
-        }
-        DistributedNotificationCenter.default().postNotificationName(
-            OverCUERuntimeControlNotification.name,
-            object: nil,
-            userInfo: userInfo,
-            deliverImmediately: true
         )
     }
 

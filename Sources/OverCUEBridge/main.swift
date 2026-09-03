@@ -379,6 +379,11 @@ private final class ConfigurationStore {
             .firstIndex(where: { $0.id == presetGroupID }).map { $0 + 1 }
     }
 
+    func assignedGroup(logicalDeviceID: String, profileName: String) -> Int? {
+        guard let presetID = configuration.assignedPresetID(for: logicalDeviceID) else { return nil }
+        return group(profileName: profileName, presetGroupID: presetID)
+    }
+
     func saveRekordboxMode(
         _ mode: RekordboxMappingMode,
         profileName: String,
@@ -1173,7 +1178,14 @@ private final class MouseBridgeController: NSObject, ACK05ReportHandling {
                 || activeProfileName != profileName
                 || activeLogicalDeviceID != logicalDeviceID
         else { return }
-        let nextGroup = activeDeviceID == nil && profileName == activeProfileName ? activeGroup : 1
+        let assignedGroup = logicalDeviceID.flatMap {
+            configurationStore.assignedGroup(
+                logicalDeviceID: $0,
+                profileName: profileName
+            )
+        }
+        let nextGroup = assignedGroup
+            ?? (activeDeviceID == nil && profileName == activeProfileName ? activeGroup : 1)
         guard let nextMappings = mappingsByProfile[profileName]?[nextGroup] else {
             log("ERROR Device \(deviceID) references unavailable profile '\(profileName)'.")
             return
