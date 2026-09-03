@@ -28,6 +28,9 @@ final class OverCUECLIRuntime {
     private var process: Process?
     private let genericHIDRuntime = GenericHIDRuntimeCoordinator()
     private let genericHIDNativeEventSuppressor = GenericHIDNativeEventSuppressor()
+    private let genericHIDSuppressionDisabledForDiagnostics = ProcessInfo.processInfo.environment[
+        "OVERCUE_DISABLE_GENERIC_HID_SUPPRESSION"
+    ] == "1"
     private var isShortcutCaptureActive = false
     private var genericRuntimeStartedForCapture = false
     private(set) var status: Status = .stopped {
@@ -53,7 +56,7 @@ final class OverCUECLIRuntime {
             failures.append(error.localizedDescription)
         }
         do {
-            try genericHIDNativeEventSuppressor.start()
+            try startGenericHIDNativeEventSuppressorIfEnabled()
             try startGenericHIDRuntimeWithHandoffRetry()
         } catch {
             genericHIDRuntime.stop()
@@ -76,9 +79,7 @@ final class OverCUECLIRuntime {
         }
 
         genericRuntimeStartedForCapture = !genericHIDRuntime.isRunning
-        if !genericHIDNativeEventSuppressor.isRunning {
-            try genericHIDNativeEventSuppressor.start()
-        }
+        try startGenericHIDNativeEventSuppressorIfEnabled()
         if genericRuntimeStartedForCapture {
             try startGenericHIDRuntimeWithHandoffRetry()
         }
@@ -118,9 +119,7 @@ final class OverCUECLIRuntime {
         genericRuntimeStartedForCapture = false
         var failure: String?
         do {
-            if !genericHIDNativeEventSuppressor.isRunning {
-                try genericHIDNativeEventSuppressor.start()
-            }
+            try startGenericHIDNativeEventSuppressorIfEnabled()
             if process == nil {
                 try startACK05Process(mode: mode, group: group)
             }
@@ -131,6 +130,13 @@ final class OverCUECLIRuntime {
             status = failure.map(Status.degraded) ?? .running
         } else {
             status = .failed(failure ?? L10n.text("cli.exited", 1))
+        }
+    }
+
+    private func startGenericHIDNativeEventSuppressorIfEnabled() throws {
+        guard !genericHIDSuppressionDisabledForDiagnostics else { return }
+        if !genericHIDNativeEventSuppressor.isRunning {
+            try genericHIDNativeEventSuppressor.start()
         }
     }
 
@@ -227,9 +233,7 @@ final class OverCUECLIRuntime {
         if let handler = GenericHIDShortcutCaptureBroker.shared.takePreparedHandler() {
             do {
                 genericRuntimeStartedForCapture = !genericHIDRuntime.isRunning
-                if !genericHIDNativeEventSuppressor.isRunning {
-                    try genericHIDNativeEventSuppressor.start()
-                }
+                try startGenericHIDNativeEventSuppressorIfEnabled()
                 if genericRuntimeStartedForCapture {
                     try startGenericHIDRuntimeWithHandoffRetry()
                 }
