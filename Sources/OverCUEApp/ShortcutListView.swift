@@ -22,9 +22,10 @@ struct ShortcutListView: View {
             genericHIDModel.reload(shortcutModel: model)
         }
         .onChange(of: model.selectedGroup) { _ in
-            if genericHIDModel.isCapturing {
-                genericHIDModel.cancelUnifiedCapture(shortcutModel: model)
-            }
+            // Runtime status from another Logical Device must not terminate an
+            // in-flight Learn. The capture model pins its fallback Preset and
+            // resolves Generic HID storage from the captured Logical Device.
+            guard !genericHIDModel.isCapturing else { return }
             genericHIDModel.reload(shortcutModel: model)
         }
         .onChange(of: model.isCapturing) { capturing in
