@@ -8,12 +8,10 @@ import OverCUECore
 /// Suppresses the ordinary macOS keyboard / media-key event emitted by a bound
 /// Generic HID while leaving the device itself open in shared mode.
 ///
-/// The IOHID callback intentionally runs on a dedicated run loop. CGEventTap and
-/// an IOHIDManager scheduled on the same main run loop cannot reliably correlate
-/// one physical input: if the CGEvent arrives first, the HID callback cannot run
-/// until the event-tap callback returns. Keeping HID observation on its own run
-/// loop lets the event tap wait a few milliseconds for the matching physical
-/// evidence without blocking that evidence from being delivered.
+/// Raw IOHID observation and CGEvent filtering intentionally run on separate
+/// dedicated run loops. The event-tap callback may wait briefly for matching raw
+/// HID evidence, so it must neither share the IOHID run loop nor block the app's
+/// main run loop / SwiftUI event processing.
 final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
     private enum Phase: Equatable {
         case pressed
@@ -42,6 +40,9 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
     private let lifecycleLock = NSLock()
     private var eventTap: CFMachPort?
     private var eventTapSource: CFRunLoopSource?
+    private var eventTapThread: Thread?
+    private var eventTapRunLoop: CFRunLoop?
+    private var eventTapThreadExit: DispatchSemaphore?
     private var configurationObserver: ObserverToken?
     private var pendingEvents: [PendingEvent] = []
     private var isOpen = false
@@ -95,8 +96,15 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
         }
 
         do {
-            try startEventTap()
-            diagnosticLog("event tap started enabled=\(eventTap.map(CGEvent.tapIsEnabled) ?? false)")
+            try startEventTapRunLoopIfNeeded()
+            lifecycleLock.lock()
+            let eventTapEnabled = eventTap.map(CGEvent.tapIsEnabled) ?? false
+            let eventTapThreadActive = eventTapThread != nil && eventTapRunLoop != nil
+            lifecycleLock.unlock()
+            diagnosticLog(
+                "event tap started enabled=\(eventTapEnabled) "
+                    + "eventTapThreadActive=\(eventTapThreadActive)"
+            )
         } catch {
             if isOpen {
                 IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
@@ -128,18 +136,7 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
             self.configurationObserver = nil
         }
 
-        if let eventTap {
-            CGEvent.tapEnable(tap: eventTap, enable: false)
-        }
-        if let eventTapSource {
-            CFRunLoopRemoveSource(
-                CFRunLoopGetMain(),
-                eventTapSource,
-                CFRunLoopMode.commonModes
-            )
-        }
-        eventTapSource = nil
-        eventTap = nil
+        stopEventTapRunLoop()
 
         if isOpen {
             IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
@@ -234,8 +231,8 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
 
     /// Wait only long enough for the independent IOHID run loop to deliver the
     /// raw event that produced this CGEvent. Eight milliseconds is below the
-    /// interaction budget for a controller input while avoiding the previous
-    /// same-run-loop deadlock where the raw callback could never catch up.
+    /// interaction budget for a controller input and now runs entirely off the
+    /// app's main run loop.
     private func consumeMatchingPhysicalEvent(
         _ observed: (input: NativeInput, phase: Phase)
     ) -> Bool {
@@ -341,21 +338,91 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
         _ = exit?.wait(timeout: .now() + 1.0)
     }
 
-    private func startEventTap() throws {
-        guard eventTap == nil else { return }
-        let eventMask = CGEventMask(1) << CGEventType.keyDown.rawValue
-            | CGEventMask(1) << CGEventType.keyUp.rawValue
-            | CGEventMask(1) << CGEventType.flagsChanged.rawValue
-            | CGEventMask(1) << CGEventType.systemDefined.rawValue
-        let context = Unmanaged.passUnretained(self).toOpaque()
-        guard let tap = CGEvent.tapCreate(
-            tap: .cghidEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: eventMask,
-            callback: genericHIDNativeSuppressionEventTap,
-            userInfo: context
-        ) else {
+    private func startEventTapRunLoopIfNeeded() throws {
+        lifecycleLock.lock()
+        if eventTapThread != nil {
+            lifecycleLock.unlock()
+            return
+        }
+
+        let ready = DispatchSemaphore(value: 0)
+        let exit = DispatchSemaphore(value: 0)
+        let thread = Thread { [weak self] in
+            guard let self else {
+                ready.signal()
+                exit.signal()
+                return
+            }
+
+            guard let runLoop = CFRunLoopGetCurrent() else {
+                self.lifecycleLock.lock()
+                self.eventTapThread = nil
+                self.eventTapThreadExit = nil
+                self.lifecycleLock.unlock()
+                ready.signal()
+                exit.signal()
+                return
+            }
+
+            let eventMask = CGEventMask(1) << CGEventType.keyDown.rawValue
+                | CGEventMask(1) << CGEventType.keyUp.rawValue
+                | CGEventMask(1) << CGEventType.flagsChanged.rawValue
+                | CGEventMask(1) << CGEventType.systemDefined.rawValue
+            let context = Unmanaged.passUnretained(self).toOpaque()
+            guard let tap = CGEvent.tapCreate(
+                tap: .cghidEventTap,
+                place: .headInsertEventTap,
+                options: .defaultTap,
+                eventsOfInterest: eventMask,
+                callback: genericHIDNativeSuppressionEventTap,
+                userInfo: context
+            ) else {
+                self.lifecycleLock.lock()
+                self.eventTapThread = nil
+                self.eventTapThreadExit = nil
+                self.lifecycleLock.unlock()
+                ready.signal()
+                exit.signal()
+                return
+            }
+
+            let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+            self.lifecycleLock.lock()
+            self.eventTap = tap
+            self.eventTapSource = source
+            self.eventTapRunLoop = runLoop
+            self.lifecycleLock.unlock()
+
+            CFRunLoopAddSource(runLoop, source, CFRunLoopMode.commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+            self.diagnosticLog("CGEvent run loop ready")
+            ready.signal()
+            CFRunLoopRun()
+            self.diagnosticLog("CGEvent run loop returned")
+
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFRunLoopRemoveSource(runLoop, source, CFRunLoopMode.commonModes)
+            self.lifecycleLock.lock()
+            self.eventTap = nil
+            self.eventTapSource = nil
+            self.eventTapRunLoop = nil
+            self.eventTapThread = nil
+            self.eventTapThreadExit = nil
+            self.lifecycleLock.unlock()
+            exit.signal()
+        }
+        thread.name = "OverCUE Generic HID Event Tap"
+        eventTapThread = thread
+        eventTapThreadExit = exit
+        lifecycleLock.unlock()
+
+        thread.start()
+        ready.wait()
+
+        lifecycleLock.lock()
+        let started = eventTap != nil && eventTapRunLoop != nil
+        lifecycleLock.unlock()
+        guard started else {
             throw NSError(
                 domain: "OverCUE.GenericHIDNativeEventSuppressor",
                 code: 1,
@@ -365,12 +432,22 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
                 ]
             )
         }
+    }
 
-        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        eventTap = tap
-        eventTapSource = source
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, CFRunLoopMode.commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
+    private func stopEventTapRunLoop() {
+        lifecycleLock.lock()
+        let tap = eventTap
+        let runLoop = eventTapRunLoop
+        let exit = eventTapThreadExit
+        lifecycleLock.unlock()
+
+        if let tap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+        }
+        guard let runLoop else { return }
+        CFRunLoopStop(runLoop)
+        CFRunLoopWakeUp(runLoop)
+        _ = exit?.wait(timeout: .now() + 1.0)
     }
 
     private func configureDeviceMatching() throws {
