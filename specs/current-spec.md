@@ -1,6 +1,6 @@
 # OverCUE 現行仕様
 
-更新日: 2026-09-01
+更新日: 2026-09-04
 対象: macOS版 OverCUE / XPPen ACK05 / rekordbox 7
 
 ## 1. 概要
@@ -450,3 +450,10 @@ swift run OverCUE
 - Devices UIとIdentify / Rebind / Forget / Learn UIは未実装。対応する非UI Core/APIは実装済み。
 - Generic HID runtime、Shortcuts統合Learn、adapter sidecar永続化は実装済み。SIDE-KEYBOARDのnative Keypad / Volume / Mute抑止も実機eventで確認済み。
 - SIDE-KEYBOARD 1台は固有Serialを公開したが、同型2台のSerialが個体ごとに異なるかは実機未検証。同一identityが同時接続された場合はambiguityへ倒す。
+# Generic HID runtime hot-path maintenance (2026-09-04)
+
+- Group Preset status consumes a revision-checked read-only config cache. Disk remains authoritative; notifications invalidate it, and invalid/missing config never falls back to stale cached contents.
+- Generic HID immutable element metadata is cached only for a live interface/cookie; disconnect and runtime restart clear it. Cookie is not a persistent identity.
+- Parsed keyboard shortcuts are cached by exact raw string; config reload clears them with the existing key mapping cache.
+- Unused exclusive `GenericHIDLearnMonitor` is removed. Unified Learn continues to use the running coordinator; capture, suppression timing, Preset scope and ACK05 semantics are unchanged.
+- See `docs/generic-hid-latency-audit.md` for cleanup inventory and pending physical latency checks. Synthetic timing is not device latency validation.

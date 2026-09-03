@@ -21,7 +21,7 @@ struct GenericHIDShortcutBinding: Identifiable, Equatable {
 /// Shortcuts remains the only mapping editor. ACK05 uses its existing direct
 /// capture monitor. Generic HID never opens a second manager for Learn: the
 /// already-running Generic HID runtime temporarily intercepts the first
-/// persistable descriptor and reports it through the capture broker.
+/// persistable descriptor to the unified Learn session owner.
 @MainActor
 final class GenericHIDShortcutCaptureModel: ObservableObject {
     @Published private(set) var bindingsByTarget: [String: [GenericHIDShortcutBinding]] = [:]
@@ -239,11 +239,7 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
                 target: context.target
             )
             errorMessage = nil
-            let persistedCount = (try? GenericHIDMappingStore.mapping(
-                logicalDeviceID: logicalDeviceID,
-                presetID: context.editorPresetID
-            ).count) ?? -1
-            diagnosticLog("assign success persistedMappings=\(persistedCount)")
+            diagnosticLog("assign success")
         } catch {
             persistenceError = error.localizedDescription
             diagnosticLog("assign failed error=\(error.localizedDescription)")
@@ -295,9 +291,9 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
         finishingCapture = false
     }
 
-    private func diagnosticLog(_ message: String) {
+    private func diagnosticLog(_ message: @autoclosure () -> String) {
         guard diagnosticsEnabled else { return }
-        print("[GenericHIDCapture] \(message)")
+        print("[GenericHIDCapture] \(message())")
     }
 
     private func target(for entry: RekordboxShortcutEntry) -> ActionTarget {

@@ -14,6 +14,8 @@ PERFORMANCE Deck 1〜4対応、複数Physical Deviceのruntime分離、Device Ma
 
 ## 現在地
 
+- 2026-09-04の棚卸しで未使用のexclusive `GenericHIDLearnMonitor`を削除。Group Preset statusの設定再decode、Generic HID要素metadata再構築、shortcut再解析をcache化した。cacheはread-only / live-session限定で、config書込・Learn・抑止の仕様は変更しない。詳細は`docs/generic-hid-latency-audit.md`。SIDE体感遅延改善とDeck3ノブLearnは実機未確認。
+
 - Swift Package ManagerでCore、SwiftUIアプリ、CLI bridge、probe、core checksを管理している。
 - ACK05のHID入力、キー／任意数コード、Cue hold、Jump長押しリピート、ダイヤル操作をAction Layerへ変換する。
 - 現行実装は1〜24個のPresetで、各Presetがstable ID、name、order、`rekordboxMode`、`waveformPosition`、キー／コード／ダイヤル割り当てを保持する。

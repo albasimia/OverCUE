@@ -2,6 +2,8 @@
 
 ## 現在のフェーズ
 
+2026-09-04: 未使用Learn monitorと診断専用追加読込を削除し、runtime statusのconfig読込とGeneric HID metadata/shortcut解析をcache化。`docs/generic-hid-latency-audit.md`に残すコード・削除理由・測定境界を記録した。次は同一ActionのACK05/SIDE遅延比較、再接続、3回連続Learn、Deck3ノブのraw入力採取。メインスレッド移動や抑止待機変更は行っていない。
+
 Preset / Shortcut Scope version 10に、Devices UI、Preset管理、Group Preset、Generic HIDのShortcuts統合Learn / runtime / native event suppressionを追加した。2026-09-03に`SDINNOVATION / SIDE-KEYBOARD`のraw IOHID→CGEvent経路を実機観測し、controller inputが有効ならSuppressorがKeypad / Volume / Muteをdropできることを確認した。Action runtimeはshared IOHIDへ統一し、登録済み個体のKey2 / Key3 / Knob RightがLearn済みActionからrekordbox shortcut送信まで到達することを確認した。
 
 ACK05 CLIとGeneric HID runtimeは独立backendとし、一方のfailureで他方を停止しない。Devices Identify / Rebindはcontroller input設定を永続OFFにせずruntimeだけを一時停止する。アプリ起動CLIはparent PIDを監視し、GUI消失後の孤児化を防ぐ。
@@ -83,7 +85,7 @@ Decision `20260902T231600-generic-hid-register`により、SerialをGeneric HID 
 
 - [x] `aal context build --mode implementation`
 - [x] `swift build`
-- [x] `swift test`（28件成功）
+- [x] `swift test`（35件成功、read cache回帰7件追加）
 - [x] `swift run overcue-checks`（405件成功）
 - [x] `./Scripts/build-app.sh`（Universal Binary生成・codesign確認）
 - [x] `./Scripts/verify-macos.sh`

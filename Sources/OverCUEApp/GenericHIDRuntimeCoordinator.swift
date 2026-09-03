@@ -132,6 +132,12 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         let input: GenericHIDInputDescriptor
     }
 
+    // Cookies identify elements only for this live interface, never on disk.
+    private struct RuntimeElementCacheKey: Hashable {
+        let interfaceID: UInt
+        let cookie: UInt64
+    }
+
     private let manager: IOHIDManager
     private let loader = RekordboxKeyMappingLoader()
     private let keyboardOutput = GenericHIDKeyboardOutput()
@@ -142,6 +148,8 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     private var statesBySessionID: [String: GenericHIDDeviceRuntimeState] = [:]
     private var keyMappingsByMode: [RekordboxMappingMode: RekordboxKeyMapping] = [:]
     private var matchingElementCountCache: [RuntimeInputCacheKey: Int] = [:]
+    private var runtimeElementCache: [RuntimeElementCacheKey: GenericHIDRuntimeElementDescriptor] = [:]
+    private var parsedShortcuts: [String: RekordboxKeyboardShortcut] = [:]
     private var configurationObserver: GenericHIDRuntimeObserverToken?
     private var genericMappingObserver: GenericHIDRuntimeObserverToken?
     private var runtimeControlObserver: GenericHIDRuntimeObserverToken?
@@ -185,6 +193,8 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         statesBySessionID = [:]
         keyMappingsByMode = [:]
         matchingElementCountCache = [:]
+        runtimeElementCache = [:]
+        parsedShortcuts = [:]
         configureDeviceMatching()
         installObservers()
 
@@ -239,6 +249,8 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         statesBySessionID = [:]
         keyMappingsByMode = [:]
         matchingElementCountCache = [:]
+        runtimeElementCache = [:]
+        parsedShortcuts = [:]
         removeObservers()
     }
 
@@ -258,6 +270,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         matchingElementCountCache = matchingElementCountCache.filter {
             $0.key.interfaceID != interfaceID
         }
+        runtimeElementCache = runtimeElementCache.filter { $0.key.interfaceID != interfaceID }
         guard let groupKey = groupKeyByInterfaceID.removeValue(forKey: interfaceID),
               var group = groups[groupKey]
         else { return }
@@ -282,6 +295,8 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         let usage = IOHIDElementGetUsage(element)
         guard usage != 0, usage != UInt32.max else { return }
 
+        genericHIDRuntimeLog("callback hidTimestamp=\(IOHIDValueGetTimeStamp(value))")
+
         let device = IOHIDElementGetDevice(element)
         guard let descriptor = registerInterface(device) else { return }
         if statesBySessionID[descriptor.sessionIdentifier] == nil {
@@ -290,18 +305,32 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         guard let state = statesBySessionID[descriptor.sessionIdentifier] else { return }
 
         let reportID = UInt32(IOHIDElementGetReportID(element))
-        let input = GenericHIDInputDescriptor(
-            usagePage: usagePage,
-            usage: usage,
-            reportID: reportID == 0 ? nil : reportID,
-            collectionPath: collectionPath(for: element)
+        let cacheKey = RuntimeElementCacheKey(
+            interfaceID: interfaceIdentifier(device),
+            cookie: UInt64(IOHIDElementGetCookie(element))
         )
-        let runtimeElement = GenericHIDRuntimeElementDescriptor(
-            input: input,
-            cookie: UInt64(IOHIDElementGetCookie(element)),
-            isRelative: IOHIDElementIsRelative(element),
-            matchingElementCount: matchingElementCount(for: element, input: input)
-        )
+        let runtimeElement: GenericHIDRuntimeElementDescriptor
+        if let cached = runtimeElementCache[cacheKey] {
+            runtimeElement = cached
+        } else {
+            let input = GenericHIDInputDescriptor(
+                usagePage: usagePage,
+                usage: usage,
+                reportID: reportID == 0 ? nil : reportID,
+                collectionPath: collectionPath(for: element)
+            )
+            runtimeElement = GenericHIDRuntimeElementDescriptor(
+                input: input,
+                cookie: cacheKey.cookie,
+                isRelative: IOHIDElementIsRelative(element),
+                matchingElementCount: matchingElementCount(for: element, input: input)
+            )
+            // Failed enumeration is retryable, just as before this cache existed.
+            if runtimeElement.matchingElementCount != nil {
+                runtimeElementCache[cacheKey] = runtimeElement
+            }
+        }
+        let input = runtimeElement.input
         guard runtimeElement.persistentInput != nil,
               let event = GenericHIDEventNormalizer.normalize(
                   GenericHIDRawValue(
@@ -422,6 +451,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         configuration = latest
         configureDeviceMatching()
         keyMappingsByMode = [:]
+        parsedShortcuts = [:]
         refreshRuntimeStates()
         reloadLearnedMappings()
     }
@@ -750,7 +780,9 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
             return nil
         }
         do {
+            if let cached = parsedShortcuts[raw] { return cached }
             let shortcut = try RekordboxKeyboardShortcut(rawValue: raw)
+            parsedShortcuts[raw] = shortcut
             genericHIDRuntimeLog("resolved commandID=\(commandID) shortcut=\(raw)")
             return shortcut
         } catch {

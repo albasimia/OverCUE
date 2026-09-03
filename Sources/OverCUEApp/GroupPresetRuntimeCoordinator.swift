@@ -32,6 +32,7 @@ final class GroupPresetRuntimeCoordinator: ObservableObject {
     private var appliedSignaturesByDeviceID: [String: AppliedGroupPresetSignature] = [:]
     private var runtimeObserver: GroupPresetRuntimeObserverToken?
     private var configurationObserver: GroupPresetRuntimeObserverToken?
+    private var configurationCache = OverCUEConfigurationReadCache()
 
     init() {
         runtimeObserver = GroupPresetRuntimeObserverToken(
@@ -106,13 +107,14 @@ final class GroupPresetRuntimeCoordinator: ObservableObject {
     }
 
     private func configurationChanged() {
+        configurationCache.invalidate()
         for status in statusesByDeviceID.values {
             applyIfNeeded(to: status)
         }
     }
 
     private func applyIfNeeded(to status: GroupPresetRuntimeStatus) {
-        guard let configuration = try? OverCUEConfigurationFileStore.readCurrent(
+        guard let configuration = try? configurationCache.read(
             at: OverCUEAppConfigurationLocation.url
         ),
               let logicalDeviceID = status.logicalDeviceID,
