@@ -31,7 +31,7 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
     @Published private(set) var errorMessage: String?
 
     private var capturedTarget: ActionTarget?
-    private var capturedPresetID: String?
+    private var capturedFallbackPresetID: String?
     private var finishingCapture = false
 
     func reload(shortcutModel: ShortcutSettingsModel) {
@@ -44,7 +44,9 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
                 bindingsByTarget = [:]
                 return
             }
-            let presetID = shortcutModel.availablePresetGroups[shortcutModel.selectedGroup - 1].id
+            let fallbackPresetID = shortcutModel.availablePresetGroups[
+                shortcutModel.selectedGroup - 1
+            ].id
             var result: [String: [GenericHIDShortcutBinding]] = [:]
 
             for (logicalDeviceID, logicalDevice) in configuration.logicalDevices.sorted(by: { $0.key < $1.key }) {
@@ -54,6 +56,8 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
                       })
                 else { continue }
 
+                let presetID = configuration.assignedPresetID(for: logicalDeviceID)
+                    ?? fallbackPresetID
                 let mapping = try GenericHIDMappingStore.mapping(
                     logicalDeviceID: logicalDeviceID,
                     presetID: presetID
@@ -102,9 +106,11 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
             return
         }
 
-        let presetID = shortcutModel.availablePresetGroups[shortcutModel.selectedGroup - 1].id
+        let fallbackPresetID = shortcutModel.availablePresetGroups[
+            shortcutModel.selectedGroup - 1
+        ].id
         capturedTarget = target(for: entry)
-        capturedPresetID = presetID
+        capturedFallbackPresetID = fallbackPresetID
         captureEntryID = entry.id
         captureMessage = L10n.text("message.capturePrompt")
         isCapturing = true
@@ -155,7 +161,9 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
     ) {
         guard shortcutModel.availablePresetGroups.indices.contains(shortcutModel.selectedGroup - 1)
         else { return }
-        let presetID = shortcutModel.availablePresetGroups[shortcutModel.selectedGroup - 1].id
+        let fallbackPresetID = shortcutModel.availablePresetGroups[
+            shortcutModel.selectedGroup - 1
+        ].id
         let target = target(for: entry)
         do {
             let configuration = try OverCUEConfigurationFileStore.readCurrent(
@@ -168,11 +176,15 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
                 else { return nil }
                 return binding.logicalDeviceID
             })
-            try GenericHIDMappingStore.removeTarget(
-                logicalDeviceIDs: logicalDeviceIDs,
-                presetID: presetID,
-                target: target
-            )
+            for logicalDeviceID in logicalDeviceIDs {
+                let presetID = configuration.assignedPresetID(for: logicalDeviceID)
+                    ?? fallbackPresetID
+                try GenericHIDMappingStore.removeTarget(
+                    logicalDeviceIDs: [logicalDeviceID],
+                    presetID: presetID,
+                    target: target
+                )
+            }
             reload(shortcutModel: shortcutModel)
         } catch {
             errorMessage = error.localizedDescription
@@ -186,9 +198,15 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
     ) {
         guard !finishingCapture,
               let target = capturedTarget,
-              let presetID = capturedPresetID
+              let fallbackPresetID = capturedFallbackPresetID
         else { return }
         finishingCapture = true
+
+        let latestConfiguration = try? OverCUEConfigurationFileStore.readCurrent(
+            at: OverCUEAppConfigurationLocation.url
+        )
+        let presetID = latestConfiguration?.assignedPresetID(for: logicalDeviceID)
+            ?? fallbackPresetID
 
         do {
             try GenericHIDMappingStore.assign(
@@ -215,7 +233,7 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
     private func finishCapture(shortcutModel: ShortcutSettingsModel) {
         GenericHIDShortcutCaptureBroker.shared.cancelPrepared()
         capturedTarget = nil
-        capturedPresetID = nil
+        capturedFallbackPresetID = nil
         captureEntryID = nil
         captureMessage = nil
         isCapturing = false
