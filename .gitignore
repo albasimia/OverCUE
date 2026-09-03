@@ -4,3 +4,11 @@
 dist/
 release/
 .aal/
+
+# Windows/.NET build outputs (keep source files trackable).
+Windows/**/bin/
+Windows/**/obj/
+Windows/artifacts/
+
+# Generated static site.
+_site/
