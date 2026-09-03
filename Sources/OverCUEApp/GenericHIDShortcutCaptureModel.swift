@@ -33,6 +33,9 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
     private var capturedTarget: ActionTarget?
     private var capturedFallbackPresetID: String?
     private var finishingCapture = false
+    private let diagnosticsEnabled = ProcessInfo.processInfo.environment[
+        "OVERCUE_GENERIC_HID_DIAGNOSTICS"
+    ] == "1"
 
     func reload(shortcutModel: ShortcutSettingsModel) {
         do {
@@ -62,6 +65,9 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
                     logicalDeviceID: logicalDeviceID,
                     presetID: presetID
                 )
+                diagnosticLog(
+                    "reload logical=\(logicalDeviceID) preset=\(presetID) mappings=\(mapping.count)"
+                )
                 for (input, target) in mapping {
                     result[target.configurationValue, default: []].append(
                         GenericHIDShortcutBinding(
@@ -82,6 +88,7 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
         } catch {
             bindingsByTarget = [:]
             errorMessage = error.localizedDescription
+            diagnosticLog("reload failed error=\(error.localizedDescription)")
         }
     }
 
@@ -103,6 +110,7 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
         guard shortcutModel.availablePresetGroups.indices.contains(shortcutModel.selectedGroup - 1)
         else {
             errorMessage = "Preset is not available."
+            diagnosticLog("begin rejected: selected preset unavailable")
             return
         }
 
@@ -114,9 +122,15 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
         captureEntryID = entry.id
         captureMessage = L10n.text("message.capturePrompt")
         isCapturing = true
+        diagnosticLog(
+            "begin entry=\(entry.commandID) target=\(target(for: entry).configurationValue) fallbackPreset=\(fallbackPresetID)"
+        )
 
         GenericHIDShortcutCaptureBroker.shared.prepare { [weak self, weak shortcutModel] logicalDeviceID, input in
             guard let self, let shortcutModel else { return }
+            self.diagnosticLog(
+                "broker captured logical=\(logicalDeviceID) input=\(input.overCUEStableSortKey)"
+            )
             self.commitGenericCapture(
                 logicalDeviceID: logicalDeviceID,
                 input: input,
@@ -128,7 +142,9 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
         // runtimeBridge.stop() call consumes the broker and switches Generic HID
         // into capture mode without closing its exclusive IOHIDManager.
         shortcutModel.beginCapture(for: entry)
+        diagnosticLog("begin ACK05 capture active=\(shortcutModel.isCapturing)")
         if !shortcutModel.isCapturing {
+            diagnosticLog("begin abort: ACK05 capture did not stay active")
             GenericHIDShortcutCaptureBroker.shared.cancelPrepared()
             finishCapture(shortcutModel: shortcutModel)
         }
@@ -142,11 +158,15 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
         shortcutModel: ShortcutSettingsModel
     ) {
         guard isCapturing else { return }
+        diagnosticLog(
+            "shortcut capture changed shortcutActive=\(shortcutIsCapturing) finishing=\(finishingCapture)"
+        )
         guard !shortcutIsCapturing, !finishingCapture else { return }
         finishCapture(shortcutModel: shortcutModel)
     }
 
     func cancelUnifiedCapture(shortcutModel: ShortcutSettingsModel) {
+        diagnosticLog("cancel requested")
         finishingCapture = true
         GenericHIDShortcutCaptureBroker.shared.cancelPrepared()
         if shortcutModel.isCapturing {
@@ -196,17 +216,28 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
         input: GenericHIDInputBindingKey,
         shortcutModel: ShortcutSettingsModel
     ) {
-        guard !finishingCapture,
-              let target = capturedTarget,
-              let fallbackPresetID = capturedFallbackPresetID
-        else { return }
+        guard !finishingCapture else {
+            diagnosticLog("commit ignored: finishingCapture=true")
+            return
+        }
+        guard let target = capturedTarget else {
+            diagnosticLog("commit ignored: capturedTarget=nil")
+            return
+        }
+        guard let fallbackPresetID = capturedFallbackPresetID else {
+            diagnosticLog("commit ignored: fallbackPreset=nil")
+            return
+        }
         finishingCapture = true
 
         let latestConfiguration = try? OverCUEConfigurationFileStore.readCurrent(
             at: OverCUEAppConfigurationLocation.url
         )
-        let presetID = latestConfiguration?.assignedPresetID(for: logicalDeviceID)
-            ?? fallbackPresetID
+        let assignedPresetID = latestConfiguration?.assignedPresetID(for: logicalDeviceID)
+        let presetID = assignedPresetID ?? fallbackPresetID
+        diagnosticLog(
+            "commit logical=\(logicalDeviceID) assignedPreset=\(assignedPresetID ?? "nil") resolvedPreset=\(presetID) target=\(target.configurationValue) input=\(input.overCUEStableSortKey)"
+        )
 
         do {
             try GenericHIDMappingStore.assign(
@@ -216,14 +247,21 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
                 target: target
             )
             errorMessage = nil
+            let persistedCount = (try? GenericHIDMappingStore.mapping(
+                logicalDeviceID: logicalDeviceID,
+                presetID: presetID
+            ).count) ?? -1
+            diagnosticLog("assign success persistedMappings=\(persistedCount)")
         } catch {
             errorMessage = error.localizedDescription
+            diagnosticLog("assign failed error=\(error.localizedDescription)")
         }
 
         // Existing cancelCapture tears down ACK05 capture and calls
         // runtimeBridge.start(). The bridge recognizes the active unified
         // capture and resumes ACK05 only; Generic HID stays continuously open.
         if shortcutModel.isCapturing {
+            diagnosticLog("commit cancelling ACK05 capture to resume runtime")
             shortcutModel.cancelCapture()
         }
         reload(shortcutModel: shortcutModel)
@@ -231,6 +269,7 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
     }
 
     private func finishCapture(shortcutModel: ShortcutSettingsModel) {
+        diagnosticLog("finish")
         GenericHIDShortcutCaptureBroker.shared.cancelPrepared()
         capturedTarget = nil
         capturedFallbackPresetID = nil
@@ -238,6 +277,11 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
         captureMessage = nil
         isCapturing = false
         finishingCapture = false
+    }
+
+    private func diagnosticLog(_ message: String) {
+        guard diagnosticsEnabled else { return }
+        print("[GenericHIDCapture] \(message)")
     }
 
     private func target(for entry: RekordboxShortcutEntry) -> ActionTarget {
