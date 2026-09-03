@@ -18,6 +18,7 @@ usage() {
     cat <<'EOF'
 Usage:
   bash Scripts/diagnose-input-runtime.sh side
+  bash Scripts/diagnose-input-runtime.sh side-nosuppress
   bash Scripts/diagnose-input-runtime.sh ack05 [preset-number]
   bash Scripts/diagnose-input-runtime.sh config
 
@@ -25,6 +26,11 @@ side:
   Launches OverCUE.app from the terminal with Generic HID runtime and native-event
   suppression diagnostics enabled. Rebind the SIDE-KEYBOARD in the app, bring
   rekordbox to the front, then press one SIDE input. Quit OverCUE to finish.
+
+side-nosuppress:
+  Launches the same Generic HID runtime but intentionally does NOT start native
+  event suppression. This is a diagnostic-only A/B test for rekordbox delivery.
+  The SIDE factory Keypad / Volume / Mute input is expected to pass through.
 
 ack05:
   Runs the bundled ACK05 helper directly with stdout visible. Bind/Rebind the
@@ -73,27 +79,44 @@ require_build() {
     fi
 }
 
+run_side() {
+    local suppress="$1"
+    require_build
+    print_binding_snapshot | tee "$LOG"
+    echo | tee -a "$LOG"
+    echo "=== SIDE runtime diagnostic ===" | tee -a "$LOG"
+    echo "native suppression: $suppress" | tee -a "$LOG"
+    echo "1. Ensure Controller Input is ON." | tee -a "$LOG"
+    echo "2. Rebind the SIDE-KEYBOARD in Devices if needed." | tee -a "$LOG"
+    echo "3. Bring rekordbox to the front." | tee -a "$LOG"
+    echo "4. Press Key2, Key3, or Knob Right." | tee -a "$LOG"
+    echo "5. Quit OverCUE when done." | tee -a "$LOG"
+    echo "log: $LOG" | tee -a "$LOG"
+    echo | tee -a "$LOG"
+
+    if [[ "$suppress" == "OFF" ]]; then
+        OVERCUE_GENERIC_HID_DIAGNOSTICS=1 \
+        OVERCUE_HID_SUPPRESSION_DIAGNOSTICS=1 \
+        OVERCUE_DISABLE_GENERIC_HID_SUPPRESSION=1 \
+        "$APP_BIN" 2>&1 | tee -a "$LOG"
+    else
+        OVERCUE_GENERIC_HID_DIAGNOSTICS=1 \
+        OVERCUE_HID_SUPPRESSION_DIAGNOSTICS=1 \
+        "$APP_BIN" 2>&1 | tee -a "$LOG"
+    fi
+}
+
 case "$MODE" in
     config)
         print_binding_snapshot
         ;;
 
     side)
-        require_build
-        print_binding_snapshot | tee "$LOG"
-        echo | tee -a "$LOG"
-        echo "=== SIDE runtime diagnostic ===" | tee -a "$LOG"
-        echo "1. Ensure Controller Input is ON." | tee -a "$LOG"
-        echo "2. Rebind the SIDE-KEYBOARD in Devices." | tee -a "$LOG"
-        echo "3. Bring rekordbox to the front." | tee -a "$LOG"
-        echo "4. Press exactly one SIDE input." | tee -a "$LOG"
-        echo "5. Quit OverCUE when done." | tee -a "$LOG"
-        echo "log: $LOG" | tee -a "$LOG"
-        echo | tee -a "$LOG"
+        run_side ON
+        ;;
 
-        OVERCUE_GENERIC_HID_DIAGNOSTICS=1 \
-        OVERCUE_HID_SUPPRESSION_DIAGNOSTICS=1 \
-        "$APP_BIN" 2>&1 | tee -a "$LOG"
+    side-nosuppress)
+        run_side OFF
         ;;
 
     ack05)
