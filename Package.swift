@@ -13,6 +13,7 @@ let package = Package(
         .executable(name: "OverCUE", targets: ["OverCUEApp"]),
         .executable(name: "overcue-checks", targets: ["OverCUEChecks"]),
         .executable(name: "overcue-probe", targets: ["OverCUEProbe"]),
+        .executable(name: "overcue-led-probe", targets: ["OverCUELightingProbe"]),
     ],
     targets: [
         .target(
@@ -34,6 +35,12 @@ let package = Package(
         .executableTarget(
             name: "OverCUEProbe",
             dependencies: ["OverCUECore"],
+            linkerSettings: [
+                .linkedFramework("IOKit"),
+            ]
+        ),
+        .executableTarget(
+            name: "OverCUELightingProbe",
             linkerSettings: [
                 .linkedFramework("IOKit"),
             ]
