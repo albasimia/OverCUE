@@ -9,29 +9,63 @@ private enum ACK05 {
     static let productID = 0x0202
 }
 
+private enum ProbeMode {
+    case observe
+    case list
+    case describe
+}
+
 private struct Options {
+    var mode: ProbeMode = .observe
     var matchAllDevices = false
     var seizeDevice = false
+    var vendorID: Int?
+    var productID: Int?
 
     static func parse(_ arguments: [String]) throws -> Options {
         var options = Options()
+        var index = 1
 
-        for argument in arguments.dropFirst() {
+        while index < arguments.count {
+            let argument = arguments[index]
             switch argument {
             case "--all":
                 options.matchAllDevices = true
             case "--seize":
                 options.seizeDevice = true
+            case "--list":
+                try options.setMode(.list, argument: argument)
+            case "--describe":
+                try options.setMode(.describe, argument: argument)
+            case "--vid":
+                index += 1
+                guard index < arguments.count else {
+                    throw ProbeError.missingValue(argument)
+                }
+                options.vendorID = try parseInteger(arguments[index], for: argument)
+            case "--pid":
+                index += 1
+                guard index < arguments.count else {
+                    throw ProbeError.missingValue(argument)
+                }
+                options.productID = try parseInteger(arguments[index], for: argument)
             case "--help", "-h":
                 printUsage()
                 exit(EXIT_SUCCESS)
             default:
                 throw ProbeError.invalidArgument(argument)
             }
+            index += 1
         }
 
         guard !(options.matchAllDevices && options.seizeDevice) else {
             throw ProbeError.incompatibleArguments("--all cannot be combined with --seize")
+        }
+        guard !(options.matchAllDevices && (options.vendorID != nil || options.productID != nil)) else {
+            throw ProbeError.incompatibleArguments("--all cannot be combined with --vid or --pid")
+        }
+        guard !(options.mode != .observe && options.seizeDevice) else {
+            throw ProbeError.incompatibleArguments("--seize is only available in observe mode")
         }
 
         return options
@@ -42,22 +76,55 @@ private struct Options {
             """
             Usage: overcue-probe [options]
 
-            Observe HID reports and normalized element values.
+            Observe HID input or inspect connected HID devices without modifying them.
 
-            Options:
-              --all       Observe every HID device, including Generic HID candidates.
-              --seize     Open matching devices exclusively and suppress their OS input.
-              -h, --help  Show this help.
+            Modes:
+              --list       List matching HID interfaces, then exit.
+              --describe   Print HID element/report capabilities for matching devices, then exit.
 
-            The default target is VID 0x28BD / PID 0x0202. Press Control-C to stop.
+            Matching:
+              --all        Match every HID device, including Generic HID candidates.
+              --vid VALUE  Match a vendor ID (decimal or 0x-prefixed hex).
+              --pid VALUE  Match a product ID (decimal or 0x-prefixed hex).
+
+            Observe-only options:
+              --seize      Open matching devices exclusively and suppress their OS input.
+
+            General:
+              -h, --help   Show this help.
+
+            With no matching options, the target is ACK05 (VID 0x28BD / PID 0x0202).
+            --list and --describe are read-only and never send Output or Feature reports.
             """
         )
+    }
+
+    private mutating func setMode(_ newMode: ProbeMode, argument: String) throws {
+        guard mode == .observe else {
+            throw ProbeError.incompatibleArguments("Only one inspection mode can be selected; repeated at \(argument)")
+        }
+        mode = newMode
+    }
+
+    private static func parseInteger(_ value: String, for argument: String) throws -> Int {
+        let parsed: Int?
+        if value.lowercased().hasPrefix("0x") {
+            parsed = Int(value.dropFirst(2), radix: 16)
+        } else {
+            parsed = Int(value)
+        }
+        guard let parsed, parsed >= 0, parsed <= 0xFFFF else {
+            throw ProbeError.invalidValue(argument: argument, value: value)
+        }
+        return parsed
     }
 }
 
 private enum ProbeError: Error, CustomStringConvertible {
     case invalidArgument(String)
     case incompatibleArguments(String)
+    case missingValue(String)
+    case invalidValue(argument: String, value: String)
     case managerOpenFailed(IOReturn)
 
     var description: String {
@@ -66,6 +133,10 @@ private enum ProbeError: Error, CustomStringConvertible {
             return "Unknown argument: \(argument)"
         case let .incompatibleArguments(message):
             return message
+        case let .missingValue(argument):
+            return "Missing value for \(argument)"
+        case let .invalidValue(argument, value):
+            return "Invalid value for \(argument): \(value)"
         case let .managerOpenFailed(result):
             if result == kIOReturnNotPermitted {
                 return "HID access was denied by macOS. Grant Input Monitoring permission "
@@ -75,6 +146,12 @@ private enum ProbeError: Error, CustomStringConvertible {
             return "Could not open IOHIDManager (IOReturn \(formatIOReturn(result)))."
         }
     }
+}
+
+private struct HIDReportCapability {
+    let type: IOHIDReportType
+    let reportID: UInt32
+    let byteLength: Int
 }
 
 private final class HIDProbe {
@@ -88,21 +165,15 @@ private final class HIDProbe {
         manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
 
         let context = Unmanaged.passUnretained(self).toOpaque()
-
-        if options.matchAllDevices {
-            IOHIDManagerSetDeviceMatching(manager, nil)
-        } else {
-            let matching: [String: Any] = [
-                kIOHIDVendorIDKey as String: ACK05.vendorID,
-                kIOHIDProductIDKey as String: ACK05.productID,
-            ]
-            IOHIDManagerSetDeviceMatching(manager, matching as CFDictionary)
-        }
-
+        IOHIDManagerSetDeviceMatching(manager, matchingDictionary(for: options))
         IOHIDManagerRegisterDeviceMatchingCallback(manager, deviceMatched, context)
         IOHIDManagerRegisterDeviceRemovalCallback(manager, deviceRemoved, context)
-        IOHIDManagerRegisterInputReportCallback(manager, inputReportReceived, context)
-        IOHIDManagerRegisterInputValueCallback(manager, inputValueReceived, context)
+
+        if options.mode == .observe {
+            IOHIDManagerRegisterInputReportCallback(manager, inputReportReceived, context)
+            IOHIDManagerRegisterInputValueCallback(manager, inputValueReceived, context)
+        }
+
         IOHIDManagerScheduleWithRunLoop(
             manager,
             CFRunLoopGetCurrent(),
@@ -129,26 +200,25 @@ private final class HIDProbe {
             throw ProbeError.managerOpenFailed(result)
         }
 
-        if options.matchAllDevices {
-            log("Listening to all HID devices.")
-        } else {
-            log(
-                String(
-                    format: "Looking for ACK05 (VID 0x%04X / PID 0x%04X).",
-                    ACK05.vendorID,
-                    ACK05.productID
-                )
-            )
+        switch options.mode {
+        case .observe:
+            logTargetSummary(prefix: "Looking for")
+            if options.seizeDevice {
+                log("Exclusive mode is ON; matching device input is suppressed system-wide.")
+            } else {
+                log("Shared mode is ON; matching device input can still reach macOS and other apps.")
+            }
+            log("Press controls on the target device. Press Control-C to stop.")
+            CFRunLoopRun()
+        case .list:
+            logTargetSummary(prefix: "Listing")
+            runInspectionWindow()
+        case .describe:
+            logTargetSummary(prefix: "Describing")
+            log("Read-only inspection: no Output or Feature report will be sent.")
+            runInspectionWindow()
         }
 
-        if options.seizeDevice {
-            log("Exclusive mode is ON; matching device input is suppressed system-wide.")
-        } else {
-            log("Shared mode is ON; matching device input can still reach macOS and other apps.")
-        }
-        log("Rotate the dial and press K1-K10. Press Control-C to stop.")
-
-        CFRunLoopRun()
         exit(EXIT_SUCCESS)
     }
 
@@ -160,20 +230,22 @@ private final class HIDProbe {
 
         let descriptor = physicalDescriptor(device)
         registry.deviceConnected(descriptor)
-        log("CONNECTED session=\(descriptor.sessionIdentifier) \(deviceIdentity(device))")
-        log(
-            "  transport=\(propertyString(device, kIOHIDTransportKey)) "
-                + "usagePage=\(propertyNumber(device, kIOHIDPrimaryUsagePageKey)) "
-                + "usage=\(propertyNumber(device, kIOHIDPrimaryUsageKey))"
-        )
-        log(
-            "  serialNumber=\(propertyDescription(device, "SerialNumber")) "
-                + "physicalDeviceUniqueID=\(propertyDescription(device, "PhysicalDeviceUniqueID"))"
-        )
-        log(
-            "  locationID=\(propertyDescription(device, "LocationID")) "
-                + "deviceAddress=\(propertyDescription(device, "DeviceAddress"))"
-        )
+
+        switch options.mode {
+        case .observe:
+            log("CONNECTED session=\(descriptor.sessionIdentifier) \(deviceIdentity(device))")
+            logBasicProperties(device)
+        case .list:
+            log("DEVICE session=\(descriptor.sessionIdentifier) \(deviceIdentity(device))")
+            log(
+                "  transport=\(propertyString(device, kIOHIDTransportKey)) "
+                    + "serial=\(propertyDescription(device, "SerialNumber")) "
+                    + "usagePage=\(propertyNumber(device, kIOHIDPrimaryUsagePageKey)) "
+                    + "usage=\(propertyNumber(device, kIOHIDPrimaryUsageKey))"
+            )
+        case .describe:
+            describe(device)
+        }
     }
 
     func didRemove(device: IOHIDDevice, result: IOReturn) {
@@ -184,7 +256,9 @@ private final class HIDProbe {
 
         let descriptor = physicalDescriptor(device)
         registry.deviceDisconnected(sessionIdentifier: descriptor.sessionIdentifier)
-        log("DISCONNECTED session=\(descriptor.sessionIdentifier) \(deviceIdentity(device))")
+        if options.mode == .observe {
+            log("DISCONNECTED session=\(descriptor.sessionIdentifier) \(deviceIdentity(device))")
+        }
     }
 
     func didReceiveReport(
@@ -273,6 +347,118 @@ private final class HIDProbe {
         )
     }
 
+    private func runInspectionWindow() {
+        let deadline = Date().addingTimeInterval(0.5)
+        while Date() < deadline {
+            RunLoop.current.run(mode: .default, before: deadline)
+        }
+    }
+
+    private func logTargetSummary(prefix: String) {
+        if options.matchAllDevices {
+            log("\(prefix) all HID devices.")
+            return
+        }
+        let vid = options.vendorID ?? ACK05.vendorID
+        let pid = options.productID ?? ACK05.productID
+        log(String(format: "%@ HID devices matching VID 0x%04X / PID 0x%04X.", prefix, vid, pid))
+    }
+
+    private func logBasicProperties(_ device: IOHIDDevice) {
+        log(
+            "  transport=\(propertyString(device, kIOHIDTransportKey)) "
+                + "usagePage=\(propertyNumber(device, kIOHIDPrimaryUsagePageKey)) "
+                + "usage=\(propertyNumber(device, kIOHIDPrimaryUsageKey))"
+        )
+        log(
+            "  serialNumber=\(propertyDescription(device, "SerialNumber")) "
+                + "physicalDeviceUniqueID=\(propertyDescription(device, "PhysicalDeviceUniqueID"))"
+        )
+        log(
+            "  locationID=\(propertyDescription(device, "LocationID")) "
+                + "deviceAddress=\(propertyDescription(device, "DeviceAddress"))"
+        )
+    }
+
+    private func describe(_ device: IOHIDDevice) {
+        let descriptor = physicalDescriptor(device)
+        log("DEVICE session=\(descriptor.sessionIdentifier) \(deviceIdentity(device))")
+        logBasicProperties(device)
+
+        guard let elements = IOHIDDeviceCopyMatchingElements(
+            device,
+            nil,
+            IOOptionBits(kIOHIDOptionsTypeNone)
+        ) as? [IOHIDElement] else {
+            log("  elements=unavailable")
+            return
+        }
+
+        let capabilities = reportCapabilities(elements)
+        let inputReports = capabilities.filter { $0.type == kIOHIDReportTypeInput }
+        let outputReports = capabilities.filter { $0.type == kIOHIDReportTypeOutput }
+        let featureReports = capabilities.filter { $0.type == kIOHIDReportTypeFeature }
+
+        log(
+            "  reports input=\(inputReports.count) output=\(outputReports.count) "
+                + "feature=\(featureReports.count) writable=\((!outputReports.isEmpty || !featureReports.isEmpty) ? "yes" : "no")"
+        )
+
+        for capability in capabilities.sorted(by: reportCapabilityOrder) {
+            log(
+                "    \(reportTypeName(capability.type)) reportID=\(capability.reportID) "
+                    + "maxElementBytes=\(capability.byteLength)"
+            )
+        }
+
+        let interesting = elements.filter { IOHIDElementGetType($0) != kIOHIDElementTypeCollection }
+        log("  elements=\(interesting.count)")
+        for element in interesting {
+            let type = IOHIDElementGetType(element)
+            let usagePage = IOHIDElementGetUsagePage(element)
+            let usage = IOHIDElementGetUsage(element)
+            let reportID = UInt32(IOHIDElementGetReportID(element))
+            let reportSize = Int(IOHIDElementGetReportSize(element))
+            let reportCount = Int(IOHIDElementGetReportCount(element))
+            let logicalMin = IOHIDElementGetLogicalMin(element)
+            let logicalMax = IOHIDElementGetLogicalMax(element)
+            let path = collectionPathDescription(for: element)
+            log(
+                String(
+                    format: "    element type=%@ page=0x%04X usage=0x%04X reportID=%u "
+                        + "bits=%d count=%d logical=[%lld,%lld] path=%@",
+                    elementTypeName(type),
+                    usagePage,
+                    usage,
+                    reportID,
+                    reportSize,
+                    reportCount,
+                    Int64(logicalMin),
+                    Int64(logicalMax),
+                    path
+                )
+            )
+        }
+    }
+
+    private func reportCapabilities(_ elements: [IOHIDElement]) -> [HIDReportCapability] {
+        var maximumBytes: [String: HIDReportCapability] = [:]
+
+        for element in elements {
+            guard let reportType = reportType(for: IOHIDElementGetType(element)) else { continue }
+            let reportID = UInt32(IOHIDElementGetReportID(element))
+            let bitLength = Int(IOHIDElementGetReportSize(element)) * Int(IOHIDElementGetReportCount(element))
+            let byteLength = max(0, (bitLength + 7) / 8)
+            let key = "\(reportType.rawValue):\(reportID)"
+            if let existing = maximumBytes[key], existing.byteLength >= byteLength {
+                continue
+            }
+            maximumBytes[key] = HIDReportCapability(type: reportType, reportID: reportID, byteLength: byteLength)
+        }
+
+        return Array(maximumBytes.values)
+    }
+
     private func log(_ message: String) {
         let line = "[\(timestampFormatter.string(from: Date()))] \(message)\n"
         FileHandle.standardOutput.write(Data(line.utf8))
@@ -311,6 +497,76 @@ private final class HIDProbe {
             transportIdentifier: String(address, radix: 16)
         )
     }
+}
+
+private func matchingDictionary(for options: Options) -> CFDictionary? {
+    if options.matchAllDevices {
+        return nil
+    }
+
+    var matching: [String: Any] = [:]
+    if let vendorID = options.vendorID {
+        matching[kIOHIDVendorIDKey as String] = vendorID
+    }
+    if let productID = options.productID {
+        matching[kIOHIDProductIDKey as String] = productID
+    }
+    if matching.isEmpty {
+        matching[kIOHIDVendorIDKey as String] = ACK05.vendorID
+        matching[kIOHIDProductIDKey as String] = ACK05.productID
+    }
+    return matching as CFDictionary
+}
+
+private func reportType(for elementType: IOHIDElementType) -> IOHIDReportType? {
+    switch elementType {
+    case kIOHIDElementTypeInput_Misc,
+         kIOHIDElementTypeInput_Button,
+         kIOHIDElementTypeInput_Axis,
+         kIOHIDElementTypeInput_ScanCodes:
+        return kIOHIDReportTypeInput
+    case kIOHIDElementTypeOutput:
+        return kIOHIDReportTypeOutput
+    case kIOHIDElementTypeFeature:
+        return kIOHIDReportTypeFeature
+    default:
+        return nil
+    }
+}
+
+private func elementTypeName(_ type: IOHIDElementType) -> String {
+    switch type {
+    case kIOHIDElementTypeInput_Misc:
+        return "input-misc"
+    case kIOHIDElementTypeInput_Button:
+        return "input-button"
+    case kIOHIDElementTypeInput_Axis:
+        return "input-axis"
+    case kIOHIDElementTypeInput_ScanCodes:
+        return "input-scan"
+    case kIOHIDElementTypeOutput:
+        return "output"
+    case kIOHIDElementTypeFeature:
+        return "feature"
+    case kIOHIDElementTypeCollection:
+        return "collection"
+    default:
+        return "unknown(\(type.rawValue))"
+    }
+}
+
+private func reportCapabilityOrder(_ lhs: HIDReportCapability, _ rhs: HIDReportCapability) -> Bool {
+    if lhs.type.rawValue != rhs.type.rawValue {
+        return lhs.type.rawValue < rhs.type.rawValue
+    }
+    return lhs.reportID < rhs.reportID
+}
+
+private func collectionPathDescription(for element: IOHIDElement) -> String {
+    let path = collectionPath(for: element)
+    if path.isEmpty { return "[]" }
+    let values = path.map { String(format: "0x%04X:0x%04X", $0.page, $0.usage) }
+    return "[\(values.joined(separator: "/"))]"
 }
 
 private func collectionPath(for element: IOHIDElement) -> [HIDUsage] {
