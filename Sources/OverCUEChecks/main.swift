@@ -2382,6 +2382,30 @@ do {
     check(error as? DDJSXMIDIProfileError == .invalidDeck(5), "reject Deck 5")
 }
 
+do {
+    let input = GenericHIDInputDescriptor(usagePage: 0x0C, usage: 0xE9, reportID: 3)
+    let element = GenericHIDElementCatalog.Element(cookie: 1, input: input, isRelative: false)
+    var catalogs = GenericHIDElementCatalogStore()
+    check(!catalogs.preload(interfaceID: 1) { nil }, "metadata enumeration failure stays retryable")
+    check(catalogs.element(interfaceID: 1, cookie: 1) == nil, "unready metadata fails closed")
+    check(catalogs.preload(interfaceID: 1) { [element] }, "metadata explicit preload retry succeeds")
+    check(catalogs.element(interfaceID: 1, cookie: 1)?.persistentInput == input,
+          "first metadata lookup has verified unique descriptor")
+    let duplicates = GenericHIDElementCatalog(elements: [
+        element, .init(cookie: 2, input: input, isRelative: false),
+    ])
+    check(duplicates.elementsByCookie[1]?.matchingElementCount == 2
+          && duplicates.elementsByCookie[2]?.persistentInput == nil,
+          "catalog preserves descriptor ambiguity safety")
+    catalogs.preload(interfaceID: 2) { [element] }
+    catalogs.remove(interfaceID: 1)
+    check(catalogs.element(interfaceID: 1, cookie: 1) == nil
+          && catalogs.element(interfaceID: 2, cookie: 1) != nil,
+          "metadata removal is interface scoped")
+    catalogs.removeAll()
+    check(catalogs.element(interfaceID: 2, cookie: 1) == nil, "runtime reset clears metadata")
+}
+
 guard failureCount == 0 else {
     fputs("\(failureCount) of \(checkCount) checks failed.\n", stderr)
     exit(EXIT_FAILURE)

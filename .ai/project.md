@@ -29,7 +29,7 @@ branch: `codex/performance-4deck`。Swift PackageのCore / SwiftUI App / CLI bri
 - config.json更新は共通FileStoreのlock付きlatest read-modify-write。GUIはbaseline/local/remoteの3-way merge（dictionary entry、Preset、Logical Device、assignment単位）。古いsnapshot保存やmigrationでremote更新を消さない。
 - CLIは入力/config revision変更時、control適用前に最新binding/Profile/mappingを解決。GUIも最新diskとlocal差分をreconcileし、古いModeを後から送り返さない。
 - status/controlはdevice/session/Logical Device/Profile scopeを保持。non-default Profileはdefault UI targetを奪わず、切断時targetを解放しglobal controlへfallbackしない。
-- config読込cacheはrevision確認付きread-onlyで、編集baselineや書込lockの代替ではない。HID metadata cacheはlive interface/cookie限定、disconnect/restartで破棄。
+- config読込cacheはrevision確認付きread-onlyで、編集baselineや書込lockの代替ではない。HID metadataはinterface match時に全件preloadし、入力はcookie lookupのみ。曖昧性判定を維持し、失敗は入力外でretry。disconnect/restartで破棄（既存main runloop所有は維持）。
 
 ### Device / HID
 

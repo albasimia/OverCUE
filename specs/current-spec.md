@@ -453,7 +453,7 @@ swift run OverCUE
 # Generic HID runtime hot-path maintenance (2026-09-04)
 
 - Group Preset status consumes a revision-checked read-only config cache. Disk remains authoritative; notifications invalidate it, and invalid/missing config never falls back to stale cached contents.
-- Generic HID immutable element metadata is cached only for a live interface/cookie; disconnect and runtime restart clear it. Cookie is not a persistent identity.
+- Generic HID preloads a complete immutable element catalog once per live interface at match, on the existing main-runloop IOHID owner before input readiness. Descriptor duplicate counts include the full enumeration; ambiguous descriptors remain unpersistable. Input callbacks only look up interface/cookie metadata, never enumerate or rebuild collection paths. Failed/empty preload fails closed and retries at match/config reload/restart, not on input. Ready catalogs survive config reload; interface removal and runtime stop/start clear them. Cookie is not a persistent identity. Startup/hotplug enumeration can still block the owner thread; this change removes first-usage scans, not all main-runloop latency.
 - Parsed keyboard shortcuts are cached by exact raw string; config reload clears them with the existing key mapping cache.
 - Unused exclusive `GenericHIDLearnMonitor` is removed. Unified Learn continues to use the running coordinator; capture, suppression timing, Preset scope and ACK05 semantics are unchanged.
 - See `docs/generic-hid-latency-audit.md` for cleanup inventory and pending physical latency checks. Synthetic timing is not device latency validation.

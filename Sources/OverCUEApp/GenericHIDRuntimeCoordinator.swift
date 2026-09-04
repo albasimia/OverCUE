@@ -127,17 +127,6 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         var interfaceIDs: Set<UInt>
     }
 
-    private struct RuntimeInputCacheKey: Hashable {
-        let interfaceID: UInt
-        let input: GenericHIDInputDescriptor
-    }
-
-    // Cookies identify elements only for this live interface, never on disk.
-    private struct RuntimeElementCacheKey: Hashable {
-        let interfaceID: UInt
-        let cookie: UInt64
-    }
-
     private let manager: IOHIDManager
     private let loader = RekordboxKeyMappingLoader()
     private let keyboardOutput = GenericHIDKeyboardOutput()
@@ -147,8 +136,10 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     private var groupKeyByInterfaceID: [UInt: LiveGroupKey] = [:]
     private var statesBySessionID: [String: GenericHIDDeviceRuntimeState] = [:]
     private var keyMappingsByMode: [RekordboxMappingMode: RekordboxKeyMapping] = [:]
-    private var matchingElementCountCache: [RuntimeInputCacheKey: Int] = [:]
-    private var runtimeElementCache: [RuntimeElementCacheKey: GenericHIDRuntimeElementDescriptor] = [:]
+    // Accessed on the existing IOHID owner (main runloop), including lifecycle
+    // preload/retry. Retain interfaces only until removal/stop; never persist IDs.
+    private var metadataCatalogs = GenericHIDElementCatalogStore()
+    private var interfacesByID: [UInt: IOHIDDevice] = [:]
     private var parsedShortcuts: [String: RekordboxKeyboardShortcut] = [:]
     private var configurationObserver: GenericHIDRuntimeObserverToken?
     private var genericMappingObserver: GenericHIDRuntimeObserverToken?
@@ -192,8 +183,8 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         groupKeyByInterfaceID = [:]
         statesBySessionID = [:]
         keyMappingsByMode = [:]
-        matchingElementCountCache = [:]
-        runtimeElementCache = [:]
+        metadataCatalogs.removeAll()
+        interfacesByID = [:]
         parsedShortcuts = [:]
         configureDeviceMatching()
         installObservers()
@@ -248,8 +239,8 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         groupKeyByInterfaceID = [:]
         statesBySessionID = [:]
         keyMappingsByMode = [:]
-        matchingElementCountCache = [:]
-        runtimeElementCache = [:]
+        metadataCatalogs.removeAll()
+        interfacesByID = [:]
         parsedShortcuts = [:]
         removeObservers()
     }
@@ -258,6 +249,8 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         guard result == kIOReturnSuccess,
               let descriptor = registerInterface(device)
         else { return }
+        interfacesByID[interfaceIdentifier(device)] = device
+        preloadMetadata(for: device)
         genericHIDRuntimeLog(
             "matched interface representative=\(descriptor.sessionIdentifier)"
         )
@@ -267,10 +260,8 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     fileprivate func didRemove(device: IOHIDDevice, result: IOReturn) {
         guard result == kIOReturnSuccess else { return }
         let interfaceID = interfaceIdentifier(device)
-        matchingElementCountCache = matchingElementCountCache.filter {
-            $0.key.interfaceID != interfaceID
-        }
-        runtimeElementCache = runtimeElementCache.filter { $0.key.interfaceID != interfaceID }
+        metadataCatalogs.remove(interfaceID: interfaceID)
+        interfacesByID.removeValue(forKey: interfaceID)
         guard let groupKey = groupKeyByInterfaceID.removeValue(forKey: interfaceID),
               var group = groups[groupKey]
         else { return }
@@ -291,46 +282,23 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     fileprivate func didReceiveValue(result: IOReturn, value: IOHIDValue) {
         guard result == kIOReturnSuccess else { return }
         let element = IOHIDValueGetElement(value)
-        let usagePage = IOHIDElementGetUsagePage(element)
-        let usage = IOHIDElementGetUsage(element)
-        guard usage != 0, usage != UInt32.max else { return }
-
         genericHIDRuntimeLog("callback hidTimestamp=\(IOHIDValueGetTimeStamp(value))")
 
         let device = IOHIDElementGetDevice(element)
-        guard let descriptor = registerInterface(device) else { return }
-        if statesBySessionID[descriptor.sessionIdentifier] == nil {
-            refreshRuntimeStates()
+        let interfaceID = interfaceIdentifier(device)
+        let cookie = UInt64(IOHIDElementGetCookie(element))
+        guard let runtimeElement = metadataCatalogs.element(interfaceID: interfaceID, cookie: cookie) else {
+            genericHIDRuntimeLog("metadata miss interface=\(interfaceID) cookie=\(cookie) ready=\(metadataCatalogs.isReady(interfaceID: interfaceID))")
+            return // No enumeration, retry, or buffered replay in an input callback.
         }
+        guard let groupKey = groupKeyByInterfaceID[interfaceID],
+              let descriptor = groups[groupKey]?.representative
+        else { return }
         guard let state = statesBySessionID[descriptor.sessionIdentifier] else { return }
 
-        let reportID = UInt32(IOHIDElementGetReportID(element))
-        let cacheKey = RuntimeElementCacheKey(
-            interfaceID: interfaceIdentifier(device),
-            cookie: UInt64(IOHIDElementGetCookie(element))
-        )
-        let runtimeElement: GenericHIDRuntimeElementDescriptor
-        if let cached = runtimeElementCache[cacheKey] {
-            runtimeElement = cached
-        } else {
-            let input = GenericHIDInputDescriptor(
-                usagePage: usagePage,
-                usage: usage,
-                reportID: reportID == 0 ? nil : reportID,
-                collectionPath: collectionPath(for: element)
-            )
-            runtimeElement = GenericHIDRuntimeElementDescriptor(
-                input: input,
-                cookie: cacheKey.cookie,
-                isRelative: IOHIDElementIsRelative(element),
-                matchingElementCount: matchingElementCount(for: element, input: input)
-            )
-            // Failed enumeration is retryable, just as before this cache existed.
-            if runtimeElement.matchingElementCount != nil {
-                runtimeElementCache[cacheKey] = runtimeElement
-            }
-        }
         let input = runtimeElement.input
+        guard input.usage.usage != 0, input.usage.usage != UInt32.max else { return }
+        let reportID = input.reportID ?? 0
         guard runtimeElement.persistentInput != nil,
               let event = GenericHIDEventNormalizer.normalize(
                   GenericHIDRawValue(
@@ -450,6 +418,9 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         ) else { return }
         configuration = latest
         configureDeviceMatching()
+        // Retry failed enumeration only at a lifecycle/config refresh boundary.
+        // Ready catalogs are immutable and reused until interface removal.
+        for device in interfacesByID.values { preloadMetadata(for: device) }
         keyMappingsByMode = [:]
         parsedShortcuts = [:]
         refreshRuntimeStates()
@@ -903,34 +874,31 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         return path.reversed()
     }
 
-    private func matchingElementCount(
-        for element: IOHIDElement,
-        input: GenericHIDInputDescriptor
-    ) -> Int? {
-        let device = IOHIDElementGetDevice(element)
-        let cacheKey = RuntimeInputCacheKey(
-            interfaceID: interfaceIdentifier(device),
-            input: input
-        )
-        if let cached = matchingElementCountCache[cacheKey] {
-            return cached
+    private func preloadMetadata(for device: IOHIDDevice) {
+        let interfaceID = interfaceIdentifier(device)
+        guard !metadataCatalogs.isReady(interfaceID: interfaceID) else { return }
+        genericHIDRuntimeLog("metadata preparing interface=\(interfaceID)")
+        // Keep all IOHID access on its existing owner. Enumeration may mutate
+        // IOHIDDevice/element internals; do not share them with a worker queue.
+        let ready = metadataCatalogs.preload(interfaceID: interfaceID) {
+            guard let elements = IOHIDDeviceCopyMatchingElements(
+                device, nil, IOOptionBits(kIOHIDOptionsTypeNone)
+            ) as? [IOHIDElement] else { return nil }
+            return elements.map { candidate in
+                let reportID = UInt32(IOHIDElementGetReportID(candidate))
+                return GenericHIDElementCatalog.Element(
+                    cookie: UInt64(IOHIDElementGetCookie(candidate)),
+                    input: GenericHIDInputDescriptor(
+                        usagePage: IOHIDElementGetUsagePage(candidate),
+                        usage: IOHIDElementGetUsage(candidate),
+                        reportID: reportID == 0 ? nil : reportID,
+                        collectionPath: collectionPath(for: candidate)
+                    ),
+                    isRelative: IOHIDElementIsRelative(candidate)
+                )
+            }
         }
-        guard let elements = IOHIDDeviceCopyMatchingElements(
-            device,
-            nil,
-            IOOptionBits(kIOHIDOptionsTypeNone)
-        ) as? [IOHIDElement] else { return nil }
-        let count = elements.filter { candidate in
-            let reportID = UInt32(IOHIDElementGetReportID(candidate))
-            return GenericHIDInputDescriptor(
-                usagePage: IOHIDElementGetUsagePage(candidate),
-                usage: IOHIDElementGetUsage(candidate),
-                reportID: reportID == 0 ? nil : reportID,
-                collectionPath: collectionPath(for: candidate)
-            ) == input
-        }.count
-        matchingElementCountCache[cacheKey] = count
-        return count
+        genericHIDRuntimeLog("metadata \(ready ? "ready" : "failed; retry on match/config reload/restart") interface=\(interfaceID)")
     }
 
     private func property(_ device: IOHIDDevice, _ key: String) -> Any? {

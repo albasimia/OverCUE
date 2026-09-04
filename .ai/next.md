@@ -2,17 +2,17 @@
 
 ## 現在地
 
-2026-09-04。ownership分離は`ffd5dc0`、未使用Learn monitor削除とhot-path cache化は`19a7fe1`でpush済み。最新コードの自動検証：35 unit tests / 405 Core checks、debug/release Universal Binary、ad-hoc codesign deep/strict成功。AAL doctor 0 failures / 0 warnings。実機で体感改善を確認したわけではない。
+2026-09-05。ユーザーの実機ログでConsumer初回callback→inputに約750〜764ms停止を確認。usage初回ごとの全element走査をinterface match時の一括catalogへ移した。自動検証：42 unit tests / 412 Core checks、debug/release Universal Binary、ad-hoc codesign deep/strict成功。AAL doctor 0 failures / 0 warnings。修正後の実機改善は未確認。
 
 AALはglobal CLI / localとも`d807f62`へ更新済み。projectは現在仕様、nextは未完了作業に限定し、詳細記録はhistory/decision/specを必要時だけ読む。
 
 ## 最優先：実機入力待ち
 
-1. Deck3-sideのノブ右/左/押し込みがLearnできない。登録・Consumer要素の列挙は確認したが操作ログ未採取。Keyboard割当は保存済み。raw入力→normalize→capture→保存のどこで止まるか観測し、推測修正しない。
-2. SIDEだけキー/ノブに体感遅延（Learnとは別件）。ACK05と同じActionで比較し、初回/warm、GUI負荷、受信/出力時刻を測る。機械的アクチュエーションも押下の候補であり、回転遅延とは分ける。`docs/generic-hid-latency-audit.md`参照。
+1. `OVERCUE_GENERIC_HID_DIAGNOSTICS=1`でcatalog ready後、Deck1→2→3を順にRight×3 / Left×3 / Click×3。初回callback→inputの約750ms停止・後続burstが消え、routing/mapping結果が維持されるか確認。Deck2 Right/Clickのmapping missは未割当による期待値。今回Learn・mapping修正へ進まない。
+2. 3台SIDEのLogical Device→Deck1/2/3 Preset→30xx/31xx/32xx分離とrekordboxショートカット動作はユーザー実機確認済み。修正後の再接続・初回/warm比較は未確認。match時のmain-thread preloadによる起動/hotplug停止は残り得る。`docs/generic-hid-latency-audit.md`参照。Deck3 Learn不調は別件として未解決。
 3. 3回以上連続Learn、ACK05/Generic片側失敗、editor Preset往復、Group Presetと異なるeditorへの保存・表示・削除を確認。終了管理にはisCaptureMode/handler/finishingCaptureが残る。owner整理完了やDeck3修正済みとは記録しない。
 
-ユーザーは現在実機操作不可。常時monitorや自動再起動は行わない。実機待ち中はコード監査・synthetic検証の範囲を明示する。
+常時monitorや自動再起動は行わない。今回修正のcommit/push後は上記実機結果を待つ。ユーザー提供の修正前ログと、自動検証・修正後実機確認を区別する。
 
 ## 実機確認ゲート
 
@@ -29,4 +29,4 @@ AALはglobal CLI / localとも`d807f62`へ更新済み。projectは現在仕様�
 
 ## 次の完了判定
 
-コード変更時はproject記載の全macOS検証とAAL更新を行う。実機確認済みと自動テストを区別し、設定やdevice identityを根拠なしに変更しない。今回のcontext軽量化は文書のみで、アプリ挙動は変更しない。
+コード変更時はproject記載の全macOS検証とAAL更新を行う。実機確認済みと自動テストを区別し、設定やdevice identityを根拠なしに変更しない。metadata失敗はmatch/config reload/restartで再試行し、入力内走査へ戻さない。
