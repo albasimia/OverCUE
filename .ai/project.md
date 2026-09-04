@@ -39,6 +39,7 @@ branch: `codex/performance-4deck`。Swift PackageのCore / SwiftUI App / CLI bri
 - ACK05 BLEは実機確認済みPhysicalDeviceUniqueIDをPairing Identityに使用（再ペアリングで変化）。ACK05 USBは例外的にlocationをUSB Slot Identityとして使用し、個体IDとは呼ばない。他Generic HIDへ一般化しない。
 - Generic descriptorはUsage Page / Usage / Report ID / collection path。同一signature重複は実機根拠なしに確定しない。未知の製品・encoder形式を推測しない。
 - Generic runtimeは最初からshared IOHID。登録deviceのraw evidenceと一致したnative eventだけ抑止し、未登録deviceはfail-open。root/helper前提やvendor固有hard-codeへ戻さない。
+- Generic runtimeは各startでrunloopを再scheduleし、current-device snapshotをmatchと共通の登録/preload経路へ渡す。Close後のmatch再配送を前提にせず、stopでlive stateを全破棄する。
 - ACK05 CLI / Generic runtimeは独立backend。一方のfailureで他方を止めない。CLIはGUI parent消失で終了。Identify/Rebindの一時停止でcontroller input設定をOFF保存しない。controller input OFF時は両runtime/抑止を停止する。
 
 ## 制約

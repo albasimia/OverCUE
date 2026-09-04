@@ -157,11 +157,6 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         IOHIDManagerRegisterDeviceMatchingCallback(manager, genericRuntimeDeviceMatched, context)
         IOHIDManagerRegisterDeviceRemovalCallback(manager, genericRuntimeDeviceRemoved, context)
         IOHIDManagerRegisterInputValueCallback(manager, genericRuntimeInputValueReceived, context)
-        IOHIDManagerScheduleWithRunLoop(
-            manager,
-            CFRunLoopGetMain(),
-            CFRunLoopMode.defaultMode.rawValue
-        )
     }
 
     deinit {
@@ -191,11 +186,21 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
 
         let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         guard result == kIOReturnSuccess else {
+            // Open can partially open devices even when its aggregate result fails.
+            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
             removeObservers()
             throw GenericHIDDeviceIdentifierMonitorError.openFailed(result)
         }
         isOpen = true
+        // IOHIDManagerClose unschedules the manager. Open does not reschedule it.
+        // Restore delivery on EVERY start, not only the first initialization.
+        IOHIDManagerScheduleWithRunLoop(
+            manager,
+            CFRunLoopGetMain(),
+            CFRunLoopMode.defaultMode.rawValue
+        )
         genericHIDRuntimeLog("IOHID manager open success")
+        registerCurrentInterfaces(source: "start-enumeration")
     }
 
     func beginCapture(
@@ -209,9 +214,11 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         captureSession.begin()
         captureHandler = onCaptured
         isCaptureMode = true
+        genericHIDRuntimeLog("capture begin states=\(statesBySessionID.count)")
     }
 
     func endCapture() {
+        genericHIDRuntimeLog("capture end")
         guard isCaptureMode || captureHandler != nil else { return }
         captureHandler = nil
         isCaptureMode = false
@@ -232,6 +239,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         }
         keyboardOutput.releaseAll()
         if isOpen {
+            isOpen = false
             IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         }
         isOpen = false
@@ -246,19 +254,36 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     }
 
     fileprivate func didMatch(device: IOHIDDevice, result: IOReturn) {
-        guard result == kIOReturnSuccess,
+        guard isOpen, result == kIOReturnSuccess else { return }
+        registerMatchedInterface(device, source: "match-callback")
+    }
+
+    private func registerCurrentInterfaces(source: String) {
+        guard isOpen else { return }
+        guard let devices = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> else {
+            genericHIDRuntimeLog("current interfaces snapshot unavailable source=\(source); retry on config reload/reconnect/next start")
+            return
+        }
+        genericHIDRuntimeLog("current interfaces snapshot=\(devices.count) source=\(source)")
+        for device in devices { registerMatchedInterface(device, source: source) }
+    }
+
+    // Snapshot and hotplug share identity/grouping, preload and state resolution.
+    // Existing interface sets, ready catalogs and session keys make this idempotent.
+    private func registerMatchedInterface(_ device: IOHIDDevice, source: String) {
+        guard isOpen,
               let descriptor = registerInterface(device)
         else { return }
         interfacesByID[interfaceIdentifier(device)] = device
         preloadMetadata(for: device)
         genericHIDRuntimeLog(
-            "matched interface representative=\(descriptor.sessionIdentifier)"
+            "matched interface=\(interfaceIdentifier(device)) source=\(source) representative=\(descriptor.sessionIdentifier)"
         )
         refreshRuntimeStates()
     }
 
     fileprivate func didRemove(device: IOHIDDevice, result: IOReturn) {
-        guard result == kIOReturnSuccess else { return }
+        guard isOpen, result == kIOReturnSuccess else { return }
         let interfaceID = interfaceIdentifier(device)
         metadataCatalogs.remove(interfaceID: interfaceID)
         interfacesByID.removeValue(forKey: interfaceID)
@@ -280,7 +305,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     }
 
     fileprivate func didReceiveValue(result: IOReturn, value: IOHIDValue) {
-        guard result == kIOReturnSuccess else { return }
+        guard isOpen, result == kIOReturnSuccess else { return }
         let element = IOHIDValueGetElement(value)
         genericHIDRuntimeLog("callback hidTimestamp=\(IOHIDValueGetTimeStamp(value))")
 
@@ -328,6 +353,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
                   let bindingKey = candidate.persistentBindingKey
             else { return }
             captureHandler = nil
+            genericHIDRuntimeLog("capture captured logical=\(state.logicalDeviceID)")
             handler(state.logicalDeviceID, bindingKey)
             return
         }
@@ -418,6 +444,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         ) else { return }
         configuration = latest
         configureDeviceMatching()
+        registerCurrentInterfaces(source: "config-reload")
         // Retry failed enumeration only at a lifecycle/config refresh boundary.
         // Ready catalogs are immutable and reused until interface removal.
         for device in interfacesByID.values { preloadMetadata(for: device) }

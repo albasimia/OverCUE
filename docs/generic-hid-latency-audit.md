@@ -3,7 +3,8 @@
 Scope: preserve mapping, Preset ownership, capture lifecycle, suppression and
 ACK05 behavior. No real-device input was available for the September 4 audit.
 September 5 user-provided diagnostic logs establish a first-touch callback/input
-gap; post-fix hardware measurement and Deck3 Learn investigation remain pending.
+gap; the user subsequently confirmed `adda014` eliminates that gap on hardware.
+The separate restart/Learn callback-delivery fix still awaits hardware validation.
 
 ## Inventory
 
