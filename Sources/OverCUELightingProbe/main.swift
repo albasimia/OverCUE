@@ -1,5 +1,6 @@
 import CoreFoundation
 import Darwin
+import Dispatch
 import Foundation
 import IOKit.hid
 
@@ -13,19 +14,36 @@ private enum TargetDevice {
     static let reportLength = 64
 }
 
+private enum Query: String {
+    case lighting = "--get-lighting"
+    case rgb = "--get-rgb"
+
+    var payload: [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: 64)
+        bytes[0] = 0x06
+        bytes[1] = self == .rgb ? 0x13 : 0x0A
+        if self == .rgb { bytes[2] = 0x3A }
+        return bytes
+    }
+}
+
 private struct Options {
     let serial: String
+    let query: Query
 
     static func parse(_ arguments: [String]) throws -> Options {
         var serial: String?
-        var requestedLightingGet = false
+        var query: Query?
         var index = 1
 
         while index < arguments.count {
             let argument = arguments[index]
             switch argument {
-            case "--get-lighting":
-                requestedLightingGet = true
+            case "--get-lighting", "--get-rgb":
+                guard query == nil else {
+                    throw ProbeError.invalidArgument("Select exactly one getter")
+                }
+                query = Query(rawValue: argument)
             case "--serial":
                 index += 1
                 guard index < arguments.count else {
@@ -41,14 +59,17 @@ private struct Options {
             index += 1
         }
 
-        guard requestedLightingGet else {
-            throw ProbeError.invalidArgument("--get-lighting is required")
+        guard let query else {
+            throw ProbeError.invalidArgument("--get-lighting or --get-rgb is required")
         }
         guard let serial, !serial.isEmpty else {
             throw ProbeError.invalidArgument("--serial is required")
         }
 
-        return Options(serial: serial)
+        if query == .rgb, serial != "592B14678182" {
+            throw ProbeError.invalidArgument("RGB getter is restricted to serial 592B14678182")
+        }
+        return Options(serial: serial, query: query)
     }
 
     static func printUsage() {
@@ -56,10 +77,13 @@ private struct Options {
             """
             Usage:
               overcue-led-probe --get-lighting --serial <SERIAL>
+              overcue-led-probe --get-rgb --serial 592B14678182
 
-            Sends exactly one known SDTech Option lighting-settings query to one SIDE-KEYBOARD:
+            Sends exactly one selected, known SDTech Option getter to one SIDE-KEYBOARD:
               VID 0x0816 / PID 0x246E / Usage Page 0xFF00 / Usage 0x0002
-              Output Report ID 0, payload: 06 0A followed by 62 zero bytes
+              Output Report ID 0:
+                --get-lighting: 06 0A followed by 62 zero bytes
+                --get-rgb: 06 13 3A followed by 61 zero bytes (first chunk only)
 
             Safety properties:
               - Serial is mandatory.
@@ -94,9 +118,9 @@ private enum ProbeError: Error, CustomStringConvertible {
         case .reportCapabilityMismatch:
             return "Target interface does not expose the expected 64-byte Output Report ID 0. Nothing was sent."
         case let .reportWriteFailed(result):
-            return "Lighting query write failed (IOReturn \(formatIOReturn(result)))."
+            return "Getter write failed (IOReturn \(formatIOReturn(result)))."
         case .responseTimeout:
-            return "The lighting query was sent once, but no matching input response arrived before timeout."
+            return "The getter was sent once, but no matching input response arrived before timeout."
         }
     }
 }
@@ -107,6 +131,9 @@ private final class LightingQueryProbe {
     private let timestampFormatter = ISO8601DateFormatter()
     private var didFindTarget = false
     private var didSend = false
+    private var didAttemptSend = false
+    private var target: IOHIDDevice?
+    private var sendStartedAt: UInt64?
     private var didReceiveResponse = false
     private var failure: ProbeError?
 
@@ -147,9 +174,9 @@ private final class LightingQueryProbe {
             throw ProbeError.managerOpenFailed(result)
         }
 
-        log("One-shot lighting query armed for serial=\(options.serial).")
+        log("One-shot \(options.query.rawValue) query armed for serial=\(options.serial).")
         log("Fixed target: VID=0x0816 PID=0x246E page=0xFF00 usage=0x0002 reportID=0 length=64.")
-        log("Payload is fixed to [06 0A] + 62 zero bytes; automatic retry is disabled.")
+        log("Selected getter has a fixed payload; automatic retry is disabled.")
 
         let deadline = Date().addingTimeInterval(2.0)
         while Date() < deadline, failure == nil, !didReceiveResponse {
@@ -171,9 +198,10 @@ private final class LightingQueryProbe {
     }
 
     fileprivate func didMatch(device: IOHIDDevice, result: IOReturn) {
-        guard result == kIOReturnSuccess, failure == nil, !didSend else { return }
+        guard result == kIOReturnSuccess, failure == nil, !didAttemptSend else { return }
         guard propertyString(device, kIOHIDSerialNumberKey) == options.serial else { return }
         guard propertyString(device, kIOHIDProductKey) == TargetDevice.productName else { return }
+        guard propertyString(device, kIOHIDManufacturerKey) == "SDINNOVATION" else { return }
         guard propertyInt(device, kIOHIDVendorIDKey) == TargetDevice.vendorID,
               propertyInt(device, kIOHIDProductIDKey) == TargetDevice.productID,
               propertyInt(device, kIOHIDPrimaryUsagePageKey) == TargetDevice.usagePage,
@@ -184,14 +212,18 @@ private final class LightingQueryProbe {
         didFindTarget = true
         log("Matched exact SIDE-KEYBOARD Vendor Defined interface for serial=\(options.serial).")
 
-        guard outputReportLength(device: device, reportID: 0) >= TargetDevice.reportLength else {
+        guard outputReportLength(device: device, reportID: 0) == TargetDevice.reportLength else {
             failure = .reportCapabilityMismatch
             return
         }
 
-        var payload = [UInt8](repeating: 0, count: TargetDevice.reportLength)
-        payload[0] = 0x06
-        payload[1] = 0x0A
+        let payload = options.query.payload
+
+        target = device
+        didAttemptSend = true
+        log("Verified descriptor: Output Report ID 0 length=64; manufacturer=SDINNOVATION product=SIDE-KEYBOARD serial=\(options.serial).")
+        log("SEND ATTEMPT 1 bytes=[\(payload.map { String(format: "%02X", $0) }.joined(separator: " "))]")
+        sendStartedAt = DispatchTime.now().uptimeNanoseconds
 
         let writeResult = payload.withUnsafeBufferPointer { buffer -> IOReturn in
             guard let baseAddress = buffer.baseAddress else {
@@ -206,13 +238,15 @@ private final class LightingQueryProbe {
             )
         }
 
+        log("IOHIDDeviceSetReport returned \(formatIOReturn(writeResult)).")
+
         guard writeResult == kIOReturnSuccess else {
             failure = .reportWriteFailed(writeResult)
             return
         }
 
         didSend = true
-        log("SENT ONCE reportID=0 length=64 bytes=[06 0A 00 ... 00].")
+        log("SENT ONCE reportID=0 length=64 query=\(options.query.rawValue).")
     }
 
     fileprivate func didReceiveReport(
@@ -233,7 +267,9 @@ private final class LightingQueryProbe {
         }
 
         let device = Unmanaged<IOHIDDevice>.fromOpaque(sender).takeUnretainedValue()
-        guard propertyString(device, kIOHIDSerialNumberKey) == options.serial,
+        guard let target, CFEqual(device, target),
+              propertyString(device, kIOHIDProductKey) == TargetDevice.productName,
+              propertyString(device, kIOHIDSerialNumberKey) == options.serial,
               propertyInt(device, kIOHIDVendorIDKey) == TargetDevice.vendorID,
               propertyInt(device, kIOHIDProductIDKey) == TargetDevice.productID,
               propertyInt(device, kIOHIDPrimaryUsagePageKey) == TargetDevice.usagePage,
@@ -244,6 +280,10 @@ private final class LightingQueryProbe {
         let length = max(0, Int(reportLength))
         let bytes = Array(UnsafeBufferPointer(start: report, count: length))
         let hex = bytes.map { String(format: "%02X", $0) }.joined(separator: " ")
+        if let sendStartedAt {
+            let latency = Double(DispatchTime.now().uptimeNanoseconds - sendStartedAt) / 1_000_000
+            log(String(format: "RESPONSE latencyFromSetReportStartMs=%.3f", latency))
+        }
         log("RESPONSE reportID=0 length=\(length) bytes=[\(hex)]")
 
         if bytes.count >= 16 {
@@ -260,23 +300,55 @@ private final class LightingQueryProbe {
     }
 }
 
-private func outputReportLength(device: IOHIDDevice, reportID: UInt32) -> Int {
-    guard let elements = IOHIDDeviceCopyMatchingElements(
-        device,
-        nil,
-        IOOptionBits(kIOHIDOptionsTypeNone)
-    ) as? [IOHIDElement] else {
-        return 0
-    }
+func outputReportLength(device: IOHIDDevice, reportID: UInt32) -> Int {
+    // IOHID elements expand arrays into overlapping entries. Sum descriptor
+    // Output items (including padding), not the expanded element sizes.
+    guard let data = property(device, "ReportDescriptor") as? Data else { return 0 }
+    return outputReportLength(descriptor: Array(data), reportID: reportID)
+}
 
-    let totalBits = elements.reduce(into: 0) { bits, element in
-        guard IOHIDElementGetType(element) == kIOHIDElementTypeOutput,
-              UInt32(IOHIDElementGetReportID(element)) == reportID else {
-            return
+private func outputReportLength(descriptor: [UInt8], reportID: UInt32) -> Int {
+    var size = 0
+    var count = 0
+    var currentID: UInt32 = 0
+    var stack: [(Int, Int, UInt32)] = []
+    var totalBits = 0
+    var index = 0
+    while index < descriptor.count {
+        let prefix = descriptor[index]
+        index += 1
+        guard prefix != 0xFE else { return 0 } // Unsupported long item: fail closed.
+        let length = [0, 1, 2, 4][Int(prefix & 3)]
+        guard index + length <= descriptor.count else { return 0 }
+        var value: UInt32 = 0
+        for byte in 0..<length {
+            value |= UInt32(descriptor[index + byte]) << (8 * byte)
         }
-        bits += Int(IOHIDElementGetReportSize(element)) * Int(IOHIDElementGetReportCount(element))
+        index += length
+        let type = (prefix >> 2) & 3
+        let tag = prefix >> 4
+        if type == 1 {
+            switch tag {
+            case 7: size = Int(value)
+            case 8:
+                guard value > 0, value <= 255 else { return 0 }
+                currentID = value
+            case 9: count = Int(value)
+            case 10: stack.append((size, count, currentID))
+            case 11:
+                guard let state = stack.popLast() else { return 0 }
+                (size, count, currentID) = state
+            default: break
+            }
+        } else if type == 0, tag == 9, currentID == reportID {
+            // Bound arithmetic for this fixed 64-byte query target.
+            guard size > 0, count > 0, size <= 512, count <= 512 else { return 0 }
+            totalBits += size * count
+            guard totalBits <= 512 else { return 0 }
+        }
     }
-    return (totalBits + 7) / 8
+    guard stack.isEmpty, totalBits % 8 == 0 else { return 0 }
+    return totalBits / 8
 }
 
 private func deviceMatched(
@@ -325,6 +397,36 @@ private func propertyInt(_ device: IOHIDDevice, _ key: String) -> Int {
 
 private func formatIOReturn(_ result: IOReturn) -> String {
     String(format: "0x%08X", UInt32(bitPattern: result))
+}
+
+if CommandLine.arguments == [CommandLine.arguments[0], "--walk-key-indices"] {
+    exit(KeyIndexWalk.run() ? EXIT_SUCCESS : EXIT_FAILURE)
+}
+
+// Getter-only snapshot of the three known devices; first RGB chunk only.
+if CommandLine.arguments == [CommandLine.arguments[0], "--read-three-lighting-rgb"] {
+    var success = true
+    for (serial, _) in ThreeSingleLights.targets {
+        let captured = LiveRGBTest(serial: serial).runSession { send in
+            let light = send("read-lighting", LiveRGBPlan.lightingGet)
+            let rgb = send("read-rgb", LiveRGBPlan.rgbGet)
+            return light != nil && rgb != nil
+        }
+        if !captured { success = false }
+    }
+    exit(success ? EXIT_SUCCESS : EXIT_FAILURE)
+}
+
+if CommandLine.arguments == [CommandLine.arguments[0], "--three-single-lights"] {
+    exit(ThreeSingleLights.run() ? EXIT_SUCCESS : EXIT_FAILURE)
+}
+
+if CommandLine.arguments.contains("--live-rgb-roundtrip") {
+    guard CommandLine.arguments == [CommandLine.arguments[0], "--live-rgb-roundtrip", "--serial", "592B14678182"] else {
+        fputs("Live test accepts only --live-rgb-roundtrip --serial 592B14678182\n", stderr)
+        exit(EXIT_FAILURE)
+    }
+    exit(LiveRGBTest().run() ? EXIT_SUCCESS : EXIT_FAILURE)
 }
 
 do {

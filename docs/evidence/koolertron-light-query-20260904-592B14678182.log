@@ -1,0 +1,15 @@
+[0/1] Planning build
+Building for debugging...
+[0/3] Write swift-version--58304C5D6DBC2206.txt
+Build of product 'overcue-led-probe' complete! (0.15s)
+[2026-09-04T03:48:36Z] One-shot lighting query armed for serial=592B14678182.
+[2026-09-04T03:48:36Z] Fixed target: VID=0x0816 PID=0x246E page=0xFF00 usage=0x0002 reportID=0 length=64.
+[2026-09-04T03:48:36Z] Payload is fixed to [06 0A] + 62 zero bytes; automatic retry is disabled.
+[2026-09-04T03:48:36Z] Matched exact SIDE-KEYBOARD Vendor Defined interface for serial=592B14678182.
+[2026-09-04T03:48:36Z] Verified descriptor: Output Report ID 0 length=64; product=SIDE-KEYBOARD serial=592B14678182.
+[2026-09-04T03:48:36Z] SEND ATTEMPT 1 bytes=[06 0A 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00]
+[2026-09-04T03:48:36Z] IOHIDDeviceSetReport returned 0x00000000.
+[2026-09-04T03:48:36Z] SENT ONCE reportID=0 length=64 bytes=[06 0A 00 ... 00].
+[2026-09-04T03:48:36Z] RESPONSE latencyFromSetReportStartMs=2.659
+[2026-09-04T03:48:36Z] RESPONSE reportID=0 length=64 bytes=[AA 0A 0B 00 00 01 00 04 04 02 00 00 07 FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00]
+[2026-09-04T03:48:36Z] RESPONSE offsets[5...15]=[01 00 04 04 02 00 00 07 FF FF FF]
