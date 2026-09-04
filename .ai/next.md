@@ -21,6 +21,14 @@ AALはglobal CLI / localとも`d807f62`へ更新済み。projectは現在仕様�
 - Generic：複数SIDEのbinding・再接続・同Preset別device割当・native抑止・全7入力のAction動作。過去の一部操作成功を現行全入力の確認済みに拡張しない。
 - 詳細な未完了チェックリストと当時の実機観測は`git show 777f9be:.ai/next.md`。現在のbindingはconfigをread-only確認し、古いSerial→Deck対応表を固定値として使わない。
 
+## 並行実験：Koolertron LED
+
+- branch `codex/koolertron-led-probe`で、本体runtimeから隔離してLED protocol探索を行う。
+- `overcue-probe --list` / `--describe`でVID/PID・interface metadata・HID element/report capabilityをread-only採取する。Output/Feature reportは送らない。
+- 最初の実機ゲートはKoolertronを接続した状態で`swift run overcue-probe --list --all`から対象VID/PIDを特定し、その後`swift run overcue-probe --describe --vid <VID> --pid <PID>`を保存すること。
+- Output/Feature要素の存在だけではLED protocol確定とみなさない。実機証拠が取れるまでdriver / MIDI OUT / state manager / GUI/configへ接続しない。
+- 方針の正本はDecision `20260904T113800-koolertron-led-probe-isolated`。
+
 ## 追加実装は別段階
 
 - Generic入力のmain-thread依存と初回XML同期読込は残る。background移動はteardown/state ownership、preloadはsnapshot/更新検知を設計してから。8ms抑止待機を実測なしに短縮しない。
@@ -29,4 +37,4 @@ AALはglobal CLI / localとも`d807f62`へ更新済み。projectは現在仕様�
 
 ## 次の完了判定
 
-コード変更時はproject記載の全macOS検証とAAL更新を行う。実機確認済みと自動テストを区別し、設定やdevice identityを根拠なしに変更しない。今回のcontext軽量化は文書のみで、アプリ挙動は変更しない。
+コード変更時はproject記載の全macOS検証とAAL更新を行う。実機確認済みと自動テストを区別し、設定やdevice identityを根拠なしに変更しない。Koolertron LED branchではread-only inspection段階をruntime実装済みと扱わない。
