@@ -24,10 +24,12 @@ AALはglobal CLI / localとも`d807f62`へ更新済み。projectは現在仕様�
 ## 並行実験：Koolertron LED
 
 - branch `codex/koolertron-led-probe`で、本体runtimeから隔離してLED protocol探索を行う。
-- `overcue-probe --list` / `--describe`でVID/PID・interface metadata・HID element/report capabilityをread-only採取する。Output/Feature reportは送らない。
-- 最初の実機ゲートはKoolertronを接続した状態で`swift run overcue-probe --list --all`から対象VID/PIDを特定し、その後`swift run overcue-probe --describe --vid <VID> --pid <PID>`を保存すること。
-- Output/Feature要素の存在だけではLED protocol確定とみなさない。実機証拠が取れるまでdriver / MIDI OUT / state manager / GUI/configへ接続しない。
-- 方針の正本はDecision `20260904T113800-koolertron-led-probe-isolated`。
+- read-only inspectionで、対象は `SDINNOVATION / SIDE-KEYBOARD`、VID `0x0816`、PID `0x246E`、Vendor Defined interface `0xFF00 / 0x0002`、Report ID 0、64-byte Input/Outputであることを実機確認済み。3個体にSerialあり。
+- SDTech Option 1.0.3の静的解析で、照明設定取得 `06 0A`、全体照明設定 `06 0B`、単一キーRGB `06 14`、RGB配列書込 `06 12`、RGB配列取得 `06 13`、mode前段 `06 16` のpacket builderを確認。実firmware上の発光・永続化挙動は未確認。
+- 次のlive gateは専用target `overcue-led-probe`のみを使う。`--serial`必須、VID/PID/Usage/Product固定、64-byte Output capability必須で、`06 0A` + zero paddingを1回だけ送信しInput responseを保存する。自動再送・任意writeは実装しない。
+- `06 0A`成功はcommand互換性の確認に限定する。RGB setterをruntime同期へ使う前に、RAM/flash/profile保持、key index、送信間隔、response/error semanticsを別途確認する。
+- driver / MIDI OUT / state manager / GUI/configへはまだ接続しない。
+- 方針の正本はDecision `20260904T120000-koolertron-lighting-query-gate`。初期隔離方針は`20260904T113800-koolertron-led-probe-isolated`。
 
 ## 追加実装は別段階
 
@@ -37,4 +39,4 @@ AALはglobal CLI / localとも`d807f62`へ更新済み。projectは現在仕様�
 
 ## 次の完了判定
 
-コード変更時はproject記載の全macOS検証とAAL更新を行う。実機確認済みと自動テストを区別し、設定やdevice identityを根拠なしに変更しない。Koolertron LED branchではread-only inspection段階をruntime実装済みと扱わない。
+コード変更時はproject記載の全macOS検証とAAL更新を行う。実機確認済みと自動テストを区別し、設定やdevice identityを根拠なしに変更しない。Koolertron LED branchではone-shot lighting queryまでをprotocol compatibility gateとし、RGB runtime実装済みとは扱わない。
