@@ -1,7 +1,8 @@
 # Gate binary mode switching before runtime integration
 
 - Change ID: `20260905T192805-cc215e`
-- 状態: 採用
+- 状態: 置換済み
+- Superseded by: `20260905T195944-6b3dfa`
 
 
 ## 背景

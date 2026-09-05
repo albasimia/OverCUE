@@ -81,3 +81,17 @@ PAUSE -> mode 2, color=1, Deck-color HSV, all keys breathe
 ```
 
 Mode changes and color settings may be nonvolatile. Storage medium and write endurance remain unknown; this result does not authorize high-frequency runtime writes.
+
+## Power-cycle retention
+
+At `10:57:38Z`, the same Serial was switched from mode 5 to its already-saved mode 2 single-red config. The response-derived transition and immediate getter both returned:
+
+```text
+offsets 5...15: 01 00 02 04 02 00 01 FF 00 FF FF
+```
+
+The user unplugged only this device, waited approximately ten seconds, reconnected it without opening the official app or operating OverCUE, and visually confirmed that all keys immediately resumed red breathing.
+
+One read-only `06 0A` at `10:58:40Z` returned the same 11-byte config exactly. One read-only `06 13` at `10:58:53Z` also returned the same RGB chunk as before power loss: key0/key1 black, key2 `7FFF08`, key3 `FF0000`.
+
+This is strong device-side evidence that the selected mode and its global color parameters survive full USB power loss. It does not identify flash versus EEPROM or establish endurance, but it makes frequent Play/Pause-driven `06 0B` mode writes unsafe to adopt without further evidence. Final device state is mode 2, all-key single-red breathing.
