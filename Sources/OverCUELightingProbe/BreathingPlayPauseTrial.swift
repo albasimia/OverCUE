@@ -99,4 +99,77 @@ enum BreathingPlayPauseTrial {
         print("BINARY \(name) mode=\(mode) accepted; visual gate pending")
         return true
     }
+
+    static func setOfficialMode(_ mode: UInt8,
+                                send: (String,[UInt8])->[UInt8]?) -> Bool {
+        guard mode <= 5 else {
+            print("STOP mode \(mode) is not an official SIDE-KEYBOARD mode")
+            return false
+        }
+        guard let beforeLight = send("official-mode\(mode)-before-light", LiveRGBPlan.lightingGet),
+              let beforeRGB = send("official-mode\(mode)-before-rgb", LiveRGBPlan.rgbGet),
+              rgb(beforeRGB) != nil else {
+            print("STOP invalid preflight; no mutation sent")
+            return false
+        }
+        let prepare = LiveRGBPlan.padded([6,22,0,0,0,1,0,mode])
+        guard let response = send("official-mode\(mode)-prepare", prepare),
+              let set = ThreeSingleLights.modePacket(response, mode) else {
+            print("STOP invalid mode\(mode) 06 16 response; no guessed 06 0B")
+            return false
+        }
+        print("OFFICIAL mode=\(mode) prepare64=[\(hex(response))]")
+        print("OFFICIAL mode=\(mode) derived-set64=[\(hex(set))]")
+        guard send("official-mode\(mode)-set", set) != nil,
+              let afterLight = send("official-mode\(mode)-after-light", LiveRGBPlan.lightingGet),
+              let afterRGB = send("official-mode\(mode)-after-rgb", LiveRGBPlan.rgbGet),
+              rgb(afterRGB) != nil else {
+            print("STOP mode\(mode) set/readback failed; no retry")
+            return false
+        }
+        print("OFFICIAL mode=\(mode) before-light64=[\(hex(beforeLight))]")
+        print("OFFICIAL mode=\(mode) before-rgb64=[\(hex(beforeRGB))]")
+        print("OFFICIAL mode=\(mode) after-light64=[\(hex(afterLight))]")
+        print("OFFICIAL mode=\(mode) after-rgb64=[\(hex(afterRGB))]")
+        guard afterLight[7] == mode else {
+            print("STOP mode\(mode) readback mismatch; no retry")
+            return false
+        }
+        print("OFFICIAL mode=\(mode) accepted; visual gate pending")
+        return true
+    }
+
+    static func setSingleRed(_ mode: UInt8,
+                             send: (String,[UInt8])->[UInt8]?) -> Bool {
+        guard (1...4).contains(mode) else {
+            print("STOP mode \(mode) does not expose the official single-color control")
+            return false
+        }
+        guard let before = send("mode\(mode)-single-red-before", LiveRGBPlan.lightingGet),
+              before.count == 64, before[0] == 0xAA, before[1] == 0x0A,
+              before[2] == 0x0B, before[7] == mode else {
+            print("STOP mode\(mode) preflight mismatch; no mutation sent")
+            return false
+        }
+        // Exact SDTech setLightConfig semantics for the UI's single-color checkbox:
+        // preserve type/mode/brightness/speed/direction, set color=1,
+        // clear the UI's reserved singleColorIndex byte, and set HSV red.
+        var packet = LiveRGBPlan.padded([6, 11, 11, 0, 0] + before[5...15])
+        packet[11] = 1
+        packet[12] = 0
+        packet[13] = 0
+        packet[14] = 255
+        packet[15] = 255
+        print("MODE\(mode) single-red set64=[\(hex(packet))]")
+        guard send("mode\(mode)-single-red-set", packet) != nil,
+              let after = send("mode\(mode)-single-red-after", LiveRGBPlan.lightingGet),
+              after.count == 64, after[7] == mode, after[11] == 1,
+              after[13] == 0, after[14] == 255, after[15] == 255 else {
+            print("STOP mode\(mode) single-red set/readback failed; no retry")
+            return false
+        }
+        print("MODE\(mode) single-red after64=[\(hex(after))]")
+        print("MODE\(mode) single-red accepted; visual gate pending")
+        return true
+    }
 }

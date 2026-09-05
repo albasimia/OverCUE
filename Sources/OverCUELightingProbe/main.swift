@@ -433,6 +433,32 @@ if CommandLine.arguments == [CommandLine.arguments[0], "--binary-play-pause-play
     } ? EXIT_SUCCESS : EXIT_FAILURE)
 }
 
+let officialModeCommands: [String: UInt8] = [
+    "--official-mode-0": 0,
+    "--official-mode-1": 1,
+    "--official-mode-2": 2,
+    "--official-mode-3": 3,
+    "--official-mode-4": 4,
+    "--official-mode-5": 5,
+]
+if CommandLine.arguments.count == 2,
+   let mode = officialModeCommands[CommandLine.arguments[1]] {
+    exit(LiveRGBTest(serial: BreathingPlayPauseTrial.serial).runSession {
+        BreathingPlayPauseTrial.setOfficialMode(mode, send: $0)
+    } ? EXIT_SUCCESS : EXIT_FAILURE)
+}
+
+let officialSingleRedCommands: [String: UInt8] = [
+    "--official-mode2-single-red": 2,
+    "--official-mode3-single-red": 3,
+]
+if CommandLine.arguments.count == 2,
+   let mode = officialSingleRedCommands[CommandLine.arguments[1]] {
+    exit(LiveRGBTest(serial: BreathingPlayPauseTrial.serial).runSession {
+        BreathingPlayPauseTrial.setSingleRed(mode, send: $0)
+    } ? EXIT_SUCCESS : EXIT_FAILURE)
+}
+
 // Getter-only snapshot of the three known devices; first RGB chunk only.
 if CommandLine.arguments == [CommandLine.arguments[0], "--read-three-lighting-rgb"] {
     var success = true

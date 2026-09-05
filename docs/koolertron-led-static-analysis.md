@@ -424,3 +424,9 @@ The user reports that the LED colors did not change after unplugging and reconne
 - The report does not specify unplug duration, per-Serial test coverage, or raw post-reconnect values. Do not promote it to verified 57-byte equality or independently verified power-cycle tests on each of the three units.
 
 This observation does not establish suitability for high-frequency LED writes.
+
+## 2026-09-05: official mode field validation
+
+Static call-site review plus a one-device live test established that the target layout's modes 1...4 use a global palette/single-HSV selector, not the Custom per-key RGB table. The official UI checkbox maps to config offset 11 (`0` palette, `1` HSV at offsets 13...15). Mode 3 lights the pressed key but uses the global color source; mode 2 can breathe all keys in a fixed HSV color. No effect target-key or key-mask field was found. Offset 12 is not a direct target mask: the official setter transmits zero and the device read back `FF` after selecting red.
+
+Full response comparison and user visual observations are recorded in `docs/evidence/koolertron-official-mode-fields-20260905.md`. The device was returned to mode 5. No runtime integration decision is made by this evidence update.
