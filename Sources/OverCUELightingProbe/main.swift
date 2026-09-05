@@ -473,6 +473,10 @@ if CommandLine.arguments == [CommandLine.arguments[0], "--read-three-lighting-rg
     exit(success ? EXIT_SUCCESS : EXIT_FAILURE)
 }
 
+if CommandLine.arguments == [CommandLine.arguments[0], "--set-three-deck-steady-colors"] {
+    exit(ThreeDeckSteadyColors.run() ? EXIT_SUCCESS : EXIT_FAILURE)
+}
+
 if CommandLine.arguments == [CommandLine.arguments[0], "--three-single-lights"] {
     exit(ThreeSingleLights.run() ? EXIT_SUCCESS : EXIT_FAILURE)
 }
