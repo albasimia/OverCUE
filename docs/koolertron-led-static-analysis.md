@@ -430,3 +430,23 @@ This observation does not establish suitability for high-frequency LED writes.
 Static call-site review plus a one-device live test established that the target layout's modes 1...4 use a global palette/single-HSV selector, not the Custom per-key RGB table. The official UI checkbox maps to config offset 11 (`0` palette, `1` HSV at offsets 13...15). Mode 3 lights the pressed key but uses the global color source; mode 2 can breathe all keys in a fixed HSV color. No effect target-key or key-mask field was found. Offset 12 is not a direct target mask: the official setter transmits zero and the device read back `FF` after selecting red.
 
 Full response comparison and user visual observations are recorded in `docs/evidence/koolertron-official-mode-fields-20260905.md`. The device was returned to mode 5. No runtime integration decision is made by this evidence update.
+
+## 2026-09-05: RAM-only path audit
+
+The old and active application generations were both inspected for a separate
+preview/live-lighting transport. Their nominal live-light methods are log-only
+or empty stubs, and every actual lighting write still reaches the known WebHID
+vendor Output Report setters. A recursive bundle scan found no WebUSB,
+WebSerial, or Feature Report alternative. The live HID descriptors likewise
+expose the vendor-defined 64-byte Output Report as the only relevant
+host-to-device path.
+
+The bundled v101/v105 firmware images differ substantially, but neither is
+proven to be the connected device image and the `951` instruction set/command
+dispatch could not be established from authoritative evidence. No undocumented
+packet was derived or sent. See
+`docs/evidence/koolertron-ram-only-path-audit-20260905.md`.
+
+Result: the official client contains no observable RAM-only lighting path. This
+does not prove that firmware lacks an undocumented command, so the existing
+runtime-integration gate remains unchanged.
