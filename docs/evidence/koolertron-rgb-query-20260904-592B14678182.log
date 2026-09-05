@@ -1,0 +1,20 @@
+[0/1] Planning build
+Building for debugging...
+[0/4] Write swift-version--58304C5D6DBC2206.txt
+[2/6] Compiling OverCUELightingProbe main.swift
+[3/6] Emitting module OverCUELightingProbe
+[3/6] Write Objects.LinkFileList
+[4/6] Linking overcue-led-probe
+[5/6] Applying overcue-led-probe
+Build of product 'overcue-led-probe' complete! (2.24s)
+[2026-09-04T04:59:44Z] One-shot --get-rgb query armed for serial=592B14678182.
+[2026-09-04T04:59:44Z] Fixed target: VID=0x0816 PID=0x246E page=0xFF00 usage=0x0002 reportID=0 length=64.
+[2026-09-04T04:59:44Z] Selected getter has a fixed payload; automatic retry is disabled.
+[2026-09-04T04:59:44Z] Matched exact SIDE-KEYBOARD Vendor Defined interface for serial=592B14678182.
+[2026-09-04T04:59:44Z] Verified descriptor: Output Report ID 0 length=64; manufacturer=SDINNOVATION product=SIDE-KEYBOARD serial=592B14678182.
+[2026-09-04T04:59:44Z] SEND ATTEMPT 1 bytes=[06 13 3A 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00]
+[2026-09-04T04:59:44Z] IOHIDDeviceSetReport returned 0x00000000.
+[2026-09-04T04:59:44Z] SENT ONCE reportID=0 length=64 query=--get-rgb.
+[2026-09-04T04:59:44Z] RESPONSE latencyFromSetReportStartMs=2.709
+[2026-09-04T04:59:44Z] RESPONSE reportID=0 length=64 bytes=[AA 13 3A 00 00 00 00 00 00 FF 00 00 FF 00 00 FF 00 00 FF 00 00 FF 00 00 FF 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00]
+[2026-09-04T04:59:44Z] RESPONSE offsets[5...15]=[00 00 00 00 FF 00 00 FF 00 00 FF]
