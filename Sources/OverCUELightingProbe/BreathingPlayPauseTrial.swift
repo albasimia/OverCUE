@@ -85,4 +85,18 @@ enum BreathingPlayPauseTrial {
         print("ROLLBACK PASS pre/post captured 64-byte lighting and RGB ranges match")
         return true
     }
+
+    static func setBinaryMode(_ mode: UInt8, name: String,
+                              send: (String,[UInt8])->[UInt8]?) -> Bool {
+        precondition(mode == 0 || mode == 5)
+        let prepare = LiveRGBPlan.padded([6,22,0,0,0,1,0,mode])
+        guard let set = ThreeSingleLights.modePacket(send("binary-\(name)-prepare", prepare), mode) else {
+            print("STOP invalid binary \(name) 06 16 response; no guessed 06 0B"); return false
+        }
+        guard send("binary-\(name)-set", set) != nil else {
+            print("STOP binary \(name) 06 0B failed; no retry"); return false
+        }
+        print("BINARY \(name) mode=\(mode) accepted; visual gate pending")
+        return true
+    }
 }

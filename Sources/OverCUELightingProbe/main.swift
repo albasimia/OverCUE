@@ -421,6 +421,18 @@ if CommandLine.arguments == [CommandLine.arguments[0], "--breathing-play-pause-r
     } ? EXIT_SUCCESS : EXIT_FAILURE)
 }
 
+if CommandLine.arguments == [CommandLine.arguments[0], "--binary-play-pause-pause"] {
+    exit(LiveRGBTest(serial: BreathingPlayPauseTrial.serial).runSession {
+        BreathingPlayPauseTrial.setBinaryMode(0, name: "pause", send: $0)
+    } ? EXIT_SUCCESS : EXIT_FAILURE)
+}
+
+if CommandLine.arguments == [CommandLine.arguments[0], "--binary-play-pause-play"] {
+    exit(LiveRGBTest(serial: BreathingPlayPauseTrial.serial).runSession {
+        BreathingPlayPauseTrial.setBinaryMode(5, name: "play", send: $0)
+    } ? EXIT_SUCCESS : EXIT_FAILURE)
+}
+
 // Getter-only snapshot of the three known devices; first RGB chunk only.
 if CommandLine.arguments == [CommandLine.arguments[0], "--read-three-lighting-rgb"] {
     var success = true
