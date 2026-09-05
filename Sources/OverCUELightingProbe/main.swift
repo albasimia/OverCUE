@@ -403,6 +403,24 @@ if CommandLine.arguments == [CommandLine.arguments[0], "--walk-key-indices"] {
     exit(KeyIndexWalk.run() ? EXIT_SUCCESS : EXIT_FAILURE)
 }
 
+if CommandLine.arguments == [CommandLine.arguments[0], "--breathing-play-pause-phase-a"] {
+    exit(LiveRGBTest(serial: BreathingPlayPauseTrial.serial).runSession {
+        BreathingPlayPauseTrial.run(send: $0)
+    } ? EXIT_SUCCESS : EXIT_FAILURE)
+}
+
+if CommandLine.arguments == [CommandLine.arguments[0], "--breathing-play-pause-phase-b"] {
+    exit(LiveRGBTest(serial: BreathingPlayPauseTrial.serial).runSession {
+        BreathingPlayPauseTrial.runPhaseB(send: $0)
+    } ? EXIT_SUCCESS : EXIT_FAILURE)
+}
+
+if CommandLine.arguments == [CommandLine.arguments[0], "--breathing-play-pause-rollback"] {
+    exit(LiveRGBTest(serial: BreathingPlayPauseTrial.serial).runSession {
+        BreathingPlayPauseTrial.rollback(send: $0)
+    } ? EXIT_SUCCESS : EXIT_FAILURE)
+}
+
 // Getter-only snapshot of the three known devices; first RGB chunk only.
 if CommandLine.arguments == [CommandLine.arguments[0], "--read-three-lighting-rgb"] {
     var success = true
