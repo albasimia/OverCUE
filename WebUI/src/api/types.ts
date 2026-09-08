@@ -40,6 +40,34 @@ export interface OverCUESnapshot {
   runtime: RuntimeStatus
 }
 
+export interface ShortcutAssignment {
+  functionName: string
+  shortcut: string | null
+}
+
+export interface ShortcutKeyState {
+  id: string
+  assignment: ShortcutAssignment | null
+  pressed: boolean
+}
+
+export interface ShortcutDialState {
+  direction: 'counterclockwise' | 'clockwise'
+  assignment: ShortcutAssignment | null
+  active: boolean
+}
+
+export interface ShortcutPanelState {
+  deviceKind: 'ack05'
+  deviceName: string
+  rotationQuarterTurns: number
+  presetID: string | null
+  presetName: string | null
+  presetOrder: number | null
+  keys: ShortcutKeyState[]
+  dial: ShortcutDialState[]
+}
+
 export interface ReorderRequest {
   ids: string[]
 }
