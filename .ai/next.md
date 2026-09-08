@@ -6,6 +6,14 @@
 
 AALはglobal CLI / localとも`d807f62`へ更新済み。projectは現在仕様、nextは未完了作業に限定し、詳細記録はhistory/decision/specを必要時だけ読む。
 
+## Web UI migration：`codex/web-ui`
+
+2026-09-08、本番DJ運用でOverCUE 3Deck構成が問題なく動作したユーザー実機結果を受け、次の主要課題を設定UIへ移行。`codex/performance-4deck`から`codex/web-ui`を作成し、Vue 3 + TypeScript + Vite + Vue Router + Pinia、loopback Local API、Preset / Group Preset drag reorder、menu barのactive Group Preset表示までPhase 1を実装した。
+
+このchat環境ではrepo-local CLIを実行できないため、Phase 1の`npm run typecheck` / `npm run build` / `swift build` / `swift test` / `swift run overcue-checks` / `./Scripts/verify-macos.sh` / `aal doctor` / `git diff --check`は未実行。実装済みと検証済みを混同しない。
+
+次段階は、まず上記自動検証を通す。通過後にbuilt Web UIのstatic asset serving、Group Preset編集、Device管理、Shortcuts編集を順にWeb UIへ移植し、feature parity後にnative SwiftUI設定画面を縮退する。Preset reorderではCycle bindingを維持し、runtimeの現在Preset stable IDをnumeric group変更後も維持する不変条件を崩さない。詳細はDecision `20260908T091700-web-ui-architecture`。
+
 今回の自動検証：46 unit tests（4追加）/ 412 Core checks全件成功、debug/release Universal app/helper、ad-hoc codesign deep/strict成功。AAL doctor 0/0。テストはCore syntheticと実装配線の構造checkで、OS callback/UI Learnの実機成功を証明したものではない。
 
 ## 最優先：実機入力待ち
@@ -33,9 +41,9 @@ AALはglobal CLI / localとも`d807f62`へ更新済み。projectは現在仕様�
 - 2026-09-04、Serial `592B14678182`へ固定RGB getter `06 13 3A` + 61 zerosを1回だけ送信。64-byte `AA 13 3A ...`応答、2.709 ms、key0〜3は静的getter対応で`#00FF00`。key0のrollback payloadを`docs/koolertron-rgb-query-result.md`へ保存（未送信）。この許可分は実行済みで再送しない。第2chunkは未取得。mode移行/復帰の応答依存packetとsetter成功条件は未確定。
 - 2026-09-04 14:11 JST、Serial `592B14678182`の許可済み1往復live testを実施。pre getters完全一致→06 16/0BでCustom→key0 magenta→5秒→green→06 16/0Bでmode4→post getters。全10送信成功、pre/post照明・RGB chunkは64-byte完全一致。`docs/koolertron-live-roundtrip-result.md`参照。許可分は完了、再実行しない。物理発光は現地目視結果待ち、RAM/flashは未確定。
 - 2026-09-04 16:00 JST、明示承認後に3台を一度消灯しCustom mode5でkey0だけ点灯へ設定。592B14678182=青、2D3B07678182=緑、3F8701678182=赤。他18 RGB entriesは0。各台57-byte RGB/照明configの読み戻し一致。元config/RGB全量をdocs/evidence/koolertron-three-single-lights-baseline.jsonへ保存。docs/koolertron-three-single-lights.md参照。現在は潮汐mode4ではなくこの1キー点灯設定。実際の見え方と電源断保持は未確認。
-- 2026-09-04 user observation: LED colors retained after USB unplug/reconnect at home. Nonvolatile device storage is strongly suggested; medium, commit timing and 06 14-only persistence remain unknown. Per-Serial coverage and raw post-reconnect values were not provided. See docs/koolertron-three-single-lights.md. No HID sends during recording.
-- 2026-09-04 17:46 JST: read 06 0A / 06 13 chunk0 once per known Serial after reported USB reconnect. All3 mode5; key0 blue/green/red, remaining captured RGB zero. Both64-byte responses match setup logs on every device. See docs/koolertron-reconnect-read-result.md. Six getter sends only, no setters/retry. Storage medium/commit remain unknown.
-- 2026-09-04 17:50 JST: user-authorized finite key0->1->2->3 walk on all3 devices,5 seconds each, retained blue/green/red, restored key0. Every RGB chunk verified. Physical index mapping awaits user observation. See docs/koolertron-key-index-walk.md. No mode change or retry; do not repeat without request.
+- 2026-09-04 user observation: LED colors retained after USB unplug/reconnect at home. Nonvolatile device storage is strongly suggested; medium, commit timing and 06 14-only persistence remain unknown. Per-Serial coverage and raw post-reconnect values were not provided. See docs/koolertron-three-single-lights.md. No HID sends during recording。
+- 2026-09-04 17:46 JST: read 06 0A / 06 13 chunk0 once per known Serial after reported USB reconnect. All3 mode5; key0 blue/green/red, remaining captured RGB zero. Both64-byte responses match setup logs on every device. See docs/koolertron-reconnect-read-result.md. Six getter sends only, no setters/retry. Storage medium/commit remain unknown。
+- 2026-09-04 17:50 JST: user-authorized finite key0->1->2->3 walk on all3 devices,5 seconds each, retained blue/green/red, restored key0. Every RGB chunk verified. Physical index mapping awaits user observation. See docs/koolertron-key-index-walk.md. No mode change or retry; do not repeat without request。
 - 2026-09-05 18:31 JST: Serial `592B14678182`だけでkey3赤・他3key黒のCustom目視成功後、公式response-derived mode2を試験。全4keyが多色呼吸し、黒/per-key RGBを視覚上無視。速度は実用的だがSW4単独・Deck色維持のPlay/Pause表示には不採用。元mode1・key0青/他黒へrollbackし、06 0A/06 13の64-byte範囲はbaseline完全一致。retry/06 12/他Serialなし。`docs/evidence/koolertron-breathing-phase-a-20260905.md`参照。
 - 2026-09-05 19:23 JST: ユーザー承認後、同じ1台でPLAY=mode5/key3赤、PAUSE=mode0を有限1往復。目視でSW4赤のみ→全消灯→RGB再書込なしでSW4赤のみ復帰。最終06 0A/06 13もmode5・key3赤/他黒。binary表示は成立するが、06 16/0Bの揮発性/write wearはUnknown。runtime hot pathへ同期writeせず、重複抑止・直列化・永続性policy確定前に統合しない。現在deviceはPLAY状態。`docs/evidence/koolertron-binary-play-pause-20260905.md`参照。
 - 2026-09-05 19:50 JST: 同じ1台で公式mode/fieldを追加検証。mode3は押下キーを発光するがper-key RGBではなくglobal paletteを使用し、offset11=1 + HSV赤で全キーの押下色を赤に固定できた。mode2も同設定で全キーが赤のまま消灯まで呼吸。mode1〜5の06 16 configを比較し、effect対象key/mask fieldは公式UI/call siteに見つからず、offset12もmaskではない。最終mode5へ復帰、readback成功。開始時点ですでにkey2 RGBが`7FFF08`へ変わっており、本試験はRGB setterを送らず保持した。runtime採用は未決定。`docs/evidence/koolertron-official-mode-fields-20260905.md`参照。
@@ -53,8 +61,4 @@ AALはglobal CLI / localとも`d807f62`へ更新済み。projectは現在仕様�
 
 ## 次の完了判定
 
-<<<<<<< HEAD
-コード変更時はproject記載の全macOS検証とAAL更新を行う。実機確認済みと自動テストを区別し、設定やdevice identityを根拠なしに変更しない。Koolertron LED branchではone-shot lighting queryまでをprotocol compatibility gateとし、RGB runtime実装済みとは扱わない。
-=======
-コード変更時はproject記載の全macOS検証とAAL更新を行う。実機確認済みと自動テストを区別し、設定やdevice identityを根拠なしに変更しない。metadata失敗はmatch/config reload/restartで再試行し、入力内走査へ戻さない。
->>>>>>> origin/codex/performance-4deck
+コード変更時はproject記載の全macOS検証とAAL更新を行う。実機確認済みと自動テストを区別し、設定やdevice identityを根拠なしに変更しない。metadata失敗はmatch/config reload/restartで再試行し、入力内走査へ戻さない。Koolertron LED branchではone-shot lighting queryまでをprotocol compatibility gateとし、RGB runtime実装済みとは扱わない。
