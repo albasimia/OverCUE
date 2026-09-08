@@ -20,11 +20,18 @@ export interface GroupPresetSummary {
   assignments: GroupPresetAssignment[]
 }
 
+export interface DevicePresetOption {
+  id: string
+  name: string
+  order: number
+}
+
 export interface DeviceSummary {
   id: string
   name: string
   profileName: string
   connected: boolean
+  presets: DevicePresetOption[]
 }
 
 export interface RuntimeStatus {
@@ -70,4 +77,29 @@ export interface ShortcutPanelState {
 
 export interface ReorderRequest {
   ids: string[]
+}
+
+export interface GroupPresetIDRequest {
+  id: string
+}
+
+export interface GroupPresetNameRequest {
+  name: string
+}
+
+export interface GroupPresetRenameRequest {
+  id: string
+  name: string
+}
+
+export interface GroupPresetIncludeRequest {
+  groupPresetID: string
+  logicalDeviceID: string
+  included: boolean
+}
+
+export interface GroupPresetAssignmentRequest {
+  groupPresetID: string
+  logicalDeviceID: string
+  presetID: string
 }
