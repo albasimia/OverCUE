@@ -31,35 +31,30 @@ onMounted(loadSnapshot)
 
 <template>
   <div class="app-shell">
-    <header class="topbar">
+    <header class="application-header">
       <div class="brand">
-        <div class="brand-mark">OC</div>
-        <div>
-          <strong>OverCUE</strong>
-          <span>Controller Runtime</span>
-        </div>
+        <div class="brand-mark" aria-hidden="true">OC</div>
+        <strong>OverCUE</strong>
       </div>
-      <div class="runtime-pill" :data-status="runtime.status.bridgeStatus">
-        <span class="status-dot" />
-        {{ runtime.status.bridgeStatus }}
-      </div>
-    </header>
 
-    <div class="body-shell">
-      <nav class="sidebar" aria-label="Main navigation">
-        <RouterLink to="/">Dashboard</RouterLink>
-        <RouterLink to="/presets">Presets</RouterLink>
-        <RouterLink to="/group-presets">Group Presets</RouterLink>
+      <nav class="section-picker" aria-label="Main navigation">
+        <RouterLink to="/presets">Shortcuts</RouterLink>
         <RouterLink to="/devices">Devices</RouterLink>
+        <RouterLink to="/group-presets">Group Presets</RouterLink>
         <RouterLink to="/settings">Settings</RouterLink>
       </nav>
 
-      <main class="content">
-        <div v-if="loadError" class="connection-banner" role="status">
-          Local API is not connected yet: {{ loadError }}
-        </div>
-        <RouterView />
-      </main>
-    </div>
+      <div class="runtime-status" :data-status="runtime.status.bridgeStatus">
+        <span class="status-dot" />
+        <span>{{ runtime.status.bridgeStatus }}</span>
+      </div>
+    </header>
+
+    <main class="content-shell">
+      <div v-if="loadError" class="connection-banner" role="status">
+        Local API is not connected yet: {{ loadError }}
+      </div>
+      <RouterView />
+    </main>
   </div>
 </template>
