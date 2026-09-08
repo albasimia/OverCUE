@@ -16,15 +16,43 @@ OverCUEは本番DJ運用で3Deck構成まで実用確認でき、次の主要課
 - frontendはVue 3 + TypeScript + Vite + Vue Router + Piniaを採用する。
 - Piniaは状態共有の必要量だけでなく、Preset / Group Preset / Device / Runtime / Settingsの状態所在を明示するため最初から使用する。
 - Web UIは`config.json`を直接読み書きしない。Swift側がloopback-only Local APIを提供し、既存のFileStore / runtime coordinatorを経由して更新する。
-- Local APIは`127.0.0.1`だけにbindする。wildcard CORSを許可しない。write endpoint導入時は外部Webページからのlocalhost操作を防ぐorigin/session-token境界を同時に実装する。
+- Local APIは`127.0.0.1`だけにbindする。wildcard CORSを許可しない。write endpointは外部Webページからのlocalhost操作を防ぐorigin + startup-scoped session token境界を持つ。
 - SwiftUI設定画面はWeb UIがfeature parityに達するまで残す。runtime、Generic HID、Learn、Group Preset baselineのownershipはこの移行では変更しない。
-- macOS MenuBarExtraは最終的にruntime状態・active Group Preset・Web UIへの入口へ薄くする。Preset個別表示を主役にしない。
+- macOS MenuBarExtraはruntime状態・active Group Preset・Web UIへの入口へ薄くする。Preset個別表示を主役にしない。
 - Preset order / Group Preset orderは既存`order`をSSOTとして永続化する。表示側だけで並び替えを持たない。
-- drag and dropのライブラリは並び替え実装段階で追加する。初期scaffoldでは導入しない。
+- drag and dropはVue wrapperを追加せず、SortableJSを薄いcomposableから直接利用する。
 
-## Initial implementation boundary
+## Reorder invariants
 
-最初のコミットでは`WebUI/`へfrontend scaffold、API client contract、Pinia store境界、主要routeを追加する。Swift runtime/configには接続しない。次段階でLocal API、static asset serving、既存SwiftUI機能の段階移植を行う。
+Presetの`order`はruntime上のnumeric group番号でもあるため、単純な表示順変更ではない。並び替えでは以下を不変条件とする。
+
+1. **Cycle Preset bindingを変化させない**
+   - config v10ではCycle Preset系actionが先頭Presetに保存され、全Presetへoverlayされる。
+   - 先頭Presetが変わる並び替えでは、旧先頭のCycle系bindingだけを新先頭へ移送する。
+   - 新先頭に以前から存在したinertなCycle系bindingは削除し、並び替えだけで突然有効化されないようにする。
+
+2. **deviceの現在のruntime Preset stable IDを変化させない**
+   - order変更後は同じPreset IDのnumeric group番号が変わり得る。
+   - active Group Preset baselineが変わっていない場合、`GroupPresetRuntimeCoordinator`は現在のruntime `presetID`を維持したまま新しいgroup番号へ再マップする。
+   - Cycle Presetによる一時的なdevice-local runtime stateをGroup Preset baselineへ巻き戻さない。
+   - Group Preset / assignment自体が変更された場合のみ、従来通りbaselineを再適用する。
+
+## Phase 1 implementation
+
+- `WebUI/`へVue / Router / Pinia scaffoldを追加。
+- Storeを`presets` / `groupPresets` / `devices` / `runtime` / `settings`に分離。
+- Swift appが`127.0.0.1:4173`でLocal APIを提供。
+- `GET /api/v1/session`
+- `GET /api/v1/snapshot`
+- `PUT /api/v1/presets/order`
+- `PUT /api/v1/group-presets/order`
+- Vite dev serverは`127.0.0.1:4174`で`/api`をnative APIへproxyする。
+- Preset / Group PresetをSortableJSでdrag reorderできる。
+- macOS menu bar labelは個別Presetの`E/P + group number`ではなくactive Group Preset名を表示する。
+
+## Migration boundary
+
+Phase 1では既存SwiftUIを削除しない。次段階でstatic asset servingを追加し、Group Preset編集、Device管理、Shortcuts編集を順にWeb UIへ移植してfeature parityを作った後、native設定UIを縮退する。
 
 ## Verification
 
