@@ -17,8 +17,13 @@ OverCUEは本番DJ運用で3Deck構成まで実用確認でき、次の主要課
 - Piniaは状態共有の必要量だけでなく、Preset / Group Preset / Device / Runtime / Settingsの状態所在を明示するため最初から使用する。
 - Web UIは`config.json`を直接読み書きしない。Swift側がloopback-only Local APIを提供し、既存のFileStore / runtime coordinatorを経由して更新する。
 - Local APIは`127.0.0.1`だけにbindする。wildcard CORSを許可しない。write endpointは外部Webページからのlocalhost操作を防ぐorigin + startup-scoped session token境界を持つ。
-- SwiftUI設定画面はWeb UIがfeature parityに達するまで残す。runtime、Generic HID、Learn、Group Preset baselineのownershipはこの移行では変更しない。
-- macOS MenuBarExtraはruntime状態・active Group Preset・Web UIへの入口へ薄くする。Preset個別表示を主役にしない。
+- macOSの通常起動は**native app shell + WKWebView**とする。外部ブラウザを本番UIにはしない。
+- built Vue assetsとLocal APIは同じ`127.0.0.1:4173`から配信し、WKWebViewはそのrootを表示する。Vue Router history routeはnative static serverが`index.html`へfallbackする。
+- Vite `127.0.0.1:4174`はfrontend開発用だけに残し、`/api`をnative serverへproxyする。
+- packaged appでは`WebUI/dist`を`OverCUE.app/Contents/Resources/WebUI`へ同梱する。開発時はrepo内`WebUI/dist`または`OVERCUE_WEB_UI_ROOT`を利用できる。
+- 既存SwiftUI設定画面はWeb UIがfeature parityに達するまで削除せず、移行中の退避経路として`OVERCUE_NATIVE_UI=1`で起動可能にする。
+- runtime、Generic HID、Learn、Group Preset baselineのownershipはこの移行では変更しない。
+- macOS MenuBarExtraはruntime状態・active Group Preset・主ウィンドウへの入口へ薄くする。Preset個別表示を主役にしない。
 - Preset order / Group Preset orderは既存`order`をSSOTとして永続化する。表示側だけで並び替えを持たない。
 - drag and dropはVue wrapperを追加せず、SortableJSを薄いcomposableから直接利用する。
 
@@ -50,9 +55,19 @@ Presetの`order`はruntime上のnumeric group番号でもあるため、単純�
 - Preset / Group PresetをSortableJSでdrag reorderできる。
 - macOS menu bar labelは個別Presetの`E/P + group number`ではなくactive Group Preset名を表示する。
 
+## Native app shell implementation
+
+- `OverCUEWebUIAssetStore`がpackaged / developmentのbuilt frontend rootを解決し、hashed assetを配信する。
+- Vue Routerのhistory routeは`index.html`へfallbackする。
+- `OverCUEWebView`がWKWebViewを生成し、`http://127.0.0.1:4173/`を表示する。
+- local server起動直後のlistener ready raceに備え、WKWebView初回navigationは有限回retryする。
+- WKWebViewからloopback外のHTTP(S)へ遷移する場合はnative browserへ渡し、WebView内navigationは拒否する。
+- `Scripts/build-app.sh`はWebUI buildを先に実行し、生成物をapp bundleへコピーしてからcodesignする。
+- 通常の`WindowGroup`はWKWebViewを表示し、旧SwiftUIは`OVERCUE_NATIVE_UI=1`の場合だけ表示する。
+
 ## Migration boundary
 
-Phase 1では既存SwiftUIを削除しない。次段階でstatic asset servingを追加し、Group Preset編集、Device管理、Shortcuts編集を順にWeb UIへ移植してfeature parityを作った後、native設定UIを縮退する。
+native shell / static asset servingまでは成立した。次段階はGroup Preset編集、Device管理、Shortcuts / Learnを順にWeb UIへ移植してfeature parityを作る。feature parity後に旧SwiftUI設定画面を縮退・削除する。
 
 ## Verification
 
