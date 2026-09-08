@@ -20,6 +20,53 @@ final class ConfigurationOrderingTests: XCTestCase {
         )
     }
 
+    func testReorderPresetsPreservesGlobalCycleBindingsWhenFirstPresetChanges() throws {
+        var configuration = makeConfiguration()
+        let cycleForward = ActionID.cycleGroup.rawValue
+        let cycleBackward = ActionID.cycleGroupBackward.rawValue
+
+        var profile = try XCTUnwrap(configuration.profiles["default"])
+        var source = try XCTUnwrap(profile.presetGroup(id: "preset-a"))
+        source.mapping.keyMap["K1"] = cycleForward
+        source.mapping.chordMap["K1+K2"] = cycleBackward
+        source.mapping.dialMap["clockwise"] = cycleForward
+        source.mapping.dialChordMap["K1+clockwise"] = cycleBackward
+        profile.presetGroups[profile.presetGroups.firstIndex(where: { $0.id == source.id })!] = source
+
+        var destination = try XCTUnwrap(profile.presetGroup(id: "preset-c"))
+        destination.mapping.keyMap["K9"] = cycleBackward
+        profile.presetGroups[profile.presetGroups.firstIndex(where: { $0.id == destination.id })!] = destination
+        configuration.profiles["default"] = profile
+
+        try OverCUEConfigurationOrdering.reorderPresets(
+            ids: ["preset-c", "preset-a", "preset-b"],
+            in: &configuration
+        )
+
+        let reorderedProfile = try XCTUnwrap(configuration.profiles["default"])
+        let newFirst = try XCTUnwrap(reorderedProfile.presetGroup(id: "preset-c"))
+        let oldFirst = try XCTUnwrap(reorderedProfile.presetGroup(id: "preset-a"))
+
+        XCTAssertEqual(newFirst.mapping.keyMap["K1"], cycleForward)
+        XCTAssertEqual(newFirst.mapping.chordMap["K1+K2"], cycleBackward)
+        XCTAssertEqual(newFirst.mapping.dialMap["clockwise"], cycleForward)
+        XCTAssertEqual(newFirst.mapping.dialChordMap["K1+clockwise"], cycleBackward)
+        XCTAssertNil(newFirst.mapping.keyMap["K9"])
+
+        XCTAssertNil(oldFirst.mapping.keyMap["K1"])
+        XCTAssertNil(oldFirst.mapping.chordMap["K1+K2"])
+        XCTAssertNil(oldFirst.mapping.dialMap["clockwise"])
+        XCTAssertNil(oldFirst.mapping.dialChordMap["K1+clockwise"])
+
+        for presetID in ["preset-a", "preset-b", "preset-c"] {
+            let effective = reorderedProfile.mapping(forPresetID: presetID)
+            XCTAssertEqual(effective.keyMap["K1"], cycleForward)
+            XCTAssertEqual(effective.chordMap["K1+K2"], cycleBackward)
+            XCTAssertEqual(effective.dialMap["clockwise"], cycleForward)
+            XCTAssertEqual(effective.dialChordMap["K1+clockwise"], cycleBackward)
+        }
+    }
+
     func testReorderPresetsRejectsMissingDuplicateAndUnknownIDs() {
         let invalidOrders = [
             ["preset-a", "preset-b"],
