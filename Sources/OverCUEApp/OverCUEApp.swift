@@ -49,17 +49,33 @@ struct OverCUEApp: App {
     @StateObject private var groupPresetRuntimeCoordinator = GroupPresetRuntimeCoordinator()
     @StateObject private var webAPICoordinator = OverCUEWebAPICoordinator()
 
+    private var useLegacyNativeUI: Bool {
+        ProcessInfo.processInfo.environment["OVERCUE_NATIVE_UI"] == "1"
+    }
+
     var body: some Scene {
         WindowGroup("OverCUE", id: "main") {
-            ContentView(model: model, deviceModel: deviceModel)
-                .environmentObject(localization)
-                .environmentObject(groupPresetRuntimeCoordinator)
-                .frame(minWidth: 1_080, minHeight: 720)
-                .preferredColorScheme(.dark)
-                .onAppear {
-                    webAPICoordinator.start(shortcutModel: model, deviceModel: deviceModel)
-                    applicationDelegate.shutdownHandler = { model.shutdown() }
+            Group {
+                if useLegacyNativeUI {
+                    ContentView(model: model, deviceModel: deviceModel)
+                } else {
+                    OverCUEWebRootView(
+                        serverReady: webAPICoordinator.isRunning,
+                        errorMessage: webAPICoordinator.errorMessage
+                    )
                 }
+            }
+            .environmentObject(localization)
+            .environmentObject(groupPresetRuntimeCoordinator)
+            .frame(minWidth: 1_080, minHeight: 720)
+            .preferredColorScheme(.dark)
+            .onAppear {
+                webAPICoordinator.start(shortcutModel: model, deviceModel: deviceModel)
+                applicationDelegate.shutdownHandler = {
+                    webAPICoordinator.stop()
+                    model.shutdown()
+                }
+            }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
