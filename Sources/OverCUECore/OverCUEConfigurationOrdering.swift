@@ -100,7 +100,10 @@ public enum OverCUEConfigurationOrdering {
         // A cycle binding stored in a non-first Preset was previously inert.
         // Remove it before this Preset becomes first so reordering cannot make an
         // ignored stale binding suddenly active.
-        for (input, action) in destination where isGroupCycle(action) {
+        let staleDestinationInputs = destination.compactMap { input, action in
+            isGroupCycle(action) ? input : nil
+        }
+        for input in staleDestinationInputs {
             destination.removeValue(forKey: input)
         }
         for input in globalBindings.keys {
