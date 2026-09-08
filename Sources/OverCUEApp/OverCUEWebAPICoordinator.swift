@@ -52,6 +52,7 @@ private struct WebAPISnapshot: Encodable {
 @MainActor
 final class OverCUEWebAPICoordinator: ObservableObject {
     @Published private(set) var errorMessage: String?
+    @Published private(set) var isRunning = false
 
     private static let allowedWriteOrigins: Set<String> = [
         "http://127.0.0.1:4173",
@@ -64,6 +65,7 @@ final class OverCUEWebAPICoordinator: ObservableObject {
     private weak var deviceModel: DeviceManagementModel?
     private var server: OverCUELocalHTTPServer?
     private var sessionToken = UUID().uuidString.lowercased()
+    private let webUIAssets = OverCUEWebUIAssetStore()
 
     func start(shortcutModel: ShortcutSettingsModel, deviceModel: DeviceManagementModel) {
         self.shortcutModel = shortcutModel
@@ -73,7 +75,11 @@ final class OverCUEWebAPICoordinator: ObservableObject {
         sessionToken = UUID().uuidString.lowercased()
         let server = OverCUELocalHTTPServer { [weak self] request in
             guard let self else {
-                return Self.errorResponse(statusCode: 503, reason: "Service Unavailable", "Web API is unavailable.")
+                return Self.errorResponse(
+                    statusCode: 503,
+                    reason: "Service Unavailable",
+                    "Web API is unavailable."
+                )
             }
             return await self.handle(request)
         }
@@ -81,8 +87,10 @@ final class OverCUEWebAPICoordinator: ObservableObject {
         do {
             try server.start()
             self.server = server
+            isRunning = true
             errorMessage = nil
         } catch {
+            isRunning = false
             errorMessage = error.localizedDescription
             NSLog("OverCUE local Web API failed to start: %@", error.localizedDescription)
         }
@@ -91,6 +99,7 @@ final class OverCUEWebAPICoordinator: ObservableObject {
     func stop() {
         server?.stop()
         server = nil
+        isRunning = false
     }
 
     private func handle(_ request: OverCUELocalHTTPRequest) -> OverCUELocalHTTPResponse {
@@ -119,6 +128,9 @@ final class OverCUEWebAPICoordinator: ObservableObject {
                 return rejection
 
             default:
+                if request.method == "GET", !request.path.hasPrefix("/api/") {
+                    return webUIAssets.response(for: request.path)
+                }
                 return Self.errorResponse(statusCode: 404, reason: "Not Found", "Endpoint not found.")
             }
         } catch let error as DecodingError {

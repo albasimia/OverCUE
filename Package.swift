@@ -59,6 +59,7 @@ let package = Package(
                 .linkedFramework("ApplicationServices"),
                 .linkedFramework("IOKit"),
                 .linkedFramework("Network"),
+                .linkedFramework("WebKit"),
             ]
         ),
         .testTarget(

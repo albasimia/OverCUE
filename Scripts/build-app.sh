@@ -7,8 +7,21 @@ OUTPUT_DIR="${1:-${ROOT_DIR}/dist}"
 APP_DIR="${OUTPUT_DIR}/OverCUE.app"
 SIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
 BUILD_ARGS=(--disable-sandbox -c release --arch arm64 --arch x86_64)
+WEB_UI_DIR="${ROOT_DIR}/WebUI"
 
 cd "${ROOT_DIR}"
+
+echo "==> Build Web UI"
+command -v npm >/dev/null 2>&1 || {
+    echo "npm is required to build the OverCUE Web UI." >&2
+    exit 1
+}
+(
+    cd "${WEB_UI_DIR}"
+    npm install --no-audit --no-fund
+    npm run build
+)
+
 swift build "${BUILD_ARGS[@]}" --product OverCUE
 swift build "${BUILD_ARGS[@]}" --product overcue-cli
 BIN_DIR="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
@@ -17,7 +30,7 @@ rm -rf "${APP_DIR}"
 mkdir -p \
     "${APP_DIR}/Contents/MacOS" \
     "${APP_DIR}/Contents/Helpers" \
-    "${APP_DIR}/Contents/Resources"
+    "${APP_DIR}/Contents/Resources/WebUI"
 
 cp "${ROOT_DIR}/Packaging/Info.plist" "${APP_DIR}/Contents/Info.plist"
 cp "${BIN_DIR}/OverCUE" "${APP_DIR}/Contents/MacOS/OverCUE"
@@ -28,6 +41,8 @@ cp -R "${BIN_DIR}/OverCUE_OverCUEApp.bundle" \
     "${APP_DIR}/Contents/Resources/OverCUE_OverCUEApp.bundle"
 cp -R "${BIN_DIR}/OverCUE_OverCUECore.bundle" \
     "${APP_DIR}/Contents/Resources/OverCUE_OverCUECore.bundle"
+cp -R "${WEB_UI_DIR}/dist/." \
+    "${APP_DIR}/Contents/Resources/WebUI/"
 
 chmod 755 \
     "${APP_DIR}/Contents/MacOS/OverCUE" \
