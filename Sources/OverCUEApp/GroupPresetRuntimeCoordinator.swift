@@ -3,6 +3,7 @@ import OverCUECore
 
 private struct GroupPresetRuntimeStatus: Sendable {
     let mode: RekordboxMappingMode
+    let group: Int
     let presetID: String?
     let deviceID: String
     let logicalDeviceID: String?
@@ -45,6 +46,7 @@ final class GroupPresetRuntimeCoordinator: ObservableObject {
                 queue: .main
             ) { [weak self] notification in
                 let rawMode = notification.userInfo?[OverCUERuntimeStatusNotification.modeKey] as? String
+                let group = notification.userInfo?[OverCUERuntimeStatusNotification.groupKey] as? Int
                 let presetID = notification.userInfo?[
                     OverCUERuntimeStatusNotification.presetGroupIDKey
                 ] as? String
@@ -63,12 +65,14 @@ final class GroupPresetRuntimeCoordinator: ObservableObject {
 
                 guard let rawMode,
                       let mode = RekordboxMappingMode(rawValue: rawMode),
+                      let group,
                       let deviceID,
                       let profileName
                 else { return }
 
                 let status = GroupPresetRuntimeStatus(
                     mode: mode,
+                    group: group,
                     presetID: presetID,
                     deviceID: deviceID,
                     logicalDeviceID: logicalDeviceID,
@@ -112,17 +116,47 @@ final class GroupPresetRuntimeCoordinator: ObservableObject {
 
     private func configurationChanged() {
         configurationCache.invalidate()
-        refreshActiveGroupPreset()
+        guard let configuration = try? configurationCache.read(
+            at: OverCUEAppConfigurationLocation.url
+        ) else {
+            activeGroupPresetID = nil
+            activeGroupPresetName = nil
+            return
+        }
+
+        refreshActiveGroupPreset(using: configuration)
         for status in statusesByDeviceID.values {
-            applyIfNeeded(to: status)
+            if let signature = baselineSignature(for: status, configuration: configuration) {
+                if appliedSignaturesByDeviceID[status.deviceID] != signature {
+                    applyIfNeeded(to: status, configuration: configuration)
+                } else {
+                    // Preset order is runtime-significant because the bridge still
+                    // addresses mappings by numeric group. Keep the device on its
+                    // current stable Preset ID while remapping only that numeric
+                    // position, so a temporary Cycle Preset state is not reset to
+                    // the Group Preset baseline.
+                    synchronizeCurrentPresetPosition(status, configuration: configuration)
+                }
+            } else {
+                appliedSignaturesByDeviceID.removeValue(forKey: status.deviceID)
+                synchronizeCurrentPresetPosition(status, configuration: configuration)
+            }
         }
     }
 
     private func refreshActiveGroupPreset() {
         guard let configuration = try? configurationCache.read(
             at: OverCUEAppConfigurationLocation.url
-        ),
-              let activeID = configuration.activeGroupPresetID,
+        ) else {
+            activeGroupPresetID = nil
+            activeGroupPresetName = nil
+            return
+        }
+        refreshActiveGroupPreset(using: configuration)
+    }
+
+    private func refreshActiveGroupPreset(using configuration: OverCUEConfiguration) {
+        guard let activeID = configuration.activeGroupPresetID,
               let active = configuration.groupPresets.first(where: { $0.id == activeID })
         else {
             activeGroupPresetID = nil
@@ -133,34 +167,89 @@ final class GroupPresetRuntimeCoordinator: ObservableObject {
         activeGroupPresetName = active.name
     }
 
-    private func applyIfNeeded(to status: GroupPresetRuntimeStatus) {
-        guard let configuration = try? configurationCache.read(
-            at: OverCUEAppConfigurationLocation.url
-        ),
-              let logicalDeviceID = status.logicalDeviceID,
+    private func baselineSignature(
+        for status: GroupPresetRuntimeStatus,
+        configuration: OverCUEConfiguration
+    ) -> AppliedGroupPresetSignature? {
+        guard let logicalDeviceID = status.logicalDeviceID,
               let groupPresetID = configuration.activeGroupPresetID,
               let presetID = configuration.assignedPresetID(for: logicalDeviceID),
               let logicalDevice = configuration.logicalDevices[logicalDeviceID],
               logicalDevice.profileName == status.profileName,
-              let profile = configuration.profiles[status.profileName],
-              let presetIndex = profile.orderedPresetGroups.firstIndex(where: { $0.id == presetID })
-        else {
-            appliedSignaturesByDeviceID.removeValue(forKey: status.deviceID)
-            return
-        }
+              configuration.profiles[status.profileName]?.presetGroup(id: presetID) != nil
+        else { return nil }
 
-        let signature = AppliedGroupPresetSignature(
+        return AppliedGroupPresetSignature(
             groupPresetID: groupPresetID,
             presetID: presetID,
             profileName: status.profileName
         )
+    }
+
+    private func applyIfNeeded(to status: GroupPresetRuntimeStatus) {
+        guard let configuration = try? configurationCache.read(
+            at: OverCUEAppConfigurationLocation.url
+        ) else {
+            appliedSignaturesByDeviceID.removeValue(forKey: status.deviceID)
+            return
+        }
+        applyIfNeeded(to: status, configuration: configuration)
+    }
+
+    private func applyIfNeeded(
+        to status: GroupPresetRuntimeStatus,
+        configuration: OverCUEConfiguration
+    ) {
+        guard let signature = baselineSignature(for: status, configuration: configuration),
+              let logicalDeviceID = status.logicalDeviceID,
+              let profile = configuration.profiles[status.profileName],
+              let presetIndex = profile.orderedPresetGroups.firstIndex(where: {
+                  $0.id == signature.presetID
+              })
+        else {
+            appliedSignaturesByDeviceID.removeValue(forKey: status.deviceID)
+            return
+        }
         guard appliedSignaturesByDeviceID[status.deviceID] != signature else { return }
 
         // Mark before posting because the bridge immediately publishes a new
         // runtime status in response to this device-scoped control message.
         appliedSignaturesByDeviceID[status.deviceID] = signature
-        guard status.presetID != presetID else { return }
+        guard status.presetID != signature.presetID || status.group != presetIndex + 1 else { return }
 
+        postRuntimeControl(
+            status: status,
+            presetID: signature.presetID,
+            presetIndex: presetIndex,
+            profile: profile
+        )
+        _ = logicalDeviceID // Documents that baseline resolution is device-scoped above.
+    }
+
+    private func synchronizeCurrentPresetPosition(
+        _ status: GroupPresetRuntimeStatus,
+        configuration: OverCUEConfiguration
+    ) {
+        guard let presetID = status.presetID,
+              let profile = configuration.profiles[status.profileName],
+              let presetIndex = profile.orderedPresetGroups.firstIndex(where: { $0.id == presetID }),
+              status.group != presetIndex + 1
+        else { return }
+
+        postRuntimeControl(
+            status: status,
+            presetID: presetID,
+            presetIndex: presetIndex,
+            profile: profile
+        )
+    }
+
+    private func postRuntimeControl(
+        status: GroupPresetRuntimeStatus,
+        presetID: String,
+        presetIndex: Int,
+        profile: OverCUEProfile
+    ) {
         let group = presetIndex + 1
         let mode = profile.mapping(for: group).rekordboxMode ?? status.mode
         let userInfo: [String: Any] = [
