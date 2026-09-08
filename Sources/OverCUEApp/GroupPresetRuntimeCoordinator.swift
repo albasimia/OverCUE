@@ -28,6 +28,9 @@ private final class GroupPresetRuntimeObserverToken: @unchecked Sendable {
 /// device-local runtime state and are not snapped back on ordinary status updates.
 @MainActor
 final class GroupPresetRuntimeCoordinator: ObservableObject {
+    @Published private(set) var activeGroupPresetID: String?
+    @Published private(set) var activeGroupPresetName: String?
+
     private var statusesByDeviceID: [String: GroupPresetRuntimeStatus] = [:]
     private var appliedSignaturesByDeviceID: [String: AppliedGroupPresetSignature] = [:]
     private var runtimeObserver: GroupPresetRuntimeObserverToken?
@@ -85,6 +88,7 @@ final class GroupPresetRuntimeCoordinator: ObservableObject {
                 Task { @MainActor in self?.configurationChanged() }
             }
         )
+        refreshActiveGroupPreset()
     }
 
     deinit {
@@ -108,9 +112,25 @@ final class GroupPresetRuntimeCoordinator: ObservableObject {
 
     private func configurationChanged() {
         configurationCache.invalidate()
+        refreshActiveGroupPreset()
         for status in statusesByDeviceID.values {
             applyIfNeeded(to: status)
         }
+    }
+
+    private func refreshActiveGroupPreset() {
+        guard let configuration = try? configurationCache.read(
+            at: OverCUEAppConfigurationLocation.url
+        ),
+              let activeID = configuration.activeGroupPresetID,
+              let active = configuration.groupPresets.first(where: { $0.id == activeID })
+        else {
+            activeGroupPresetID = nil
+            activeGroupPresetName = nil
+            return
+        }
+        activeGroupPresetID = active.id
+        activeGroupPresetName = active.name
     }
 
     private func applyIfNeeded(to status: GroupPresetRuntimeStatus) {
