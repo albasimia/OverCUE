@@ -38,7 +38,7 @@ onMounted(loadSnapshot)
       </div>
 
       <nav class="section-picker" aria-label="Main navigation">
-        <RouterLink to="/presets">Shortcuts</RouterLink>
+        <RouterLink to="/shortcuts">Shortcuts</RouterLink>
         <RouterLink to="/devices">Devices</RouterLink>
         <RouterLink to="/group-presets">Group Presets</RouterLink>
         <RouterLink to="/settings">Settings</RouterLink>
