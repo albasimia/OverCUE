@@ -201,7 +201,6 @@ final class GroupPresetRuntimeCoordinator: ObservableObject {
         configuration: OverCUEConfiguration
     ) {
         guard let signature = baselineSignature(for: status, configuration: configuration),
-              let logicalDeviceID = status.logicalDeviceID,
               let profile = configuration.profiles[status.profileName],
               let presetIndex = profile.orderedPresetGroups.firstIndex(where: {
                   $0.id == signature.presetID
@@ -223,7 +222,6 @@ final class GroupPresetRuntimeCoordinator: ObservableObject {
             presetIndex: presetIndex,
             profile: profile
         )
-        _ = logicalDeviceID // Documents that baseline resolution is device-scoped above.
     }
 
     private func synchronizeCurrentPresetPosition(
