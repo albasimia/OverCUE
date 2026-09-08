@@ -13,23 +13,23 @@ const { isSaving, errorMessage } = useSortableOrder({
 </script>
 
 <template>
-  <section>
-    <div class="page-heading">
-      <div>
-        <p class="eyebrow">Rig configuration</p>
+  <section class="standard-page">
+    <div class="native-page-heading">
+      <div class="native-page-title">
         <h1>Group Presets</h1>
+        <p>Assign Presets to the devices used together in one rig.</p>
         <p v-if="isSaving" class="page-status">Saving order…</p>
         <p v-else-if="errorMessage" class="page-status error" role="alert">{{ errorMessage }}</p>
       </div>
-      <button class="primary-button" type="button" disabled>Add Group Preset</button>
+      <button class="native-button primary" type="button" disabled>Add Group Preset</button>
     </div>
 
-    <div ref="listElement" class="list-card" :class="{ 'is-saving': isSaving }">
-      <div v-if="groupPresets.items.length === 0" class="empty-state">No Group Presets loaded.</div>
+    <div ref="listElement" class="native-list-card" :class="{ 'is-saving': isSaving }">
+      <div v-if="groupPresets.items.length === 0" class="native-empty-state">No Group Presets loaded.</div>
       <article
         v-for="groupPreset in groupPresets.items"
         :key="groupPreset.id"
-        class="list-row"
+        class="native-list-row"
         :class="{ active: groupPreset.id === groupPresets.activeID }"
         :data-sortable-id="groupPreset.id"
       >
