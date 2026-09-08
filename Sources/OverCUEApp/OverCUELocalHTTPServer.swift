@@ -179,10 +179,10 @@ final class OverCUELocalHTTPServer: @unchecked Sendable {
             guard let separatorIndex = line.firstIndex(of: ":") else {
                 throw OverCUELocalHTTPServerError.malformedRequest
             }
-            let name = line[..<separatorIndex]
+            let name = String(line[..<separatorIndex])
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
-            let value = line[line.index(after: separatorIndex)...]
+            let value = String(line[line.index(after: separatorIndex)...])
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else {
                 throw OverCUELocalHTTPServerError.malformedRequest
