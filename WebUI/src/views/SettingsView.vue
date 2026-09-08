@@ -5,23 +5,23 @@ const settings = useSettingsStore()
 </script>
 
 <template>
-  <section>
-    <div class="page-heading">
-      <div>
-        <p class="eyebrow">Application</p>
+  <section class="standard-page">
+    <div class="native-page-heading">
+      <div class="native-page-title">
         <h1>Settings</h1>
+        <p>Application preferences.</p>
       </div>
     </div>
 
-    <div class="card settings-card">
-      <label>
+    <div class="native-detail-card settings-card">
+      <div class="detail-row">
         <span>Language</span>
         <select v-model="settings.language">
           <option value="ja">日本語</option>
           <option value="en">English</option>
           <option value="zh-Hans">简体中文</option>
         </select>
-      </label>
+      </div>
       <div class="setting-note">
         Web UI state is intentionally separate from runtime ownership. Persistence will be wired through the local OverCUE API.
       </div>
