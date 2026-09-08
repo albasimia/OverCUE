@@ -1,4 +1,4 @@
-import type { OverCUESnapshot, ReorderRequest } from './types'
+import type { OverCUESnapshot, ReorderRequest, ShortcutPanelState } from './types'
 
 const API_BASE = import.meta.env.VITE_OVERCUE_API_BASE ?? '/api/v1'
 let sessionTokenPromise: Promise<string> | null = null
@@ -70,6 +70,7 @@ async function writeRequest<T>(path: string, body: unknown): Promise<T> {
 
 export const overcueAPI = {
   snapshot: () => request<OverCUESnapshot>('/snapshot'),
+  shortcutPanel: () => request<ShortcutPanelState>('/shortcuts/panel'),
   reorderPresets: (ids: string[]) => writeRequest<OverCUESnapshot>(
     '/presets/order',
     { ids } satisfies ReorderRequest,
