@@ -13,6 +13,19 @@ export class OverCUEAPIError extends Error {
   }
 }
 
+async function errorMessage(response: Response): Promise<string> {
+  const body = await response.text().catch(() => '')
+  if (body) {
+    try {
+      const parsed = JSON.parse(body) as { error?: unknown }
+      if (typeof parsed.error === 'string' && parsed.error) return parsed.error
+    } catch {
+      return body
+    }
+  }
+  return response.statusText
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -25,8 +38,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   })
 
   if (!response.ok) {
-    const message = await response.text().catch(() => '')
-    throw new OverCUEAPIError(message || response.statusText, response.status)
+    throw new OverCUEAPIError(await errorMessage(response), response.status)
   }
 
   return response.json() as Promise<T>

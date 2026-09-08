@@ -41,9 +41,11 @@ code { color: var(--oc-muted); font-size: 12px; }
 .content { padding: 34px; overflow: auto; }
 .connection-banner { margin-bottom: 20px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--oc-warning) 55%, transparent); border-radius: 10px; background: color-mix(in srgb, var(--oc-warning) 10%, transparent); color: #f5d79d; font-size: 13px; }
 
-.page-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+.page-heading { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 22px; }
 .eyebrow { margin: 0 0 5px; color: var(--oc-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .14em; }
 h1 { margin: 0; font-size: 30px; letter-spacing: -.02em; }
+.page-status { min-height: 17px; margin: 6px 0 0; color: var(--oc-muted); font-size: 12px; }
+.page-status.error { color: var(--oc-danger); }
 
 .card, .list-card { border: 1px solid var(--oc-border); border-radius: 14px; background: var(--oc-surface); }
 .stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
@@ -52,10 +54,15 @@ h1 { margin: 0; font-size: 30px; letter-spacing: -.02em; }
 .stat-card strong { display: block; margin-top: 12px; font-size: 22px; }
 
 .list-card { overflow: hidden; }
-.list-row { min-height: 68px; display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-bottom: 1px solid var(--oc-border); }
+.list-card.is-saving { opacity: .82; }
+.list-row { min-height: 68px; display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-bottom: 1px solid var(--oc-border); background: var(--oc-surface); }
 .list-row:last-child { border-bottom: 0; }
 .list-row.active { background: #171a21; }
-.drag-handle { color: #5f6571; font-weight: 900; letter-spacing: -3px; cursor: grab; }
+.drag-handle { width: 28px; height: 30px; display: grid; place-items: center; padding: 0; border: 0; color: #6b717d; background: transparent; font-weight: 900; letter-spacing: -3px; cursor: grab; }
+.drag-handle:active { cursor: grabbing; }
+.drag-handle:focus-visible { outline: 1px solid var(--oc-text); outline-offset: 2px; border-radius: 5px; }
+.drag-ghost { opacity: .28; }
+.drag-chosen { box-shadow: inset 3px 0 0 var(--oc-accent); }
 .order-chip { min-width: 26px; height: 26px; display: grid; place-items: center; border-radius: 7px; background: var(--oc-surface-raised); color: var(--oc-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .row-main { flex: 1; min-width: 0; }
 .row-main strong, .row-main span { display: block; }
