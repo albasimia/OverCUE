@@ -1,4 +1,13 @@
-import type { OverCUESnapshot, ReorderRequest, ShortcutPanelState } from './types'
+import type {
+  GroupPresetAssignmentRequest,
+  GroupPresetIDRequest,
+  GroupPresetIncludeRequest,
+  GroupPresetNameRequest,
+  GroupPresetRenameRequest,
+  OverCUESnapshot,
+  ReorderRequest,
+  ShortcutPanelState,
+} from './types'
 
 const API_BASE = import.meta.env.VITE_OVERCUE_API_BASE ?? '/api/v1'
 let sessionTokenPromise: Promise<string> | null = null
@@ -78,5 +87,37 @@ export const overcueAPI = {
   reorderGroupPresets: (ids: string[]) => writeRequest<OverCUESnapshot>(
     '/group-presets/order',
     { ids } satisfies ReorderRequest,
+  ),
+  activateGroupPreset: (id: string) => writeRequest<OverCUESnapshot>(
+    '/group-presets/active',
+    { id } satisfies GroupPresetIDRequest,
+  ),
+  addGroupPreset: (name: string) => writeRequest<OverCUESnapshot>(
+    '/group-presets/add',
+    { name } satisfies GroupPresetNameRequest,
+  ),
+  renameGroupPreset: (id: string, name: string) => writeRequest<OverCUESnapshot>(
+    '/group-presets/rename',
+    { id, name } satisfies GroupPresetRenameRequest,
+  ),
+  deleteGroupPreset: (id: string) => writeRequest<OverCUESnapshot>(
+    '/group-presets/delete',
+    { id } satisfies GroupPresetIDRequest,
+  ),
+  setGroupPresetIncluded: (
+    groupPresetID: string,
+    logicalDeviceID: string,
+    included: boolean,
+  ) => writeRequest<OverCUESnapshot>(
+    '/group-presets/include',
+    { groupPresetID, logicalDeviceID, included } satisfies GroupPresetIncludeRequest,
+  ),
+  assignGroupPreset: (
+    groupPresetID: string,
+    logicalDeviceID: string,
+    presetID: string,
+  ) => writeRequest<OverCUESnapshot>(
+    '/group-presets/assignment',
+    { groupPresetID, logicalDeviceID, presetID } satisfies GroupPresetAssignmentRequest,
   ),
 }
