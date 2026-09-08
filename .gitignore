@@ -4,6 +4,7 @@
 dist/
 release/
 .aal/
+node_modules/
 
 # Windows/.NET build outputs (keep source files trackable).
 Windows/**/bin/
