@@ -7,6 +7,7 @@ export const useShortcutsStore = defineStore('shortcuts', {
     panel: null as ShortcutPanelState | null,
     errorMessage: null as string | null,
     isPolling: false,
+    pollGeneration: 0,
   }),
 
   actions: {
@@ -22,7 +23,8 @@ export const useShortcutsStore = defineStore('shortcuts', {
     async startPolling() {
       if (this.isPolling) return
       this.isPolling = true
-      while (this.isPolling) {
+      const generation = ++this.pollGeneration
+      while (this.isPolling && generation === this.pollGeneration) {
         await this.refresh()
         await new Promise((resolve) => window.setTimeout(resolve, 50))
       }
@@ -30,6 +32,7 @@ export const useShortcutsStore = defineStore('shortcuts', {
 
     stopPolling() {
       this.isPolling = false
+      this.pollGeneration += 1
     },
   },
 })
