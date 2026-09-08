@@ -41,8 +41,17 @@ The native app exposes:
 
 - `GET /api/v1/session`
 - `GET /api/v1/snapshot`
+- `GET /api/v1/shortcuts/panel`
 - `PUT /api/v1/presets/order`
 - `PUT /api/v1/group-presets/order`
+- `PUT /api/v1/group-presets/active`
+- `PUT /api/v1/group-presets/add`
+- `PUT /api/v1/group-presets/rename`
+- `PUT /api/v1/group-presets/delete`
+- `PUT /api/v1/group-presets/include`
+- `PUT /api/v1/group-presets/assignment`
+
+Group Preset writes reuse `GroupPresetManagementModel`, so native SwiftUI and Web UI share the same validation and configuration mutation rules. Snapshot device entries include the Presets available for that Logical Device's profile so assignment UIs do not need a second lookup API.
 
 Write requests require the startup-scoped token returned by `/session` in `X-OverCUE-Session`. The API binds only to `127.0.0.1`, does not emit permissive CORS headers, and rejects non-loopback browser origins for writes.
 
