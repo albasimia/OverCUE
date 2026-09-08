@@ -9,6 +9,31 @@ private struct WebAPIReorderRequest: Decodable {
     let ids: [String]
 }
 
+private struct WebAPIIDRequest: Decodable {
+    let id: String
+}
+
+private struct WebAPINameRequest: Decodable {
+    let name: String
+}
+
+private struct WebAPIRenameRequest: Decodable {
+    let id: String
+    let name: String
+}
+
+private struct WebAPIGroupPresetIncludeRequest: Decodable {
+    let groupPresetID: String
+    let logicalDeviceID: String
+    let included: Bool
+}
+
+private struct WebAPIGroupPresetAssignmentRequest: Decodable {
+    let groupPresetID: String
+    let logicalDeviceID: String
+    let presetID: String
+}
+
 private struct WebAPIPresetSummary: Encodable {
     let id: String
     let name: String
@@ -29,11 +54,18 @@ private struct WebAPIGroupPresetSummary: Encodable {
     let assignments: [WebAPIGroupPresetAssignment]
 }
 
+private struct WebAPIDevicePresetOption: Encodable {
+    let id: String
+    let name: String
+    let order: Int
+}
+
 private struct WebAPIDeviceSummary: Encodable {
     let id: String
     let name: String
     let profileName: String
     let connected: Bool
+    let presets: [WebAPIDevicePresetOption]
 }
 
 private struct WebAPIRuntimeStatus: Encodable {
@@ -94,6 +126,7 @@ final class OverCUEWebAPICoordinator: ObservableObject {
     private var server: OverCUELocalHTTPServer?
     private var sessionToken = UUID().uuidString.lowercased()
     private let webUIAssets = OverCUEWebUIAssetStore()
+    private let groupPresetModel = GroupPresetManagementModel()
 
     func start(shortcutModel: ShortcutSettingsModel, deviceModel: DeviceManagementModel) {
         self.shortcutModel = shortcutModel
@@ -158,6 +191,62 @@ final class OverCUEWebAPICoordinator: ObservableObject {
                 }
                 return rejection
 
+            case ("PUT", "/api/v1/group-presets/active"):
+                guard let rejection = validateWrite(request) else {
+                    let payload = try JSONDecoder().decode(WebAPIIDRequest.self, from: request.body)
+                    try groupPresetModel.activate(id: payload.id)
+                    return try jsonResponse(makeSnapshot())
+                }
+                return rejection
+
+            case ("PUT", "/api/v1/group-presets/add"):
+                guard let rejection = validateWrite(request) else {
+                    let payload = try JSONDecoder().decode(WebAPINameRequest.self, from: request.body)
+                    _ = try groupPresetModel.add(name: payload.name)
+                    return try jsonResponse(makeSnapshot())
+                }
+                return rejection
+
+            case ("PUT", "/api/v1/group-presets/rename"):
+                guard let rejection = validateWrite(request) else {
+                    let payload = try JSONDecoder().decode(WebAPIRenameRequest.self, from: request.body)
+                    try groupPresetModel.rename(id: payload.id, name: payload.name)
+                    return try jsonResponse(makeSnapshot())
+                }
+                return rejection
+
+            case ("PUT", "/api/v1/group-presets/delete"):
+                guard let rejection = validateWrite(request) else {
+                    let payload = try JSONDecoder().decode(WebAPIIDRequest.self, from: request.body)
+                    try groupPresetModel.delete(id: payload.id)
+                    return try jsonResponse(makeSnapshot())
+                }
+                return rejection
+
+            case ("PUT", "/api/v1/group-presets/include"):
+                guard let rejection = validateWrite(request) else {
+                    let payload = try JSONDecoder().decode(WebAPIGroupPresetIncludeRequest.self, from: request.body)
+                    try groupPresetModel.setIncluded(
+                        groupPresetID: payload.groupPresetID,
+                        logicalDeviceID: payload.logicalDeviceID,
+                        included: payload.included
+                    )
+                    return try jsonResponse(makeSnapshot())
+                }
+                return rejection
+
+            case ("PUT", "/api/v1/group-presets/assignment"):
+                guard let rejection = validateWrite(request) else {
+                    let payload = try JSONDecoder().decode(WebAPIGroupPresetAssignmentRequest.self, from: request.body)
+                    try groupPresetModel.assignPreset(
+                        groupPresetID: payload.groupPresetID,
+                        logicalDeviceID: payload.logicalDeviceID,
+                        presetID: payload.presetID
+                    )
+                    return try jsonResponse(makeSnapshot())
+                }
+                return rejection
+
             default:
                 if request.method == "GET", !request.path.hasPrefix("/api/") {
                     return webUIAssets.response(for: request.path)
@@ -167,6 +256,8 @@ final class OverCUEWebAPICoordinator: ObservableObject {
         } catch let error as DecodingError {
             return Self.errorResponse(statusCode: 400, reason: "Bad Request", error.localizedDescription)
         } catch let error as OverCUEConfigurationOrderingError {
+            return Self.errorResponse(statusCode: 422, reason: "Unprocessable Content", error.localizedDescription)
+        } catch let error as GroupPresetManagementError {
             return Self.errorResponse(statusCode: 422, reason: "Unprocessable Content", error.localizedDescription)
         } catch {
             return Self.errorResponse(statusCode: 500, reason: "Internal Server Error", error.localizedDescription)
@@ -217,11 +308,19 @@ final class OverCUEWebAPICoordinator: ObservableObject {
 
         let connectedByID = Dictionary(uniqueKeysWithValues: deviceModel.devices.map { ($0.id, $0.isConnected) })
         let devices = configuration.logicalDevices.map { id, device in
-            WebAPIDeviceSummary(
+            let devicePresets = configuration.profiles[device.profileName]?.orderedPresetGroups.map { preset in
+                WebAPIDevicePresetOption(
+                    id: preset.id,
+                    name: preset.name,
+                    order: preset.order
+                )
+            } ?? []
+            return WebAPIDeviceSummary(
                 id: id,
                 name: device.name,
                 profileName: device.profileName,
-                connected: connectedByID[id] ?? false
+                connected: connectedByID[id] ?? false,
+                presets: devicePresets
             )
         }
         .sorted {
