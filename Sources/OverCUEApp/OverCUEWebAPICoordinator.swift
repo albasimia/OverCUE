@@ -49,6 +49,34 @@ private struct WebAPISnapshot: Encodable {
     let runtime: WebAPIRuntimeStatus
 }
 
+private struct WebAPIShortcutAssignment: Encodable {
+    let functionName: String
+    let shortcut: String?
+}
+
+private struct WebAPIShortcutKeyState: Encodable {
+    let id: String
+    let assignment: WebAPIShortcutAssignment?
+    let pressed: Bool
+}
+
+private struct WebAPIShortcutDialState: Encodable {
+    let direction: String
+    let assignment: WebAPIShortcutAssignment?
+    let active: Bool
+}
+
+private struct WebAPIShortcutPanel: Encodable {
+    let deviceKind: String
+    let deviceName: String
+    let rotationQuarterTurns: Int
+    let presetID: String?
+    let presetName: String?
+    let presetOrder: Int?
+    let keys: [WebAPIShortcutKeyState]
+    let dial: [WebAPIShortcutDialState]
+}
+
 @MainActor
 final class OverCUEWebAPICoordinator: ObservableObject {
     @Published private(set) var errorMessage: String?
@@ -110,6 +138,9 @@ final class OverCUEWebAPICoordinator: ObservableObject {
 
             case ("GET", "/api/v1/snapshot"):
                 return try jsonResponse(makeSnapshot())
+
+            case ("GET", "/api/v1/shortcuts/panel"):
+                return try jsonResponse(makeShortcutPanel())
 
             case ("PUT", "/api/v1/presets/order"):
                 guard let rejection = validateWrite(request) else {
@@ -207,6 +238,55 @@ final class OverCUEWebAPICoordinator: ObservableObject {
                 bridgeStatus: bridgeStatusValue(shortcutModel.bridgeStatus),
                 activeGroupPresetID: configuration.activeGroupPresetID
             )
+        )
+    }
+
+    private func makeShortcutPanel() throws -> WebAPIShortcutPanel {
+        guard let shortcutModel else {
+            throw NSError(
+                domain: "OverCUE.WebAPI",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Shortcut model is not attached."]
+            )
+        }
+
+        let preset = shortcutModel.availablePresetGroups.indices.contains(shortcutModel.selectedGroup - 1)
+            ? shortcutModel.availablePresetGroups[shortcutModel.selectedGroup - 1]
+            : nil
+
+        let keys = ACK05Key.allCases.map { key in
+            WebAPIShortcutKeyState(
+                id: key.rawValue,
+                assignment: shortcutModel.deviceAssignment(to: key).map {
+                    WebAPIShortcutAssignment(functionName: $0.functionName, shortcut: $0.shortcut)
+                },
+                pressed: shortcutModel.pressedDeviceKeys.contains(key)
+            )
+        }
+
+        let dialDirections: [(DialDirection, String)] = [
+            (.counterclockwise, "counterclockwise"),
+            (.clockwise, "clockwise"),
+        ]
+        let dial = dialDirections.map { direction, value in
+            WebAPIShortcutDialState(
+                direction: value,
+                assignment: shortcutModel.dialAssignment(direction).map {
+                    WebAPIShortcutAssignment(functionName: $0.functionName, shortcut: $0.shortcut)
+                },
+                active: shortcutModel.activeDialDirection == direction
+            )
+        }
+
+        return WebAPIShortcutPanel(
+            deviceKind: "ack05",
+            deviceName: "ACK05",
+            rotationQuarterTurns: shortcutModel.rotationQuarterTurns,
+            presetID: preset?.id,
+            presetName: preset?.name,
+            presetOrder: preset?.order,
+            keys: keys,
+            dial: dial
         )
     }
 
