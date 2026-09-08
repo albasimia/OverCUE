@@ -75,19 +75,14 @@ struct OverCUEApp: App {
             MenuBarContent(model: model)
                 .environmentObject(localization)
         } label: {
-            Image(
-                nsImage: MenuBarStatusIcon.image(
-                    mode: model.runtimeModeLabel,
-                    group: model.runtimeGroup
-                )
-            )
-            .renderingMode(.template)
+            HStack(spacing: 5) {
+                Image(nsImage: MenuBarGhostIcon.image)
+                    .renderingMode(.template)
+                Text(groupPresetRuntimeCoordinator.activeGroupPresetName ?? "—")
+                    .lineLimit(1)
+            }
             .accessibilityLabel(
-                localization.text(
-                    "app.status.accessibility",
-                    model.runtimeMode.displayName,
-                    model.runtimeGroup
-                )
+                "OverCUE \(groupPresetRuntimeCoordinator.activeGroupPresetName ?? "No Group Preset")"
             )
         }
         .menuBarExtraStyle(.menu)
@@ -404,24 +399,6 @@ private enum MenuBarGhostIcon {
         output.isTemplate = true
         return output
     }()
-}
-
-private enum MenuBarStatusIcon {
-    static func image(mode: String, group: Int) -> NSImage {
-        let output = NSImage(size: NSSize(width: 48, height: 18))
-        output.lockFocus()
-        MenuBarGhostIcon.image.draw(in: NSRect(x: 0, y: 0, width: 18, height: 18))
-        NSString(string: "\(mode) \(group)").draw(
-            at: NSPoint(x: 22, y: 1),
-            withAttributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold),
-                .foregroundColor: NSColor.white,
-            ]
-        )
-        output.unlockFocus()
-        output.isTemplate = true
-        return output
-    }
 }
 
 enum AppResources {
