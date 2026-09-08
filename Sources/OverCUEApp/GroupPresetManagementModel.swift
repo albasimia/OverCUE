@@ -139,10 +139,25 @@ final class GroupPresetManagementModel: ObservableObject {
     }
 
     func setIncluded(logicalDeviceID: String, included: Bool) throws {
+        guard let activeGroupPresetID else {
+            throw GroupPresetManagementError.groupPresetMissing
+        }
+        try setIncluded(
+            groupPresetID: activeGroupPresetID,
+            logicalDeviceID: logicalDeviceID,
+            included: included
+        )
+    }
+
+    func setIncluded(
+        groupPresetID: String,
+        logicalDeviceID: String,
+        included: Bool
+    ) throws {
         _ = try updateConfiguration { latest in
-            guard let activeID = latest.activeGroupPresetID,
-                  let groupPresetIndex = latest.groupPresets.firstIndex(where: { $0.id == activeID })
-            else { throw GroupPresetManagementError.groupPresetMissing }
+            guard let groupPresetIndex = latest.groupPresets.firstIndex(where: { $0.id == groupPresetID }) else {
+                throw GroupPresetManagementError.groupPresetMissing
+            }
             guard let logicalDevice = latest.logicalDevices[logicalDeviceID],
                   let profile = latest.profiles[logicalDevice.profileName]
             else { throw GroupPresetManagementError.logicalDeviceMissing }
@@ -166,10 +181,25 @@ final class GroupPresetManagementModel: ObservableObject {
     }
 
     func assignPreset(logicalDeviceID: String, presetID: String) throws {
+        guard let activeGroupPresetID else {
+            throw GroupPresetManagementError.groupPresetMissing
+        }
+        try assignPreset(
+            groupPresetID: activeGroupPresetID,
+            logicalDeviceID: logicalDeviceID,
+            presetID: presetID
+        )
+    }
+
+    func assignPreset(
+        groupPresetID: String,
+        logicalDeviceID: String,
+        presetID: String
+    ) throws {
         _ = try updateConfiguration { latest in
-            guard let activeID = latest.activeGroupPresetID,
-                  let groupPresetIndex = latest.groupPresets.firstIndex(where: { $0.id == activeID })
-            else { throw GroupPresetManagementError.groupPresetMissing }
+            guard let groupPresetIndex = latest.groupPresets.firstIndex(where: { $0.id == groupPresetID }) else {
+                throw GroupPresetManagementError.groupPresetMissing
+            }
             guard let logicalDevice = latest.logicalDevices[logicalDeviceID],
                   let profile = latest.profiles[logicalDevice.profileName]
             else { throw GroupPresetManagementError.logicalDeviceMissing }
