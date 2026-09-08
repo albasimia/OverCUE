@@ -44,17 +44,20 @@ private final class OverCUEApplicationDelegate: NSObject, NSApplicationDelegate 
 struct OverCUEApp: App {
     @NSApplicationDelegateAdaptor(OverCUEApplicationDelegate.self) private var applicationDelegate
     @StateObject private var model = ShortcutSettingsModel()
+    @StateObject private var deviceModel = DeviceManagementModel()
     @StateObject private var localization = AppLocalization.shared
     @StateObject private var groupPresetRuntimeCoordinator = GroupPresetRuntimeCoordinator()
+    @StateObject private var webAPICoordinator = OverCUEWebAPICoordinator()
 
     var body: some Scene {
         WindowGroup("OverCUE", id: "main") {
-            ContentView(model: model)
+            ContentView(model: model, deviceModel: deviceModel)
                 .environmentObject(localization)
                 .environmentObject(groupPresetRuntimeCoordinator)
                 .frame(minWidth: 1_080, minHeight: 720)
                 .preferredColorScheme(.dark)
                 .onAppear {
+                    webAPICoordinator.start(shortcutModel: model, deviceModel: deviceModel)
                     applicationDelegate.shutdownHandler = { model.shutdown() }
                 }
         }
@@ -152,7 +155,7 @@ private enum MainSection: String, CaseIterable, Identifiable {
 
 private struct ContentView: View {
     @ObservedObject var model: ShortcutSettingsModel
-    @StateObject private var deviceModel = DeviceManagementModel()
+    @ObservedObject var deviceModel: DeviceManagementModel
     @EnvironmentObject private var localization: AppLocalization
     @State private var selectedSection: MainSection = .shortcuts
 
