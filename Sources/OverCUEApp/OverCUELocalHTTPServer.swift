@@ -70,7 +70,10 @@ final class OverCUELocalHTTPServer: @unchecked Sendable {
         parameters.allowLocalEndpointReuse = true
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: port)
 
-        let listener = try NWListener(using: parameters, on: port)
+        // requiredLocalEndpoint already owns both the loopback address and port.
+        // Passing the same port again to NWListener(using:on:) can fail with
+        // EINVAL on macOS, so let the parameter endpoint be the single source.
+        let listener = try NWListener(using: parameters)
         listener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
         }
