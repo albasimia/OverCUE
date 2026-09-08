@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { overcueAPI } from '../api/client'
-import type { GroupPresetSummary } from '../api/types'
+import type { GroupPresetSummary, OverCUESnapshot } from '../api/types'
 
 export const useGroupPresetsStore = defineStore('groupPresets', () => {
   const items = ref<GroupPresetSummary[]>([])
@@ -14,6 +14,10 @@ export const useGroupPresetsStore = defineStore('groupPresets', () => {
     activeID.value = nextActiveID
   }
 
+  function applySnapshot(snapshot: OverCUESnapshot) {
+    replace(snapshot.groupPresets, snapshot.runtime.activeGroupPresetID)
+  }
+
   async function reorder(ids: string[]) {
     const previous = items.value
     const byID = new Map(previous.map((item) => [item.id, item]))
@@ -22,13 +26,64 @@ export const useGroupPresetsStore = defineStore('groupPresets', () => {
       return item ? [{ ...item, order: index + 1 }] : []
     })
     try {
-      const snapshot = await overcueAPI.reorderGroupPresets(ids)
-      replace(snapshot.groupPresets, snapshot.runtime.activeGroupPresetID)
+      applySnapshot(await overcueAPI.reorderGroupPresets(ids))
     } catch (error) {
       items.value = previous
       throw error
     }
   }
 
-  return { items, activeID, active, replace, reorder }
+  async function activate(id: string) {
+    applySnapshot(await overcueAPI.activateGroupPreset(id))
+  }
+
+  async function add(name: string) {
+    applySnapshot(await overcueAPI.addGroupPreset(name))
+  }
+
+  async function rename(id: string, name: string) {
+    applySnapshot(await overcueAPI.renameGroupPreset(id, name))
+  }
+
+  async function remove(id: string) {
+    applySnapshot(await overcueAPI.deleteGroupPreset(id))
+  }
+
+  async function setIncluded(
+    groupPresetID: string,
+    logicalDeviceID: string,
+    included: boolean,
+  ) {
+    applySnapshot(await overcueAPI.setGroupPresetIncluded(
+      groupPresetID,
+      logicalDeviceID,
+      included,
+    ))
+  }
+
+  async function assignPreset(
+    groupPresetID: string,
+    logicalDeviceID: string,
+    presetID: string,
+  ) {
+    applySnapshot(await overcueAPI.assignGroupPreset(
+      groupPresetID,
+      logicalDeviceID,
+      presetID,
+    ))
+  }
+
+  return {
+    items,
+    activeID,
+    active,
+    replace,
+    reorder,
+    activate,
+    add,
+    rename,
+    remove,
+    setIncluded,
+    assignPreset,
+  }
 })
