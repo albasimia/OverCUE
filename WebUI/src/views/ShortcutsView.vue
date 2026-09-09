@@ -356,7 +356,7 @@ function remove(entryID: string) {
         />
 
         <div class="pressed-readout">
-          <span>Input</span>
+          <span>{{ settings.text('shortcuts.column.input') }}</span>
           <strong>{{ pressedInput }}</strong>
         </div>
       </aside>
