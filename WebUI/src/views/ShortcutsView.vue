@@ -1,13 +1,20 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import ACK05DeviceMap from '../components/ACK05DeviceMap.vue'
+import { overcueAPI } from '../api/client'
 import type {
   RekordboxMode,
   ShortcutDialDirection,
   ShortcutEntryState,
 } from '../api/types'
+import { useSortableOrder } from '../composables/useSortableOrder'
+import { usePresetsStore } from '../stores/presets'
+import { useSettingsStore } from '../stores/settings'
 import { useShortcutsStore } from '../stores/shortcuts'
 
 const shortcuts = useShortcutsStore()
+const settings = useSettingsStore()
+const presets = usePresetsStore()
 const searchText = ref('')
 const expandedCategories = ref(new Set<string>(['OverCUE', 'Deck 1']))
 const modeOptions: RekordboxMode[] = ['export', 'performance']
@@ -15,6 +22,18 @@ const presetEditorMode = ref<'add' | 'rename' | null>(null)
 const presetNameDraft = ref('')
 const presetMenuOpen = ref(false)
 const confirmPresetDelete = ref(false)
+const presetReorderOpen = ref(false)
+const presetReorderElement = ref<HTMLElement | null>(null)
+const presetReorderLoadError = ref<string | null>(null)
+
+const { isSaving: isReorderingPresets, errorMessage: presetReorderError } = useSortableOrder({
+  element: presetReorderElement,
+  currentIDs: () => presets.items.map((preset) => preset.id),
+  persist: async (ids) => {
+    await presets.reorder(ids)
+    await shortcuts.refresh()
+  },
+})
 
 onMounted(() => {
   void shortcuts.startPolling()
@@ -28,18 +47,6 @@ onBeforeUnmount(() => {
 })
 
 const panel = computed(() => shortcuts.panel)
-const keyByID = computed(() =>
-  Object.fromEntries((panel.value?.keys ?? []).map((key) => [key.id, key])),
-)
-const dialByDirection = computed(() =>
-  Object.fromEntries((panel.value?.dial ?? []).map((dial) => [dial.direction, dial])),
-)
-
-const mapStyle = computed(() => ({
-  '--device-rotation': `${(panel.value?.rotationQuarterTurns ?? 0) * 90}deg`,
-  '--label-rotation': `${(panel.value?.rotationQuarterTurns ?? 0) * -90}deg`,
-}))
-
 const query = computed(() => searchText.value.trim().toLocaleLowerCase())
 
 const filteredEntries = computed(() => {
@@ -76,6 +83,26 @@ const pressedInput = computed(() => {
 const canDeletePreset = computed(() =>
   (panel.value?.presets.length ?? 0) > 1 && panel.value?.presetOrder !== 1,
 )
+
+const categoryKeys: Record<string, string> = {
+  OverCUE: 'shortcuts.overcue',
+  Browse: 'category.browse',
+  'Deck 1': 'category.deck1',
+  'Deck 2': 'category.deck2',
+  'Deck 3': 'category.deck3',
+  'Deck 4': 'category.deck4',
+  'All Decks': 'category.allDecks',
+  Sampler: 'category.sampler',
+  Recordings: 'category.recordings',
+  General: 'category.general',
+  View: 'category.view',
+  Playlist: 'category.playlist',
+  Other: 'category.other',
+}
+
+function categoryLabel(category: string) {
+  return settings.text(categoryKeys[category] ?? category)
+}
 
 function isExpanded(category: string) {
   return Boolean(query.value) || expandedCategories.value.has(category)
@@ -145,7 +172,7 @@ function setPreset(event: Event) {
 
 function beginAddPreset() {
   presetEditorMode.value = 'add'
-  presetNameDraft.value = `Preset ${(panel.value?.presets.length ?? 0) + 1}`
+  presetNameDraft.value = settings.text('preset.defaultName', (panel.value?.presets.length ?? 0) + 1)
   presetMenuOpen.value = false
   confirmPresetDelete.value = false
 }
@@ -163,6 +190,11 @@ function cancelPresetEditor() {
   presetNameDraft.value = ''
 }
 
+async function refreshPresetStore() {
+  const snapshot = await overcueAPI.snapshot()
+  presets.replace(snapshot.presets)
+}
+
 async function savePresetEditor() {
   const name = presetNameDraft.value.trim()
   if (!name) return
@@ -172,6 +204,7 @@ async function savePresetEditor() {
     } else if (presetEditorMode.value === 'rename' && panel.value?.presetID) {
       await shortcuts.renamePreset(panel.value.presetID, name)
     }
+    await refreshPresetStore()
     cancelPresetEditor()
   } catch {
     // Store exposes the native error message next to the Preset controls.
@@ -187,10 +220,23 @@ async function deleteCurrentPreset() {
   }
   try {
     await shortcuts.deletePreset(presetID)
+    await refreshPresetStore()
     confirmPresetDelete.value = false
     presetMenuOpen.value = false
   } catch {
     // Store exposes the native error message next to the Preset controls.
+  }
+}
+
+async function openPresetReorder() {
+  presetMenuOpen.value = false
+  confirmPresetDelete.value = false
+  presetReorderLoadError.value = null
+  try {
+    await refreshPresetStore()
+    presetReorderOpen.value = true
+  } catch (error) {
+    presetReorderLoadError.value = error instanceof Error ? error.message : String(error)
   }
 }
 
@@ -214,12 +260,12 @@ function remove(entryID: string) {
         <div class="shortcut-device-header">
           <div>
             <h2>{{ panel?.deviceName ?? 'ACK05' }}</h2>
-            <p>Device Map</p>
+            <p>{{ settings.text('device.map') }}</p>
           </div>
           <button
             class="shortcut-icon-button"
             type="button"
-            title="Rotate device"
+            :title="settings.text('device.rotate')"
             :disabled="shortcuts.isMutating || panel?.capture.isCapturing"
             @click="perform(shortcuts.rotateDevice())"
           >
@@ -228,11 +274,11 @@ function remove(entryID: string) {
         </div>
 
         <div class="shortcut-preset-row">
-          <span>Preset</span>
+          <span>{{ settings.text('device.group') }}</span>
           <select
             :value="panel?.presetID ?? ''"
             :disabled="shortcuts.isMutating || panel?.capture.isCapturing"
-            aria-label="Preset"
+            :aria-label="settings.text('device.group')"
             @change="setPreset"
           >
             <option v-for="preset in panel?.presets ?? []" :key="preset.id" :value="preset.id">
@@ -242,7 +288,7 @@ function remove(entryID: string) {
           <button
             class="shortcut-preset-action"
             type="button"
-            title="Add Preset"
+            :title="settings.text('preset.add')"
             :disabled="shortcuts.isMutating || panel?.capture.isCapturing"
             @click="beginAddPreset"
           >
@@ -252,39 +298,46 @@ function remove(entryID: string) {
             <button
               class="shortcut-preset-action"
               type="button"
-              title="Manage Preset"
+              :title="settings.text('preset.manage')"
               :disabled="shortcuts.isMutating || panel?.capture.isCapturing || !panel?.presetID"
               @click="presetMenuOpen = !presetMenuOpen; confirmPresetDelete = false"
             >
               …
             </button>
             <div v-if="presetMenuOpen" class="shortcut-preset-menu">
-              <button type="button" @click="beginRenamePreset">Rename</button>
+              <button type="button" @click="beginRenamePreset">{{ settings.text('preset.rename') }}</button>
+              <button type="button" @click="openPresetReorder">{{ settings.text('preset.reorder') }}</button>
               <button
                 class="danger"
                 type="button"
                 :disabled="!canDeletePreset"
                 @click="deleteCurrentPreset"
               >
-                {{ confirmPresetDelete ? 'Confirm Delete' : 'Delete' }}
+                {{ confirmPresetDelete ? settings.text('preset.delete.title') : settings.text('preset.delete') }}
               </button>
-              <button v-if="confirmPresetDelete" type="button" @click="confirmPresetDelete = false">Cancel</button>
+              <button v-if="confirmPresetDelete" type="button" @click="confirmPresetDelete = false">
+                {{ settings.text('common.cancel') }}
+              </button>
             </div>
           </div>
         </div>
 
+        <div v-if="presetReorderLoadError" class="shortcut-panel-error" role="alert">
+          {{ presetReorderLoadError }}
+        </div>
+
         <div v-if="presetEditorMode" class="shortcut-preset-editor">
-          <strong>{{ presetEditorMode === 'add' ? 'Add Preset' : 'Rename Preset' }}</strong>
+          <strong>{{ presetEditorMode === 'add' ? settings.text('preset.add.title') : settings.text('preset.rename.title') }}</strong>
           <input v-model="presetNameDraft" type="text" @keyup.enter="savePresetEditor" />
           <div>
-            <button class="native-button" type="button" @click="cancelPresetEditor">Cancel</button>
+            <button class="native-button" type="button" @click="cancelPresetEditor">{{ settings.text('common.cancel') }}</button>
             <button
               class="native-button primary"
               type="button"
               :disabled="!presetNameDraft.trim() || shortcuts.isMutating"
               @click="savePresetEditor"
             >
-              Save
+              {{ settings.text('common.save') }}
             </button>
           </div>
         </div>
@@ -293,68 +346,14 @@ function remove(entryID: string) {
           {{ shortcuts.errorMessage }}
         </div>
 
-        <div class="ack05-stage">
-          <div class="ack05-rotator" :style="mapStyle">
-            <div class="ack05-body">
-              <div class="ack05-dial">
-                <div class="dial-center" />
-                <button
-                  class="dial-zone dial-zone-left"
-                  :class="{
-                    active: dialByDirection.counterclockwise?.active,
-                    selected: dialByDirection.counterclockwise?.selected,
-                    highlighted: dialByDirection.counterclockwise?.highlighted,
-                  }"
-                  type="button"
-                  @click="selectDial('counterclockwise')"
-                >
-                  <span class="dial-copy">
-                    <b>←</b>
-                    <small>{{ dialByDirection.counterclockwise?.assignment?.functionName ?? 'Unassigned' }}</small>
-                  </span>
-                </button>
-                <button
-                  class="dial-zone dial-zone-right"
-                  :class="{
-                    active: dialByDirection.clockwise?.active,
-                    selected: dialByDirection.clockwise?.selected,
-                    highlighted: dialByDirection.clockwise?.highlighted,
-                  }"
-                  type="button"
-                  @click="selectDial('clockwise')"
-                >
-                  <span class="dial-copy">
-                    <b>→</b>
-                    <small>{{ dialByDirection.clockwise?.assignment?.functionName ?? 'Unassigned' }}</small>
-                  </span>
-                </button>
-              </div>
-
-              <div class="ack05-side-mark" />
-
-              <button
-                v-for="id in ['k1','k2','k3','k4','k5','k6','k7','k8','k9','k10']"
-                :key="id"
-                class="ack05-key"
-                :class="[
-                  id,
-                  {
-                    pressed: keyByID[id]?.pressed,
-                    selected: keyByID[id]?.selected,
-                    highlighted: keyByID[id]?.highlighted,
-                  },
-                ]"
-                type="button"
-                @click="selectKey(id)"
-              >
-                <span class="key-copy">
-                  <b>{{ id.toUpperCase() }}</b>
-                  <small v-if="keyByID[id]?.assignment">{{ keyByID[id]?.assignment?.functionName }}</small>
-                </span>
-              </button>
-            </div>
-          </div>
-        </div>
+        <ACK05DeviceMap
+          :rotation-quarter-turns="panel?.rotationQuarterTurns ?? 0"
+          :keys="panel?.keys ?? []"
+          :dial="panel?.dial ?? []"
+          :unassigned-label="settings.text('common.unassigned')"
+          @select-key="selectKey"
+          @select-dial="selectDial"
+        />
 
         <div class="pressed-readout">
           <span>Input</span>
@@ -363,99 +362,107 @@ function remove(entryID: string) {
       </aside>
 
       <div class="shortcut-list-pane">
-        <div class="shortcut-editor-header">
-          <div class="native-page-title">
-            <h1>Shortcuts</h1>
-            <p>Assign ACK05 or Generic HID input to rekordbox and OverCUE actions.</p>
-          </div>
+        <div class="shortcut-editor-fixed">
+          <div class="shortcut-editor-header">
+            <div class="native-page-title">
+              <h1>{{ settings.text('shortcuts.title') }}</h1>
+            </div>
 
-          <div class="shortcut-mode-controls">
-            <div class="shortcut-mode-picker" aria-label="rekordbox mode">
+            <div class="shortcut-mode-controls">
+              <div class="shortcut-mode-picker" :aria-label="settings.text('shortcuts.mode')">
+                <button
+                  v-for="mode in modeOptions"
+                  :key="mode"
+                  type="button"
+                  :class="{ active: panel?.mode === mode }"
+                  :disabled="shortcuts.isMutating || panel?.capture.isCapturing"
+                  @click="setMode(mode)"
+                >
+                  {{ mode.toUpperCase() }}
+                </button>
+              </div>
               <button
-                v-for="mode in modeOptions"
-                :key="mode"
+                class="native-button"
                 type="button"
-                :class="{ active: panel?.mode === mode }"
+                :title="settings.text('shortcuts.reload.help')"
                 :disabled="shortcuts.isMutating || panel?.capture.isCapturing"
-                @click="setMode(mode)"
+                @click="perform(shortcuts.reloadMapping())"
               >
-                {{ mode.toUpperCase() }}
+                ↻ {{ settings.text('shortcuts.reload') }}
               </button>
             </div>
-            <button
-              class="native-button"
-              type="button"
-              :disabled="shortcuts.isMutating || panel?.capture.isCapturing"
-              @click="perform(shortcuts.reloadMapping())"
+          </div>
+
+          <div v-if="panel?.capture.overwriteMessage" class="shortcut-dialog-backdrop">
+            <section
+              class="shortcut-overwrite-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="shortcut-overwrite-title"
             >
-              ↻ Reload
+              <div class="shortcut-dialog-icon" aria-hidden="true">!</div>
+              <div class="shortcut-dialog-copy">
+                <strong id="shortcut-overwrite-title">{{ settings.text('alert.overwrite.title') }}</strong>
+                <span>{{ panel.capture.overwriteMessage }}</span>
+              </div>
+              <div class="shortcut-dialog-actions">
+                <button class="native-button" type="button" @click="perform(shortcuts.cancelOverwrite())">
+                  {{ settings.text('common.cancel') }}
+                </button>
+                <button class="native-button primary" type="button" @click="perform(shortcuts.confirmOverwrite())">
+                  {{ settings.text('alert.overwrite.action') }}
+                </button>
+              </div>
+            </section>
+          </div>
+
+          <div v-if="panel?.capture.isCapturing && !panel.capture.overwriteMessage" class="shortcut-capture-panel">
+            <div>
+              <strong>{{ settings.text('shortcuts.learn') }}</strong>
+              <span>{{ panel.capture.message ?? settings.text('message.capturePrompt') }}</span>
+            </div>
+            <button class="native-button" type="button" @click="perform(shortcuts.cancelLearn())">
+              {{ settings.text('common.cancel') }}
             </button>
           </div>
-        </div>
 
-        <div v-if="panel?.capture.overwriteMessage" class="shortcut-dialog-backdrop">
-          <section
-            class="shortcut-overwrite-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="shortcut-overwrite-title"
-          >
-            <div class="shortcut-dialog-icon" aria-hidden="true">!</div>
-            <div class="shortcut-dialog-copy">
-              <strong id="shortcut-overwrite-title">Replace existing assignment?</strong>
-              <span>{{ panel.capture.overwriteMessage }}</span>
-            </div>
-            <div class="shortcut-dialog-actions">
-              <button class="native-button" type="button" @click="perform(shortcuts.cancelOverwrite())">Cancel</button>
-              <button class="native-button primary" type="button" @click="perform(shortcuts.confirmOverwrite())">Replace</button>
-            </div>
-          </section>
-        </div>
-
-        <div v-if="panel?.capture.isCapturing && !panel.capture.overwriteMessage" class="shortcut-capture-panel">
-          <div>
-            <strong>Learn</strong>
-            <span>{{ panel.capture.message ?? 'Press an ACK05 or Generic HID input…' }}</span>
+          <div v-if="panel?.capture.error" class="shortcut-panel-error shortcut-top-error" role="alert">
+            {{ panel.capture.error }}
           </div>
-          <button class="native-button" type="button" @click="perform(shortcuts.cancelLearn())">Cancel</button>
-        </div>
 
-        <div v-if="panel?.capture.error" class="shortcut-panel-error shortcut-top-error" role="alert">
-          {{ panel.capture.error }}
-        </div>
+          <div class="shortcut-search-row">
+            <span aria-hidden="true">⌕</span>
+            <input v-model="searchText" type="search" :placeholder="settings.text('shortcuts.search')" />
+            <button v-if="searchText" type="button" @click="searchText = ''">×</button>
+          </div>
 
-        <div class="shortcut-search-row">
-          <span aria-hidden="true">⌕</span>
-          <input v-model="searchText" type="search" placeholder="Search shortcuts" />
-          <button v-if="searchText" type="button" @click="searchText = ''">×</button>
-        </div>
-
-        <div class="shortcut-mapping-summary">
-          <span class="mapping-status-dot" :class="{ error: panel?.mappingError }" />
-          <strong>{{ panel?.mappingName ?? 'Loading…' }}</strong>
-          <span>{{ panel?.entries.length ?? 0 }} actions</span>
-          <code v-if="panel?.mappingFileName">{{ panel.mappingFileName }}</code>
-          <span v-if="panel?.mappingError" class="mapping-error">{{ panel.mappingError }}</span>
+          <div class="shortcut-mapping-summary">
+            <span class="mapping-status-dot" :class="{ error: panel?.mappingError }" />
+            <strong>{{ panel?.mappingName ?? settings.text('message.loading') }}</strong>
+            <span>{{ settings.text('shortcuts.actions', panel?.entries.length ?? 0) }}</span>
+            <code v-if="panel?.mappingFileName">{{ panel.mappingFileName }}</code>
+            <span v-if="panel?.mappingError" class="mapping-error">{{ panel.mappingError }}</span>
+          </div>
         </div>
 
         <div class="shortcut-action-list">
           <div v-if="groupedEntries.length === 0" class="native-empty-state">
-            <strong>No shortcuts found.</strong>
-            <span>Try a different search.</span>
+            <strong>{{ settings.text('shortcuts.empty') }}</strong>
+            <span>{{ settings.text('shortcuts.empty.help') }}</span>
           </div>
 
           <section v-for="group in groupedEntries" :key="group.category" class="shortcut-category">
             <button class="shortcut-category-header" type="button" @click="toggleCategory(group.category)">
               <span>{{ isExpanded(group.category) ? '⌄' : '›' }}</span>
-              <strong>{{ group.category }}</strong>
+              <strong>{{ categoryLabel(group.category) }}</strong>
               <small>{{ group.entries.length }}</small>
             </button>
 
             <template v-if="isExpanded(group.category)">
               <div class="shortcut-column-header">
-                <span>FUNCTION</span>
-                <span>REKORDBOX</span>
-                <span>INPUT</span>
+                <span>{{ settings.text('shortcuts.column.function') }}</span>
+                <span>{{ settings.text('shortcuts.column.rekordbox') }}</span>
+                <span>{{ settings.text('shortcuts.column.input') }}</span>
               </div>
 
               <article
@@ -481,7 +488,9 @@ function remove(entryID: string) {
 
                 <div class="shortcut-input-cell">
                   <div class="shortcut-binding-list">
-                    <span v-if="entry.bindings.length === 0" class="shortcut-unassigned">Unassigned</span>
+                    <span v-if="entry.bindings.length === 0" class="shortcut-unassigned">
+                      {{ settings.text('common.unassigned') }}
+                    </span>
                     <template v-else>
                       <span v-for="binding in entry.bindings" :key="binding" class="shortcut-binding-chip">
                         {{ binding }}
@@ -491,7 +500,7 @@ function remove(entryID: string) {
                   <button
                     class="shortcut-row-action edit"
                     type="button"
-                    title="Learn input"
+                    :title="settings.text('shortcuts.edit.help')"
                     :disabled="shortcuts.isMutating || panel?.capture.isCapturing"
                     @click="learn(entry.id)"
                   >
@@ -500,7 +509,7 @@ function remove(entryID: string) {
                   <button
                     class="shortcut-row-action remove"
                     type="button"
-                    title="Remove assignments"
+                    :title="settings.text('shortcuts.remove.help')"
                     :disabled="shortcuts.isMutating || panel?.capture.isCapturing || !entry.configured"
                     @click="remove(entry.id)"
                   >
@@ -512,6 +521,43 @@ function remove(entryID: string) {
           </section>
         </div>
       </div>
+    </div>
+
+    <div v-if="presetReorderOpen" class="shortcut-dialog-backdrop">
+      <section class="preset-reorder-dialog" role="dialog" aria-modal="true">
+        <div class="preset-reorder-heading">
+          <div>
+            <strong>{{ settings.text('preset.reorder') }}</strong>
+            <span>{{ settings.text('preset.reorder.help') }}</span>
+          </div>
+          <button
+            class="native-button"
+            type="button"
+            :disabled="isReorderingPresets"
+            @click="presetReorderOpen = false"
+          >
+            {{ settings.text('common.close') }}
+          </button>
+        </div>
+
+        <p v-if="presetReorderError" class="shortcut-panel-error" role="alert">{{ presetReorderError }}</p>
+
+        <div ref="presetReorderElement" class="preset-reorder-list" :class="{ 'is-saving': isReorderingPresets }">
+          <article
+            v-for="preset in presets.items"
+            :key="preset.id"
+            class="native-list-row"
+            :data-sortable-id="preset.id"
+          >
+            <button class="drag-handle" type="button" :aria-label="settings.text('preset.reorder')">⋮⋮</button>
+            <span class="order-chip">{{ preset.order }}</span>
+            <div class="row-main">
+              <strong>{{ preset.name }}</strong>
+              <span>{{ preset.rekordboxMode?.toUpperCase() ?? '—' }}</span>
+            </div>
+          </article>
+        </div>
+      </section>
     </div>
   </section>
 </template>
