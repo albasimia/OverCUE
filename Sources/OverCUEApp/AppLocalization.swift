@@ -49,6 +49,12 @@ final class AppLocalization: ObservableObject {
         )
     }
 
+    /// The Web UI consumes the same localization table as SwiftUI so there is
+    /// only one source of translated interface strings.
+    var currentTable: [String: String] {
+        tables[language] ?? tables[.english] ?? [:]
+    }
+
     private static func load(language: AppLanguage) -> [String: String] {
         let url = AppResources.bundle.url(
             forResource: language.rawValue,
