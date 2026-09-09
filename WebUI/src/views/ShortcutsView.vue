@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import type {
   RekordboxMode,
   ShortcutDialDirection,
@@ -93,12 +93,39 @@ function perform(action: Promise<unknown>) {
   void action.catch(() => undefined)
 }
 
-function selectKey(keyID: string) {
-  perform(shortcuts.selectKey(keyID))
+async function revealSelectedEntry() {
+  const entryID = shortcuts.panel?.selectedEntryID
+  if (!entryID) return
+  const entry = shortcuts.panel?.entries.find((candidate) => candidate.id === entryID)
+  if (!entry) return
+
+  const next = new Set(expandedCategories.value)
+  next.add(entry.category)
+  expandedCategories.value = next
+  await nextTick()
+
+  const row = Array.from(
+    document.querySelectorAll<HTMLElement>('[data-shortcut-entry-id]'),
+  ).find((element) => element.dataset.shortcutEntryId === entryID)
+  row?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
 }
 
-function selectDial(direction: ShortcutDialDirection) {
-  perform(shortcuts.selectDial(direction))
+async function selectKey(keyID: string) {
+  try {
+    await shortcuts.selectKey(keyID)
+    await revealSelectedEntry()
+  } catch {
+    // Store exposes the native error message.
+  }
+}
+
+async function selectDial(direction: ShortcutDialDirection) {
+  try {
+    await shortcuts.selectDial(direction)
+    await revealSelectedEntry()
+  } catch {
+    // Store exposes the native error message.
+  }
 }
 
 function selectEntry(entryID: string) {
@@ -362,18 +389,26 @@ function remove(entryID: string) {
           </div>
         </div>
 
-        <div v-if="panel?.capture.overwriteMessage" class="shortcut-overwrite-panel">
-          <div>
-            <strong>Replace existing assignment?</strong>
-            <span>{{ panel.capture.overwriteMessage }}</span>
-          </div>
-          <div class="shortcut-capture-actions">
-            <button class="native-button" type="button" @click="perform(shortcuts.cancelOverwrite())">Cancel</button>
-            <button class="native-button primary" type="button" @click="perform(shortcuts.confirmOverwrite())">Replace</button>
-          </div>
+        <div v-if="panel?.capture.overwriteMessage" class="shortcut-dialog-backdrop">
+          <section
+            class="shortcut-overwrite-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="shortcut-overwrite-title"
+          >
+            <div class="shortcut-dialog-icon" aria-hidden="true">!</div>
+            <div class="shortcut-dialog-copy">
+              <strong id="shortcut-overwrite-title">Replace existing assignment?</strong>
+              <span>{{ panel.capture.overwriteMessage }}</span>
+            </div>
+            <div class="shortcut-dialog-actions">
+              <button class="native-button" type="button" @click="perform(shortcuts.cancelOverwrite())">Cancel</button>
+              <button class="native-button primary" type="button" @click="perform(shortcuts.confirmOverwrite())">Replace</button>
+            </div>
+          </section>
         </div>
 
-        <div v-else-if="panel?.capture.isCapturing" class="shortcut-capture-panel">
+        <div v-if="panel?.capture.isCapturing && !panel.capture.overwriteMessage" class="shortcut-capture-panel">
           <div>
             <strong>Learn</strong>
             <span>{{ panel.capture.message ?? 'Press an ACK05 or Generic HID input…' }}</span>
@@ -428,6 +463,7 @@ function remove(entryID: string) {
                   configured: entry.configured,
                   learning: panel?.capture.entryID === entry.id,
                 }"
+                :data-shortcut-entry-id="entry.id"
               >
                 <button class="shortcut-function-cell" type="button" @click="selectEntry(entry.id)">
                   <span class="configured-mark">{{ entry.configured ? '●' : '○' }}</span>
