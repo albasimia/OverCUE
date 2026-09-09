@@ -144,6 +144,9 @@ export type ShortcutEditorAction =
   | 'selectKey'
   | 'selectDial'
   | 'setPreset'
+  | 'addPreset'
+  | 'renamePreset'
+  | 'deletePreset'
   | 'setMode'
   | 'reload'
   | 'beginLearn'
@@ -160,6 +163,7 @@ export interface ShortcutEditorCommand {
   direction?: ShortcutDialDirection
   presetID?: string
   mode?: RekordboxMode
+  name?: string
 }
 
 export interface ReorderRequest {
