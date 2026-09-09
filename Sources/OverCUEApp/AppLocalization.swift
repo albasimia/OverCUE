@@ -49,7 +49,7 @@ final class AppLocalization: ObservableObject {
         )
     }
 
-    /// The Web UI consumes the same localization table as SwiftUI. A tiny set
+    /// The Web UI consumes the same localization table as SwiftUI. A small set
     /// of Web-only UI labels is merged here so translated copy remains owned by
     /// the native localization boundary rather than duplicated in Vue.
     var currentTable: [String: String] {
@@ -63,7 +63,13 @@ final class AppLocalization: ObservableObject {
 
     private static let webInterfaceAdditions: [AppLanguage: [String: String]] = [
         .japanese: [
+            "app.localAPI": "Local API",
             "common.close": "閉じる",
+            "common.savingOrder": "並び順を保存中…",
+            "common.active": "有効",
+            "common.activate": "有効にする",
+            "devices.connection": "接続",
+            "groupPreset.assignments": "%d台のデバイス",
             "preset.reorder": "プリセットを並び替え",
             "preset.reorder.help": "ハンドルをドラッグしてプリセット順を変更します。",
             "shortcuts.learn": "Learn",
@@ -71,7 +77,13 @@ final class AppLocalization: ObservableObject {
             "shortcuts.column.input": "入力",
         ],
         .english: [
+            "app.localAPI": "Local API",
             "common.close": "Close",
+            "common.savingOrder": "Saving order…",
+            "common.active": "Active",
+            "common.activate": "Activate",
+            "devices.connection": "Connection",
+            "groupPreset.assignments": "%d device assignments",
             "preset.reorder": "Reorder Presets",
             "preset.reorder.help": "Drag the handles to change Preset order.",
             "shortcuts.learn": "Learn",
@@ -79,7 +91,13 @@ final class AppLocalization: ObservableObject {
             "shortcuts.column.input": "Input",
         ],
         .simplifiedChinese: [
+            "app.localAPI": "Local API",
             "common.close": "关闭",
+            "common.savingOrder": "正在保存顺序…",
+            "common.active": "已启用",
+            "common.activate": "启用",
+            "devices.connection": "连接",
+            "groupPreset.assignments": "%d 个设备分配",
             "preset.reorder": "重新排序预设",
             "preset.reorder.help": "拖动手柄以更改预设顺序。",
             "shortcuts.learn": "Learn",
