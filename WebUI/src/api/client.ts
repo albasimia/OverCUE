@@ -13,6 +13,7 @@ import type {
   OverCUESnapshot,
   ReorderRequest,
   ShortcutEditorCommand,
+  ShortcutLiveState,
   ShortcutPanelState,
 } from './types'
 
@@ -87,6 +88,7 @@ async function writeRequest<T>(path: string, body: unknown): Promise<T> {
 export const overcueAPI = {
   snapshot: () => request<OverCUESnapshot>('/snapshot'),
   shortcutPanel: () => request<ShortcutPanelState>('/shortcuts/panel'),
+  shortcutLive: () => request<ShortcutLiveState>('/shortcuts/live'),
   shortcutCommand: (command: ShortcutEditorCommand) => writeRequest<ShortcutPanelState>(
     '/shortcuts/panel',
     command,
