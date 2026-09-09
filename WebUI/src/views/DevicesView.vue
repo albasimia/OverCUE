@@ -9,6 +9,7 @@ const groupPresets = useGroupPresetsStore()
 const selectedID = ref<string | null>(null)
 const nameDraft = ref('')
 const actionError = ref<string | null>(null)
+const confirmForget = ref(false)
 
 const selectedDevice = computed(() =>
   devices.items.find((device) => device.id === selectedID.value) ?? devices.items[0] ?? null,
@@ -33,6 +34,7 @@ watch(
   (device) => {
     nameDraft.value = device?.name ?? ''
     actionError.value = null
+    confirmForget.value = false
   },
   { immediate: true },
 )
@@ -47,13 +49,19 @@ async function perform(action: () => Promise<unknown>) {
 }
 
 function beginAdd(kind: DeviceKind) {
+  confirmForget.value = false
   void perform(() => devices.beginAdd(kind))
 }
 
 function beginRebind(kind?: DeviceKind) {
   const device = selectedDevice.value
   if (!device) return
+  confirmForget.value = false
   void perform(() => devices.beginRebind(device.id, kind))
+}
+
+function cancelIdentify() {
+  void perform(() => devices.cancelIdentify())
 }
 
 function saveName() {
@@ -73,6 +81,11 @@ function setProfile(event: Event) {
 function forgetBinding() {
   const device = selectedDevice.value
   if (!device) return
+  if (!confirmForget.value) {
+    confirmForget.value = true
+    return
+  }
+  confirmForget.value = false
   void perform(() => devices.forgetBinding(device.id))
 }
 
@@ -126,6 +139,21 @@ onBeforeUnmount(() => {
           ＋ Add Generic HID
         </button>
 
+        <div v-if="devices.isIdentifying" class="device-identify-panel compact">
+          <div>
+            <strong>Identify device</strong>
+            <span>
+              Waiting for {{ devices.management.identifyKind === 'genericHID' ? 'Generic HID' : 'ACK05' }} input ·
+              {{ devices.management.identifyCandidateCount }} candidates
+            </span>
+          </div>
+          <button class="native-button" type="button" @click="cancelIdentify">Cancel</button>
+        </div>
+
+        <p v-if="actionError || devices.management.errorMessage || devices.errorMessage" class="device-status error">
+          {{ actionError ?? devices.management.errorMessage ?? devices.errorMessage }}
+        </p>
+
         <div v-if="devices.items.length === 0" class="native-empty-state">
           <div class="empty-icon">⌘</div>
           <strong>No devices loaded.</strong>
@@ -159,19 +187,6 @@ onBeforeUnmount(() => {
           <div class="native-page-title">
             <h1>{{ selectedDevice.name }}</h1>
             <p>Logical Device</p>
-          </div>
-
-          <div v-if="devices.isIdentifying" class="device-identify-panel">
-            <div>
-              <strong>Identify device</strong>
-              <span>
-                Waiting for {{ devices.management.identifyKind === 'genericHID' ? 'Generic HID' : 'ACK05' }} input ·
-                {{ devices.management.identifyCandidateCount }} candidates
-              </span>
-            </div>
-            <button class="native-button" type="button" @click="perform(() => devices.cancelIdentify())">
-              Cancel
-            </button>
           </div>
 
           <div class="native-detail-card">
@@ -253,7 +268,15 @@ onBeforeUnmount(() => {
                   :disabled="devices.isMutating || devices.isIdentifying"
                   @click="forgetBinding"
                 >
-                  Forget Binding
+                  {{ confirmForget ? 'Confirm Forget' : 'Forget Binding' }}
+                </button>
+                <button
+                  v-if="confirmForget"
+                  class="native-button"
+                  type="button"
+                  @click="confirmForget = false"
+                >
+                  Cancel
                 </button>
               </template>
               <template v-else>
@@ -279,9 +302,6 @@ onBeforeUnmount(() => {
 
           <p v-if="devices.management.statusMessage" class="device-status success">
             {{ devices.management.statusMessage }}
-          </p>
-          <p v-if="actionError || devices.management.errorMessage || devices.errorMessage" class="device-status error">
-            {{ actionError ?? devices.management.errorMessage ?? devices.errorMessage }}
           </p>
         </div>
 
