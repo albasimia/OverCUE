@@ -1,0 +1,64 @@
+.shortcut-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, .52);
+  backdrop-filter: blur(6px);
+}
+
+.shortcut-overwrite-dialog {
+  width: min(480px, calc(100vw - 48px));
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid color-mix(in srgb, var(--oc-warning) 48%, var(--oc-border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--oc-control-raised) 94%, black);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .55);
+}
+
+.shortcut-dialog-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #171300;
+  background: var(--oc-warning);
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.shortcut-dialog-copy {
+  min-width: 0;
+}
+
+.shortcut-dialog-copy strong,
+.shortcut-dialog-copy span {
+  display: block;
+}
+
+.shortcut-dialog-copy strong {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.shortcut-dialog-copy span {
+  margin-top: 7px;
+  color: var(--oc-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+.shortcut-dialog-actions {
+  grid-column: 2;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
