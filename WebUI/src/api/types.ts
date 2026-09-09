@@ -139,6 +139,22 @@ export interface ShortcutPanelState {
   capture: ShortcutCaptureState
 }
 
+export interface ShortcutLiveKeyState {
+  id: string
+  pressed: boolean
+}
+
+export interface ShortcutLiveDialState {
+  direction: ShortcutDialDirection
+  active: boolean
+}
+
+export interface ShortcutLiveState {
+  keys: ShortcutLiveKeyState[]
+  dial: ShortcutLiveDialState[]
+  capture: ShortcutCaptureState
+}
+
 export type ShortcutEditorAction =
   | 'selectEntry'
   | 'selectKey'
