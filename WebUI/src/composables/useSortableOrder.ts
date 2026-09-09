@@ -42,12 +42,15 @@ export function useSortableOrder(options: SortableOrderOptions) {
     }
   }
 
-  onMounted(() => {
-    if (!options.element.value) return
-    sortable = Sortable.create(options.element.value, {
+  function attach(element: HTMLElement | null) {
+    sortable?.destroy()
+    sortable = null
+    if (!element) return
+
+    sortable = Sortable.create(element, {
       animation: 140,
       handle: '.drag-handle',
-      draggable: '.list-row[data-sortable-id]',
+      draggable: '[data-sortable-id]',
       dataIdAttr: 'data-sortable-id',
       ghostClass: 'drag-ghost',
       chosenClass: 'drag-chosen',
@@ -55,7 +58,15 @@ export function useSortableOrder(options: SortableOrderOptions) {
         void persistDOMOrder()
       },
     })
-  })
+  }
+
+  onMounted(() => attach(options.element.value))
+
+  watch(
+    options.element,
+    (element) => attach(element),
+    { flush: 'post' },
+  )
 
   watch(
     () => options.currentIDs().join('\u0000'),
