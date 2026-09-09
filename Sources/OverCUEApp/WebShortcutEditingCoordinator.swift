@@ -332,16 +332,24 @@ final class WebShortcutEditingCoordinator {
             reloadGenericBindings(shortcutModel: shortcutModel)
 
         case .confirmOverwrite:
-            guard shortcutModel.overwriteConfirmation != nil else {
+            if genericHIDModel.overwriteConfirmation != nil {
+                genericHIDModel.confirmOverwrite(shortcutModel: shortcutModel)
+            } else if shortcutModel.overwriteConfirmation != nil {
+                shortcutModel.confirmOverwrite()
+            } else {
                 throw WebShortcutEditingError.noOverwriteConfirmation
             }
-            shortcutModel.confirmOverwrite()
+            reloadGenericBindings(shortcutModel: shortcutModel)
 
         case .cancelOverwrite:
-            guard shortcutModel.overwriteConfirmation != nil else {
+            if genericHIDModel.overwriteConfirmation != nil {
+                genericHIDModel.cancelOverwrite(shortcutModel: shortcutModel)
+            } else if shortcutModel.overwriteConfirmation != nil {
+                shortcutModel.cancelOverwrite()
+            } else {
                 throw WebShortcutEditingError.noOverwriteConfirmation
             }
-            shortcutModel.cancelOverwrite()
+            reloadGenericBindings(shortcutModel: shortcutModel)
 
         case .rotateDevice:
             guard !hasActiveCapture(shortcutModel: shortcutModel) else {
@@ -357,7 +365,8 @@ final class WebShortcutEditingCoordinator {
             entryID: genericHIDModel.captureEntryID ?? shortcutModel.editingEntryID,
             message: genericHIDModel.captureMessage ?? shortcutModel.captureMessage,
             error: genericHIDModel.errorMessage ?? shortcutModel.captureError,
-            overwriteMessage: shortcutModel.overwriteConfirmation?.message
+            overwriteMessage: genericHIDModel.overwriteConfirmation?.message
+                ?? shortcutModel.overwriteConfirmation?.message
         )
     }
 
