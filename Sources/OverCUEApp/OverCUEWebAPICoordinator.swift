@@ -116,34 +116,6 @@ private struct WebAPISnapshot: Encodable {
     let runtime: WebAPIRuntimeStatus
 }
 
-private struct WebAPIShortcutAssignment: Encodable {
-    let functionName: String
-    let shortcut: String?
-}
-
-private struct WebAPIShortcutKeyState: Encodable {
-    let id: String
-    let assignment: WebAPIShortcutAssignment?
-    let pressed: Bool
-}
-
-private struct WebAPIShortcutDialState: Encodable {
-    let direction: String
-    let assignment: WebAPIShortcutAssignment?
-    let active: Bool
-}
-
-private struct WebAPIShortcutPanel: Encodable {
-    let deviceKind: String
-    let deviceName: String
-    let rotationQuarterTurns: Int
-    let presetID: String?
-    let presetName: String?
-    let presetOrder: Int?
-    let keys: [WebAPIShortcutKeyState]
-    let dial: [WebAPIShortcutDialState]
-}
-
 @MainActor
 final class OverCUEWebAPICoordinator: ObservableObject {
     @Published private(set) var errorMessage: String?
@@ -162,6 +134,7 @@ final class OverCUEWebAPICoordinator: ObservableObject {
     private var sessionToken = UUID().uuidString.lowercased()
     private let webUIAssets = OverCUEWebUIAssetStore()
     private let groupPresetModel = GroupPresetManagementModel()
+    private let shortcutEditingModel = WebShortcutEditingCoordinator()
     private var deviceIdentifyRestoreTask: Task<Void, Never>?
     private var restoreRuntimeAfterDeviceIdentify = false
 
@@ -212,7 +185,26 @@ final class OverCUEWebAPICoordinator: ObservableObject {
                 return try jsonResponse(makeSnapshot())
 
             case ("GET", "/api/v1/shortcuts/panel"):
-                return try jsonResponse(makeShortcutPanel())
+                return try jsonResponse(makeShortcutEditorPanel())
+
+            case ("PUT", "/api/v1/shortcuts/panel"):
+                guard let rejection = validateWrite(request) else {
+                    let payload = try JSONDecoder().decode(WebShortcutEditorCommand.self, from: request.body)
+                    guard let shortcutModel else { throw Self.modelsUnavailableError }
+                    if payload.action == .beginLearn, deviceModel?.isIdentifying == true {
+                        throw NSError(
+                            domain: "OverCUE.WebAPI.Shortcuts",
+                            code: 1,
+                            userInfo: [
+                                NSLocalizedDescriptionKey:
+                                    "Finish or cancel device identification before starting Learn."
+                            ]
+                        )
+                    }
+                    try shortcutEditingModel.perform(payload, shortcutModel: shortcutModel)
+                    return try jsonResponse(shortcutEditingModel.makePanel(shortcutModel: shortcutModel))
+                }
+                return rejection
 
             case ("PUT", "/api/v1/presets/order"):
                 guard let rejection = validateWrite(request) else {
@@ -365,6 +357,8 @@ final class OverCUEWebAPICoordinator: ObservableObject {
             return Self.errorResponse(statusCode: 422, reason: "Unprocessable Content", error.localizedDescription)
         } catch let error as GroupPresetManagementError {
             return Self.errorResponse(statusCode: 422, reason: "Unprocessable Content", error.localizedDescription)
+        } catch let error as WebShortcutEditingError {
+            return Self.errorResponse(statusCode: 422, reason: "Unprocessable Content", error.localizedDescription)
         } catch {
             return Self.errorResponse(statusCode: 500, reason: "Internal Server Error", error.localizedDescription)
         }
@@ -463,58 +457,17 @@ final class OverCUEWebAPICoordinator: ObservableObject {
         )
     }
 
-    private func makeShortcutPanel() throws -> WebAPIShortcutPanel {
-        guard let shortcutModel else {
-            throw NSError(
-                domain: "OverCUE.WebAPI",
-                code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "Shortcut model is not attached."]
-            )
-        }
-
-        let preset = shortcutModel.availablePresetGroups.indices.contains(shortcutModel.selectedGroup - 1)
-            ? shortcutModel.availablePresetGroups[shortcutModel.selectedGroup - 1]
-            : nil
-
-        let keys = ACK05Key.allCases.map { key in
-            WebAPIShortcutKeyState(
-                id: key.rawValue,
-                assignment: shortcutModel.deviceAssignment(to: key).map {
-                    WebAPIShortcutAssignment(functionName: $0.functionName, shortcut: $0.shortcut)
-                },
-                pressed: shortcutModel.pressedDeviceKeys.contains(key)
-            )
-        }
-
-        let dialDirections: [(DialDirection, String)] = [
-            (.counterclockwise, "counterclockwise"),
-            (.clockwise, "clockwise"),
-        ]
-        let dial = dialDirections.map { direction, value in
-            WebAPIShortcutDialState(
-                direction: value,
-                assignment: shortcutModel.dialAssignment(direction).map {
-                    WebAPIShortcutAssignment(functionName: $0.functionName, shortcut: $0.shortcut)
-                },
-                active: shortcutModel.activeDialDirection == direction
-            )
-        }
-
-        return WebAPIShortcutPanel(
-            deviceKind: "ack05",
-            deviceName: "ACK05",
-            rotationQuarterTurns: shortcutModel.rotationQuarterTurns,
-            presetID: preset?.id,
-            presetName: preset?.name,
-            presetOrder: preset?.order,
-            keys: keys,
-            dial: dial
-        )
+    private func makeShortcutEditorPanel() throws -> WebShortcutEditorPanel {
+        guard let shortcutModel else { throw Self.modelsUnavailableError }
+        return shortcutEditingModel.makePanel(shortcutModel: shortcutModel)
     }
 
     private func beginDeviceIdentify(_ action: () throws -> Void) throws {
         guard let shortcutModel, let deviceModel else {
             throw Self.modelsUnavailableError
+        }
+        guard !shortcutModel.isCapturing else {
+            throw WebShortcutEditingError.captureInProgress
         }
 
         deviceIdentifyRestoreTask?.cancel()
