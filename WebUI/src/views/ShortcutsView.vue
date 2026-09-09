@@ -10,6 +10,7 @@ import { useShortcutsStore } from '../stores/shortcuts'
 const shortcuts = useShortcutsStore()
 const searchText = ref('')
 const expandedCategories = ref(new Set<string>(['OverCUE', 'Deck 1']))
+const modeOptions: RekordboxMode[] = ['export', 'performance']
 
 onMounted(() => {
   void shortcuts.startPolling()
@@ -230,7 +231,7 @@ function remove(entryID: string) {
           <div class="shortcut-mode-controls">
             <div class="shortcut-mode-picker" aria-label="rekordbox mode">
               <button
-                v-for="mode in (['export', 'performance'] as RekordboxMode[])"
+                v-for="mode in modeOptions"
                 :key="mode"
                 type="button"
                 :class="{ active: panel?.mode === mode }"
@@ -331,9 +332,11 @@ function remove(entryID: string) {
                 <div class="shortcut-input-cell">
                   <div class="shortcut-binding-list">
                     <span v-if="entry.bindings.length === 0" class="shortcut-unassigned">Unassigned</span>
-                    <span v-for="binding in entry.bindings" v-else :key="binding" class="shortcut-binding-chip">
-                      {{ binding }}
-                    </span>
+                    <template v-else>
+                      <span v-for="binding in entry.bindings" :key="binding" class="shortcut-binding-chip">
+                        {{ binding }}
+                      </span>
+                    </template>
                   </div>
                   <button
                     class="shortcut-row-action edit"
