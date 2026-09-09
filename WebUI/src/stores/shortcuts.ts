@@ -6,6 +6,7 @@ import type {
   ShortcutEditorCommand,
   ShortcutPanelState,
 } from '../api/types'
+import { useSettingsStore } from './settings'
 
 function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
@@ -27,6 +28,7 @@ export const useShortcutsStore = defineStore('shortcuts', {
         const nextPanel = await overcueAPI.shortcutPanel()
         if (this.isMutating) return
         this.panel = nextPanel
+        useSettingsStore().replace(nextPanel.localization)
         this.errorMessage = null
       } catch (error) {
         if (this.isMutating) return
@@ -77,7 +79,9 @@ export const useShortcutsStore = defineStore('shortcuts', {
       if (this.isMutating) return
       this.isMutating = true
       try {
-        this.panel = await overcueAPI.shortcutCommand(command)
+        const nextPanel = await overcueAPI.shortcutCommand(command)
+        this.panel = nextPanel
+        useSettingsStore().replace(nextPanel.localization)
         this.errorMessage = null
       } catch (error) {
         this.errorMessage = error instanceof Error ? error.message : String(error)
