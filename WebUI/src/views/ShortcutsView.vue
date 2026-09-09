@@ -99,6 +99,10 @@ async function revealSelectedEntry() {
   const entry = shortcuts.panel?.entries.find((candidate) => candidate.id === entryID)
   if (!entry) return
 
+  if (!filteredEntries.value.some((candidate) => candidate.id === entryID)) {
+    searchText.value = ''
+  }
+
   const next = new Set(expandedCategories.value)
   next.add(entry.category)
   expandedCategories.value = next
