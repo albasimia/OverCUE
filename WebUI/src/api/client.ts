@@ -12,6 +12,7 @@ import type {
   GroupPresetRenameRequest,
   OverCUESnapshot,
   ReorderRequest,
+  ShortcutEditorCommand,
   ShortcutPanelState,
 } from './types'
 
@@ -86,6 +87,10 @@ async function writeRequest<T>(path: string, body: unknown): Promise<T> {
 export const overcueAPI = {
   snapshot: () => request<OverCUESnapshot>('/snapshot'),
   shortcutPanel: () => request<ShortcutPanelState>('/shortcuts/panel'),
+  shortcutCommand: (command: ShortcutEditorCommand) => writeRequest<ShortcutPanelState>(
+    '/shortcuts/panel',
+    command,
+  ),
   reorderPresets: (ids: string[]) => writeRequest<OverCUESnapshot>(
     '/presets/order',
     { ids } satisfies ReorderRequest,
