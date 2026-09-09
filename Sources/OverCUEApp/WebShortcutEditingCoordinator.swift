@@ -18,6 +18,7 @@ struct WebShortcutEditorCommand: Decodable {
         case confirmOverwrite
         case cancelOverwrite
         case rotateDevice
+        case setLanguage
     }
 
     let action: Action
@@ -27,6 +28,7 @@ struct WebShortcutEditorCommand: Decodable {
     let presetID: String?
     let mode: String?
     let name: String?
+    let language: String?
 }
 
 struct WebShortcutPresetOption: Encodable {
@@ -76,6 +78,17 @@ struct WebShortcutCaptureSummary: Encodable {
     let overwriteMessage: String?
 }
 
+struct WebLanguageOption: Encodable {
+    let id: String
+    let name: String
+}
+
+struct WebLocalizationSummary: Encodable {
+    let language: String
+    let languages: [WebLanguageOption]
+    let strings: [String: String]
+}
+
 struct WebShortcutEditorPanel: Encodable {
     let deviceKind: String
     let deviceName: String
@@ -95,6 +108,7 @@ struct WebShortcutEditorPanel: Encodable {
     let dial: [WebShortcutDialSummary]
     let entries: [WebShortcutEntrySummary]
     let capture: WebShortcutCaptureSummary
+    let localization: WebLocalizationSummary
 }
 
 struct WebShortcutLiveKeySummary: Encodable {
@@ -204,7 +218,8 @@ final class WebShortcutEditingCoordinator {
             keys: keys,
             dial: dial,
             entries: entries,
-            capture: captureSummary(shortcutModel: shortcutModel)
+            capture: captureSummary(shortcutModel: shortcutModel),
+            localization: localizationSummary()
         )
     }
 
@@ -356,6 +371,15 @@ final class WebShortcutEditingCoordinator {
                 throw WebShortcutEditingError.captureInProgress
             }
             shortcutModel.rotateDevice()
+
+        case .setLanguage:
+            guard !hasActiveCapture(shortcutModel: shortcutModel) else {
+                throw WebShortcutEditingError.captureInProgress
+            }
+            guard let rawLanguage = command.language,
+                  let language = AppLanguage(rawValue: rawLanguage)
+            else { throw WebShortcutEditingError.invalidLanguage }
+            AppLocalization.shared.setLanguage(language)
         }
     }
 
@@ -367,6 +391,17 @@ final class WebShortcutEditingCoordinator {
             error: genericHIDModel.errorMessage ?? shortcutModel.captureError,
             overwriteMessage: genericHIDModel.overwriteConfirmation?.message
                 ?? shortcutModel.overwriteConfirmation?.message
+        )
+    }
+
+    private func localizationSummary() -> WebLocalizationSummary {
+        let localization = AppLocalization.shared
+        return WebLocalizationSummary(
+            language: localization.language.rawValue,
+            languages: AppLanguage.allCases.map {
+                WebLanguageOption(id: $0.rawValue, name: $0.nativeName)
+            },
+            strings: localization.currentTable
         )
     }
 
@@ -423,6 +458,7 @@ enum WebShortcutEditingError: LocalizedError {
     case presetMissing
     case invalidPresetName
     case invalidMode
+    case invalidLanguage
     case captureInProgress
     case noOverwriteConfirmation
     case deviceIdentifyInProgress
@@ -442,6 +478,8 @@ enum WebShortcutEditingError: LocalizedError {
             "Preset name is required."
         case .invalidMode:
             "rekordbox mode is invalid."
+        case .invalidLanguage:
+            "Display language is invalid."
         case .captureInProgress:
             "Finish or cancel Learn before changing this setting."
         case .noOverwriteConfirmation:
