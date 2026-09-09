@@ -7,6 +7,9 @@ struct WebShortcutEditorCommand: Decodable {
         case selectKey
         case selectDial
         case setPreset
+        case addPreset
+        case renamePreset
+        case deletePreset
         case setMode
         case reload
         case beginLearn
@@ -23,6 +26,7 @@ struct WebShortcutEditorCommand: Decodable {
     let direction: String?
     let presetID: String?
     let mode: String?
+    let name: String?
 }
 
 struct WebShortcutPresetOption: Encodable {
@@ -97,6 +101,8 @@ struct WebShortcutEditorPanel: Encodable {
 final class WebShortcutEditingCoordinator {
     private let genericHIDModel = GenericHIDShortcutCaptureModel()
     private var loadedGenericPresetID: String?
+
+    var isCapturing: Bool { genericHIDModel.isCapturing }
 
     func makePanel(shortcutModel: ShortcutSettingsModel) -> WebShortcutEditorPanel {
         ensureGenericBindingsLoaded(shortcutModel: shortcutModel)
@@ -225,6 +231,33 @@ final class WebShortcutEditingCoordinator {
             shortcutModel.setGroup(index + 1)
             reloadGenericBindings(shortcutModel: shortcutModel)
 
+        case .addPreset:
+            guard !isCapturing(shortcutModel) else {
+                throw WebShortcutEditingError.captureInProgress
+            }
+            guard let name = command.name else { throw WebShortcutEditingError.invalidPresetName }
+            let result = try PresetGroupStore.add(name: name, mode: shortcutModel.mode)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self, weak shortcutModel] in
+                guard let self, let shortcutModel else { return }
+                shortcutModel.setGroup(result.index)
+                self.reloadGenericBindings(shortcutModel: shortcutModel)
+            }
+
+        case .renamePreset:
+            guard !isCapturing(shortcutModel) else {
+                throw WebShortcutEditingError.captureInProgress
+            }
+            guard let presetID = command.presetID else { throw WebShortcutEditingError.presetMissing }
+            guard let name = command.name else { throw WebShortcutEditingError.invalidPresetName }
+            try PresetGroupStore.rename(id: presetID, name: name)
+
+        case .deletePreset:
+            guard !isCapturing(shortcutModel) else {
+                throw WebShortcutEditingError.captureInProgress
+            }
+            guard let presetID = command.presetID else { throw WebShortcutEditingError.presetMissing }
+            _ = try PresetGroupStore.delete(id: presetID)
+
         case .setMode:
             guard let rawMode = command.mode,
                   let mode = RekordboxMappingMode(rawValue: rawMode)
@@ -324,9 +357,11 @@ enum WebShortcutEditingError: LocalizedError {
     case invalidKey
     case invalidDialDirection
     case presetMissing
+    case invalidPresetName
     case invalidMode
     case captureInProgress
     case noOverwriteConfirmation
+    case deviceIdentifyInProgress
 
     var errorDescription: String? {
         switch self {
@@ -338,12 +373,16 @@ enum WebShortcutEditingError: LocalizedError {
             "Dial direction is invalid."
         case .presetMissing:
             "Preset is not available."
+        case .invalidPresetName:
+            "Preset name is required."
         case .invalidMode:
             "rekordbox mode is invalid."
         case .captureInProgress:
             "Finish or cancel Learn before changing this setting."
         case .noOverwriteConfirmation:
             "There is no pending overwrite confirmation."
+        case .deviceIdentifyInProgress:
+            "Finish or cancel device identification before starting Learn."
         }
     }
 }
