@@ -50,8 +50,16 @@ The native app exposes:
 - `PUT /api/v1/group-presets/delete`
 - `PUT /api/v1/group-presets/include`
 - `PUT /api/v1/group-presets/assignment`
+- `PUT /api/v1/devices/add`
+- `PUT /api/v1/devices/rebind`
+- `PUT /api/v1/devices/identify/cancel`
+- `PUT /api/v1/devices/rename`
+- `PUT /api/v1/devices/profile`
+- `PUT /api/v1/devices/forget-binding`
 
 Group Preset writes reuse `GroupPresetManagementModel`, so native SwiftUI and Web UI share the same validation and configuration mutation rules. Snapshot device entries include the Presets available for that Logical Device's profile so assignment UIs do not need a second lookup API.
+
+Device writes reuse the shared `DeviceManagementModel`. Device identify pauses the controller runtime without changing the persisted Controller Input preference, then restores runtime after successful identification, failure, or cancellation. Snapshot device entries expose binding identity, profile options, and current identify state/candidate count so the Web UI can render the same lifecycle as the SwiftUI Devices surface.
 
 Write requests require the startup-scoped token returned by `/session` in `X-OverCUE-Session`. The API binds only to `127.0.0.1`, does not emit permissive CORS headers, and rejects non-loopback browser origins for writes.
 
