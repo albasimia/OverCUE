@@ -24,33 +24,39 @@ export const useShortcutsStore = defineStore('shortcuts', {
     async refresh() {
       if (this.isMutating) return
       try {
-        this.panel = await overcueAPI.shortcutPanel()
+        const nextPanel = await overcueAPI.shortcutPanel()
+        if (this.isMutating) return
+        this.panel = nextPanel
         this.errorMessage = null
       } catch (error) {
+        if (this.isMutating) return
         this.errorMessage = error instanceof Error ? error.message : String(error)
       }
     },
 
     async refreshLive() {
       if (this.isMutating) return
-      if (!this.panel) {
+      const currentPanel = this.panel
+      if (!currentPanel) {
         await this.refresh()
         return
       }
 
       try {
-        const previousCapture = this.panel.capture.isCapturing
+        const previousCapture = currentPanel.capture.isCapturing
         const live = await overcueAPI.shortcutLive()
+        if (this.isMutating || this.panel !== currentPanel) return
+
         const pressedByID = new Map(live.keys.map((key) => [key.id, key.pressed]))
         const activeByDirection = new Map(live.dial.map((dial) => [dial.direction, dial.active]))
 
         this.panel = {
-          ...this.panel,
-          keys: this.panel.keys.map((key) => ({
+          ...currentPanel,
+          keys: currentPanel.keys.map((key) => ({
             ...key,
             pressed: pressedByID.get(key.id) ?? false,
           })),
-          dial: this.panel.dial.map((dial) => ({
+          dial: currentPanel.dial.map((dial) => ({
             ...dial,
             active: activeByDirection.get(dial.direction) ?? false,
           })),
@@ -62,6 +68,7 @@ export const useShortcutsStore = defineStore('shortcuts', {
           await this.refresh()
         }
       } catch (error) {
+        if (this.isMutating) return
         this.errorMessage = error instanceof Error ? error.message : String(error)
       }
     },
