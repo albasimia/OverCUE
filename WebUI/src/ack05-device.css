@@ -1,0 +1,161 @@
+.ack05-map-stage {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 220px;
+  overflow: hidden;
+}
+
+.ack05-map-canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 760px;
+  height: 760px;
+  transform-origin: center;
+}
+
+.ack05-map-rotator {
+  --device-rotation: 0deg;
+  --label-rotation: 0deg;
+  position: relative;
+  width: 760px;
+  height: 760px;
+  transform: rotate(var(--device-rotation));
+  transform-origin: 380px 380px;
+}
+
+.ack05-map-body-svg {
+  position: absolute;
+  inset: 0;
+  width: 760px;
+  height: 760px;
+  overflow: visible;
+  pointer-events: none;
+  filter: drop-shadow(0 10px 16px rgba(0, 0, 0, .35));
+}
+
+.ack05-map-body-shape {
+  fill: var(--oc-control-raised);
+  stroke: rgba(255, 255, 255, .22);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.ack05-map-dial {
+  position: absolute;
+  left: 36px;
+  top: 186px;
+  width: 244px;
+  height: 244px;
+  border: 2px solid rgba(255, 255, 255, .20);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .5);
+}
+
+.ack05-map-dial-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 84px;
+  height: 84px;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 50%;
+  background: #45474d;
+}
+
+.ack05-map-dial-zone {
+  position: absolute;
+  top: 86px;
+  width: 82px;
+  height: 72px;
+  padding: 0;
+  border: 3px solid transparent;
+  border-radius: 10px;
+  color: var(--oc-text);
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 70ms linear, background 70ms linear, box-shadow 70ms linear;
+}
+.ack05-map-dial-zone.left { left: 5px; }
+.ack05-map-dial-zone.right { right: 5px; }
+
+.ack05-map-key {
+  position: absolute;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 10px;
+  color: var(--oc-text);
+  background: rgba(0, 0, 0, .28);
+  box-shadow: none;
+  cursor: pointer;
+  transition: border-color 70ms linear, background 70ms linear, box-shadow 70ms linear;
+}
+
+.ack05-map-key.selected,
+.ack05-map-key.highlighted,
+.ack05-map-dial-zone.selected,
+.ack05-map-dial-zone.highlighted {
+  border-color: var(--oc-accent);
+  background: color-mix(in srgb, var(--oc-accent) 30%, rgba(0, 0, 0, .2));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--oc-accent) 50%, transparent);
+}
+
+.ack05-map-key.pressed,
+.ack05-map-dial-zone.active {
+  border-color: var(--oc-success);
+  background: color-mix(in srgb, var(--oc-success) 34%, rgba(0, 0, 0, .2));
+  box-shadow: 0 0 18px color-mix(in srgb, var(--oc-success) 60%, transparent);
+}
+
+.ack05-map-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  transform: rotate(var(--label-rotation));
+  text-align: center;
+  pointer-events: none;
+}
+
+.ack05-map-label.key-label b {
+  font-size: 16px;
+  font-weight: 650;
+}
+.ack05-map-label.key-label small {
+  max-width: 94%;
+  overflow: hidden;
+  font-size: 9px;
+  font-weight: 550;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+}
+.ack05-map-label.dial-label b { font-size: 13px; }
+.ack05-map-label.dial-label small {
+  max-width: 76px;
+  overflow: hidden;
+  color: var(--oc-muted);
+  font-size: 8px;
+  font-weight: 550;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+}
+
+.ack05-map-key.pressed small,
+.ack05-map-dial-zone.active small {
+  color: color-mix(in srgb, var(--oc-text) 86%, var(--oc-success));
+}
+
+.ack05-map-side-mark {
+  position: absolute;
+  left: 68.5px;
+  top: 470px;
+  width: 5px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .18);
+}
