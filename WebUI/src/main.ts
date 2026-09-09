@@ -4,6 +4,7 @@ import App from './App.vue'
 import { router } from './router'
 import './styles.css'
 import './shortcuts.css'
+import './group-presets.css'
 
 createApp(App)
   .use(createPinia())
