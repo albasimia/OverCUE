@@ -1,4 +1,5 @@
 export type BridgeStatus = 'running' | 'starting' | 'degraded' | 'stopped' | 'failed'
+export type DeviceKind = 'ack05' | 'genericHID'
 
 export interface PresetSummary {
   id: string
@@ -26,12 +27,31 @@ export interface DevicePresetOption {
   order: number
 }
 
+export interface DeviceBindingSummary {
+  kind: DeviceKind
+  vendorID: number
+  productID: number
+  serialNumber: string | null
+  lastKnownLocationID: number | null
+  bindingIdentifier: string | null
+}
+
 export interface DeviceSummary {
   id: string
   name: string
   profileName: string
   connected: boolean
+  binding: DeviceBindingSummary | null
   presets: DevicePresetOption[]
+}
+
+export interface DeviceManagementState {
+  identifyPurpose: 'add' | 'rebind' | null
+  identifyKind: DeviceKind | null
+  identifyLogicalDeviceID: string | null
+  identifyCandidateCount: number
+  statusMessage: string | null
+  errorMessage: string | null
 }
 
 export interface RuntimeStatus {
@@ -44,6 +64,8 @@ export interface OverCUESnapshot {
   presets: PresetSummary[]
   groupPresets: GroupPresetSummary[]
   devices: DeviceSummary[]
+  profileNames: string[]
+  deviceManagement: DeviceManagementState
   runtime: RuntimeStatus
 }
 
@@ -102,4 +124,27 @@ export interface GroupPresetAssignmentRequest {
   groupPresetID: string
   logicalDeviceID: string
   presetID: string
+}
+
+export interface DeviceIdentifyRequest {
+  kind: DeviceKind
+}
+
+export interface DeviceRebindRequest {
+  id: string
+  kind?: DeviceKind
+}
+
+export interface DeviceRenameRequest {
+  id: string
+  name: string
+}
+
+export interface DeviceProfileRequest {
+  id: string
+  profileName: string
+}
+
+export interface DeviceIDRequest {
+  id: string
 }
