@@ -49,11 +49,44 @@ final class AppLocalization: ObservableObject {
         )
     }
 
-    /// The Web UI consumes the same localization table as SwiftUI so there is
-    /// only one source of translated interface strings.
+    /// The Web UI consumes the same localization table as SwiftUI. A tiny set
+    /// of Web-only UI labels is merged here so translated copy remains owned by
+    /// the native localization boundary rather than duplicated in Vue.
     var currentTable: [String: String] {
-        tables[language] ?? tables[.english] ?? [:]
+        var table = tables[language] ?? tables[.english] ?? [:]
+        let additions = Self.webInterfaceAdditions[language]
+            ?? Self.webInterfaceAdditions[.english]
+            ?? [:]
+        table.merge(additions) { _, webValue in webValue }
+        return table
     }
+
+    private static let webInterfaceAdditions: [AppLanguage: [String: String]] = [
+        .japanese: [
+            "common.close": "閉じる",
+            "preset.reorder": "プリセットを並び替え",
+            "preset.reorder.help": "ハンドルをドラッグしてプリセット順を変更します。",
+            "shortcuts.learn": "Learn",
+            "shortcuts.actions": "%d actions",
+            "shortcuts.column.input": "入力",
+        ],
+        .english: [
+            "common.close": "Close",
+            "preset.reorder": "Reorder Presets",
+            "preset.reorder.help": "Drag the handles to change Preset order.",
+            "shortcuts.learn": "Learn",
+            "shortcuts.actions": "%d actions",
+            "shortcuts.column.input": "Input",
+        ],
+        .simplifiedChinese: [
+            "common.close": "关闭",
+            "preset.reorder": "重新排序预设",
+            "preset.reorder.help": "拖动手柄以更改预设顺序。",
+            "shortcuts.learn": "Learn",
+            "shortcuts.actions": "%d 个操作",
+            "shortcuts.column.input": "输入",
+        ],
+    ]
 
     private static func load(language: AppLanguage) -> [String: String] {
         let url = AppResources.bundle.url(
