@@ -65,9 +65,19 @@ Presetの`order`はruntime上のnumeric group番号でもあるため、単純�
 - `Scripts/build-app.sh`はWebUI buildを先に実行し、生成物をapp bundleへコピーしてからcodesignする。
 - 通常の`WindowGroup`はWKWebViewを表示し、旧SwiftUIは`OVERCUE_NATIVE_UI=1`の場合だけ表示する。
 
+## Feature migration implementation
+
+- Group Preset Web UIは既存`GroupPresetManagementModel`を共有し、add / rename / delete / activate / reorder / device include / device→Preset assignmentをLocal API経由で操作する。
+- Devices Web UIは共有`DeviceManagementModel`を使い、ACK05 / Generic HID identify、rebind、rename、Profile変更、Forget Bindingを操作する。Identify中だけruntimeを一時停止し、完了・失敗・cancel後に元のController Input設定へ復帰する。
+- Shortcuts Web UIは`ShortcutSettingsModel`と`GenericHIDShortcutCaptureModel`を共有する。Web専用mapping/capture実装は作らない。
+- `WebShortcutEditingCoordinator`はWeb DTO/command変換だけを担当し、ACK05 key/dial選択、Action選択、Preset切替・追加・rename・delete、rekordbox mode、Reload、binding削除、Overwrite確認、device rotationを既存native modelへ委譲する。
+- Learnは既存Unified Learnをそのまま利用し、ACK05とGeneric HIDのどちらが先に入力されても同じsession owner・Preset pinning・競合解決・runtime復帰ルールを使う。
+- Shortcuts画面は50ms read pollingで実入力のpressed/dial stateとLearn状態を表示するが、write中はpoll refreshを止めてmutation応答を巻き戻さない。
+- Device IdentifyとShortcut Learnは同時に物理HID ownershipを要求するため、Web API境界で同時開始を許可しない。
+
 ## Migration boundary
 
-native shell / static asset servingまでは成立した。次段階はGroup Preset編集、Device管理、Shortcuts / Learnを順にWeb UIへ移植してfeature parityを作る。feature parity後に旧SwiftUI設定画面を縮退・削除する。
+native shell / static asset serving、Group Preset編集、Device管理、Shortcuts編集/Learnの主要配線までWeb UIへ移植した。旧SwiftUI設定画面の縮退は、Web UIのローカルtypecheck/build、Swift build/test/checks、実機ACK05/Generic HID Learn、Preset CRUD、Device Identify、Group Preset操作のfeature parity確認後に行う。
 
 ## Verification
 
