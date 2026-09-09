@@ -11,6 +11,10 @@ const shortcuts = useShortcutsStore()
 const searchText = ref('')
 const expandedCategories = ref(new Set<string>(['OverCUE', 'Deck 1']))
 const modeOptions: RekordboxMode[] = ['export', 'performance']
+const presetEditorMode = ref<'add' | 'rename' | null>(null)
+const presetNameDraft = ref('')
+const presetMenuOpen = ref(false)
+const confirmPresetDelete = ref(false)
 
 onMounted(() => {
   void shortcuts.startPolling()
@@ -69,6 +73,10 @@ const pressedInput = computed(() => {
   return values.join(' + ') || '—'
 })
 
+const canDeletePreset = computed(() =>
+  (panel.value?.presets.length ?? 0) > 1 && panel.value?.presetOrder !== 1,
+)
+
 function isExpanded(category: string) {
   return Boolean(query.value) || expandedCategories.value.has(category)
 }
@@ -100,6 +108,59 @@ function selectEntry(entryID: string) {
 function setPreset(event: Event) {
   const presetID = (event.target as HTMLSelectElement).value
   if (presetID) perform(shortcuts.setPreset(presetID))
+  presetMenuOpen.value = false
+  confirmPresetDelete.value = false
+}
+
+function beginAddPreset() {
+  presetEditorMode.value = 'add'
+  presetNameDraft.value = `Preset ${(panel.value?.presets.length ?? 0) + 1}`
+  presetMenuOpen.value = false
+  confirmPresetDelete.value = false
+}
+
+function beginRenamePreset() {
+  if (!panel.value?.presetID) return
+  presetEditorMode.value = 'rename'
+  presetNameDraft.value = panel.value.presetName ?? ''
+  presetMenuOpen.value = false
+  confirmPresetDelete.value = false
+}
+
+function cancelPresetEditor() {
+  presetEditorMode.value = null
+  presetNameDraft.value = ''
+}
+
+async function savePresetEditor() {
+  const name = presetNameDraft.value.trim()
+  if (!name) return
+  try {
+    if (presetEditorMode.value === 'add') {
+      await shortcuts.addPreset(name)
+    } else if (presetEditorMode.value === 'rename' && panel.value?.presetID) {
+      await shortcuts.renamePreset(panel.value.presetID, name)
+    }
+    cancelPresetEditor()
+  } catch {
+    // Store exposes the native error message next to the Preset controls.
+  }
+}
+
+async function deleteCurrentPreset() {
+  const presetID = panel.value?.presetID
+  if (!presetID || !canDeletePreset.value) return
+  if (!confirmPresetDelete.value) {
+    confirmPresetDelete.value = true
+    return
+  }
+  try {
+    await shortcuts.deletePreset(presetID)
+    confirmPresetDelete.value = false
+    presetMenuOpen.value = false
+  } catch {
+    // Store exposes the native error message next to the Preset controls.
+  }
 }
 
 function setMode(mode: RekordboxMode) {
@@ -135,18 +196,67 @@ function remove(entryID: string) {
           </button>
         </div>
 
-        <label class="shortcut-preset-row">
+        <div class="shortcut-preset-row">
           <span>Preset</span>
           <select
             :value="panel?.presetID ?? ''"
             :disabled="shortcuts.isMutating || panel?.capture.isCapturing"
+            aria-label="Preset"
             @change="setPreset"
           >
             <option v-for="preset in panel?.presets ?? []" :key="preset.id" :value="preset.id">
               {{ preset.name }}
             </option>
           </select>
-        </label>
+          <button
+            class="shortcut-preset-action"
+            type="button"
+            title="Add Preset"
+            :disabled="shortcuts.isMutating || panel?.capture.isCapturing"
+            @click="beginAddPreset"
+          >
+            +
+          </button>
+          <div class="shortcut-preset-menu-wrap">
+            <button
+              class="shortcut-preset-action"
+              type="button"
+              title="Manage Preset"
+              :disabled="shortcuts.isMutating || panel?.capture.isCapturing || !panel?.presetID"
+              @click="presetMenuOpen = !presetMenuOpen; confirmPresetDelete = false"
+            >
+              …
+            </button>
+            <div v-if="presetMenuOpen" class="shortcut-preset-menu">
+              <button type="button" @click="beginRenamePreset">Rename</button>
+              <button
+                class="danger"
+                type="button"
+                :disabled="!canDeletePreset"
+                @click="deleteCurrentPreset"
+              >
+                {{ confirmPresetDelete ? 'Confirm Delete' : 'Delete' }}
+              </button>
+              <button v-if="confirmPresetDelete" type="button" @click="confirmPresetDelete = false">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="presetEditorMode" class="shortcut-preset-editor">
+          <strong>{{ presetEditorMode === 'add' ? 'Add Preset' : 'Rename Preset' }}</strong>
+          <input v-model="presetNameDraft" type="text" @keyup.enter="savePresetEditor" />
+          <div>
+            <button class="native-button" type="button" @click="cancelPresetEditor">Cancel</button>
+            <button
+              class="native-button primary"
+              type="button"
+              :disabled="!presetNameDraft.trim() || shortcuts.isMutating"
+              @click="savePresetEditor"
+            >
+              Save
+            </button>
+          </div>
+        </div>
 
         <div v-if="shortcuts.errorMessage" class="shortcut-panel-error" role="alert">
           {{ shortcuts.errorMessage }}
