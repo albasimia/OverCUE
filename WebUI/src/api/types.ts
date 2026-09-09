@@ -2,6 +2,7 @@ export type BridgeStatus = 'running' | 'starting' | 'degraded' | 'stopped' | 'fa
 export type DeviceKind = 'ack05' | 'genericHID'
 export type RekordboxMode = 'export' | 'performance'
 export type ShortcutDialDirection = 'counterclockwise' | 'clockwise'
+export type AppLanguage = 'ja' | 'en' | 'zh-Hans'
 
 export interface PresetSummary {
   id: string
@@ -118,6 +119,17 @@ export interface ShortcutCaptureState {
   overwriteMessage: string | null
 }
 
+export interface LanguageOption {
+  id: AppLanguage
+  name: string
+}
+
+export interface LocalizationState {
+  language: AppLanguage
+  languages: LanguageOption[]
+  strings: Record<string, string>
+}
+
 export interface ShortcutPanelState {
   deviceKind: 'ack05'
   deviceName: string
@@ -137,6 +149,7 @@ export interface ShortcutPanelState {
   dial: ShortcutDialState[]
   entries: ShortcutEntryState[]
   capture: ShortcutCaptureState
+  localization: LocalizationState
 }
 
 export interface ShortcutLiveKeyState {
@@ -171,6 +184,7 @@ export type ShortcutEditorAction =
   | 'confirmOverwrite'
   | 'cancelOverwrite'
   | 'rotateDevice'
+  | 'setLanguage'
 
 export interface ShortcutEditorCommand {
   action: ShortcutEditorAction
@@ -180,6 +194,7 @@ export interface ShortcutEditorCommand {
   presetID?: string
   mode?: RekordboxMode
   name?: string
+  language?: AppLanguage
 }
 
 export interface ReorderRequest {
