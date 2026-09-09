@@ -18,7 +18,7 @@ async function loadSnapshot() {
     const snapshot = await overcueAPI.snapshot()
     presets.replace(snapshot.presets)
     groupPresets.replace(snapshot.groupPresets, snapshot.runtime.activeGroupPresetID)
-    devices.replace(snapshot.devices)
+    devices.replace(snapshot.devices, snapshot.profileNames, snapshot.deviceManagement)
     runtime.replace(snapshot.runtime)
     loadError.value = null
   } catch (error) {
