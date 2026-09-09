@@ -57,6 +57,18 @@ export const useShortcutsStore = defineStore('shortcuts', {
       return this.command({ action: 'setPreset', presetID })
     },
 
+    addPreset(name: string) {
+      return this.command({ action: 'addPreset', name })
+    },
+
+    renamePreset(presetID: string, name: string) {
+      return this.command({ action: 'renamePreset', presetID, name })
+    },
+
+    deletePreset(presetID: string) {
+      return this.command({ action: 'deletePreset', presetID })
+    },
+
     setMode(mode: RekordboxMode) {
       return this.command({ action: 'setMode', mode })
     },
