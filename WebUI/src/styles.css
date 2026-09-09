@@ -21,7 +21,7 @@
 * { box-sizing: border-box; }
 html, body, #app { min-width: 1080px; min-height: 100%; }
 body { margin: 0; min-height: 100vh; background: var(--oc-bg); color: var(--oc-text); }
-button, select { font: inherit; }
+button, select, input { font: inherit; }
 button { color: inherit; }
 code { color: var(--oc-muted); font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
@@ -175,6 +175,7 @@ code { color: var(--oc-muted); font-size: 11px; font-family: ui-monospace, SFMon
   background: var(--oc-accent);
   color: white;
 }
+.native-button.danger { color: #ff6961; }
 .native-button:disabled { opacity: .4; cursor: default; }
 
 .native-list-card {
@@ -323,6 +324,46 @@ code { color: var(--oc-muted); font-size: 11px; font-family: ui-monospace, SFMon
 .detail-row > strong { font-weight: 600; }
 .detail-row.vertical { align-items: flex-start; flex-direction: column; gap: 7px; }
 .connection-value { display: flex; align-items: center; gap: 7px; }
+.device-identify-panel {
+  margin-top: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--oc-accent) 45%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--oc-accent) 12%, transparent);
+}
+.device-identify-panel strong,
+.device-identify-panel span,
+.binding-copy strong,
+.binding-copy span { display: block; }
+.device-identify-panel span,
+.binding-copy span { margin-top: 4px; color: var(--oc-muted); font-size: 12px; line-height: 1.45; }
+.device-settings-card { padding: 16px; }
+.device-form-row { display: flex; align-items: center; gap: 12px; }
+.device-form-row + .device-form-row { margin-top: 14px; }
+.device-form-row label { width: 90px; flex: 0 0 90px; color: var(--oc-muted); font-size: 12px; }
+.native-input,
+.native-select {
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid var(--oc-border-strong);
+  border-radius: 7px;
+  outline: none;
+  color: var(--oc-text);
+  background: var(--oc-control-raised);
+}
+.native-input { flex: 1; min-width: 0; }
+.native-select { min-width: 220px; }
+.native-input:focus,
+.native-select:focus { border-color: var(--oc-accent); box-shadow: 0 0 0 2px rgba(10,132,255,.18); }
+.binding-copy { padding: 16px 16px 0; }
+.device-actions { display: flex; gap: 10px; padding: 16px; }
+.device-status { margin: 14px 0 0; font-size: 12px; line-height: 1.45; }
+.device-status.success { color: var(--oc-success); }
+.device-status.error { color: var(--oc-danger); }
 
 .native-empty-state {
   display: flex;
