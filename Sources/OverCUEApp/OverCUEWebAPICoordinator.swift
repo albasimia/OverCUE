@@ -187,19 +187,15 @@ final class OverCUEWebAPICoordinator: ObservableObject {
             case ("GET", "/api/v1/shortcuts/panel"):
                 return try jsonResponse(makeShortcutEditorPanel())
 
+            case ("GET", "/api/v1/shortcuts/live"):
+                return try jsonResponse(makeShortcutLiveState())
+
             case ("PUT", "/api/v1/shortcuts/panel"):
                 guard let rejection = validateWrite(request) else {
                     let payload = try JSONDecoder().decode(WebShortcutEditorCommand.self, from: request.body)
                     guard let shortcutModel else { throw Self.modelsUnavailableError }
                     if payload.action == .beginLearn, deviceModel?.isIdentifying == true {
-                        throw NSError(
-                            domain: "OverCUE.WebAPI.Shortcuts",
-                            code: 1,
-                            userInfo: [
-                                NSLocalizedDescriptionKey:
-                                    "Finish or cancel device identification before starting Learn."
-                            ]
-                        )
+                        throw WebShortcutEditingError.deviceIdentifyInProgress
                     }
                     try shortcutEditingModel.perform(payload, shortcutModel: shortcutModel)
                     return try jsonResponse(shortcutEditingModel.makePanel(shortcutModel: shortcutModel))
@@ -462,11 +458,16 @@ final class OverCUEWebAPICoordinator: ObservableObject {
         return shortcutEditingModel.makePanel(shortcutModel: shortcutModel)
     }
 
+    private func makeShortcutLiveState() throws -> WebShortcutLiveState {
+        guard let shortcutModel else { throw Self.modelsUnavailableError }
+        return shortcutEditingModel.makeLiveState(shortcutModel: shortcutModel)
+    }
+
     private func beginDeviceIdentify(_ action: () throws -> Void) throws {
         guard let shortcutModel, let deviceModel else {
             throw Self.modelsUnavailableError
         }
-        guard !shortcutModel.isCapturing else {
+        guard !shortcutEditingModel.hasActiveCapture(shortcutModel: shortcutModel) else {
             throw WebShortcutEditingError.captureInProgress
         }
 
