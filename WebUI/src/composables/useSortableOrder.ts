@@ -1,5 +1,5 @@
 import Sortable from 'sortablejs'
-import { nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue'
+import { nextTick, onBeforeUnmount, ref, watch, type Ref } from 'vue'
 
 interface SortableOrderOptions {
   element: Ref<HTMLElement | null>
@@ -50,7 +50,7 @@ export function useSortableOrder(options: SortableOrderOptions) {
     sortable = Sortable.create(element, {
       animation: 140,
       handle: '.drag-handle',
-      draggable: '[data-sortable-id]',
+      draggable: '.native-list-row[data-sortable-id]',
       dataIdAttr: 'data-sortable-id',
       ghostClass: 'drag-ghost',
       chosenClass: 'drag-chosen',
@@ -58,14 +58,17 @@ export function useSortableOrder(options: SortableOrderOptions) {
         void persistDOMOrder()
       },
     })
+    restoreDOMOrder()
   }
-
-  onMounted(() => attach(options.element.value))
 
   watch(
     options.element,
-    (element) => attach(element),
-    { flush: 'post' },
+    async (element) => {
+      await nextTick()
+      if (options.element.value !== element) return
+      attach(element)
+    },
+    { immediate: true, flush: 'post' },
   )
 
   watch(
