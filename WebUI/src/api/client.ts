@@ -1,4 +1,10 @@
 import type {
+  DeviceIDRequest,
+  DeviceIdentifyRequest,
+  DeviceKind,
+  DeviceProfileRequest,
+  DeviceRebindRequest,
+  DeviceRenameRequest,
   GroupPresetAssignmentRequest,
   GroupPresetIDRequest,
   GroupPresetIncludeRequest,
@@ -119,5 +125,29 @@ export const overcueAPI = {
   ) => writeRequest<OverCUESnapshot>(
     '/group-presets/assignment',
     { groupPresetID, logicalDeviceID, presetID } satisfies GroupPresetAssignmentRequest,
+  ),
+  beginAddDevice: (kind: DeviceKind) => writeRequest<OverCUESnapshot>(
+    '/devices/add',
+    { kind } satisfies DeviceIdentifyRequest,
+  ),
+  beginRebindDevice: (id: string, kind?: DeviceKind) => writeRequest<OverCUESnapshot>(
+    '/devices/rebind',
+    { id, ...(kind ? { kind } : {}) } satisfies DeviceRebindRequest,
+  ),
+  cancelDeviceIdentify: () => writeRequest<OverCUESnapshot>(
+    '/devices/identify/cancel',
+    {},
+  ),
+  renameDevice: (id: string, name: string) => writeRequest<OverCUESnapshot>(
+    '/devices/rename',
+    { id, name } satisfies DeviceRenameRequest,
+  ),
+  assignDeviceProfile: (id: string, profileName: string) => writeRequest<OverCUESnapshot>(
+    '/devices/profile',
+    { id, profileName } satisfies DeviceProfileRequest,
+  ),
+  forgetDeviceBinding: (id: string) => writeRequest<OverCUESnapshot>(
+    '/devices/forget-binding',
+    { id } satisfies DeviceIDRequest,
   ),
 }
