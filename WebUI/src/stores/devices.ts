@@ -114,6 +114,10 @@ export const useDevicesStore = defineStore('devices', () => {
     await mutate(() => overcueAPI.forgetDeviceBinding(id))
   }
 
+  function resumeIdentifyPolling() {
+    if (isIdentifying.value) void startIdentifyPolling()
+  }
+
   function stopIdentifyPolling() {
     identifyPolling = false
   }
@@ -133,6 +137,7 @@ export const useDevicesStore = defineStore('devices', () => {
     rename,
     assignProfile,
     forgetBinding,
+    resumeIdentifyPolling,
     stopIdentifyPolling,
   }
 })
