@@ -1,5 +1,7 @@
 export type BridgeStatus = 'running' | 'starting' | 'degraded' | 'stopped' | 'failed'
 export type DeviceKind = 'ack05' | 'genericHID'
+export type RekordboxMode = 'export' | 'performance'
+export type ShortcutDialDirection = 'counterclockwise' | 'clockwise'
 
 export interface PresetSummary {
   id: string
@@ -74,16 +76,46 @@ export interface ShortcutAssignment {
   shortcut: string | null
 }
 
+export interface ShortcutPresetOption {
+  id: string
+  name: string
+  order: number
+  mode: RekordboxMode | null
+}
+
 export interface ShortcutKeyState {
   id: string
   assignment: ShortcutAssignment | null
   pressed: boolean
+  selected: boolean
+  highlighted: boolean
 }
 
 export interface ShortcutDialState {
-  direction: 'counterclockwise' | 'clockwise'
+  direction: ShortcutDialDirection
   assignment: ShortcutAssignment | null
   active: boolean
+  selected: boolean
+  highlighted: boolean
+}
+
+export interface ShortcutEntryState {
+  id: string
+  commandID: string
+  description: string
+  shortcut: string
+  category: string
+  isInternal: boolean
+  configured: boolean
+  bindings: string[]
+}
+
+export interface ShortcutCaptureState {
+  isCapturing: boolean
+  entryID: string | null
+  message: string | null
+  error: string | null
+  overwriteMessage: string | null
 }
 
 export interface ShortcutPanelState {
@@ -93,8 +125,41 @@ export interface ShortcutPanelState {
   presetID: string | null
   presetName: string | null
   presetOrder: number | null
+  presets: ShortcutPresetOption[]
+  mode: RekordboxMode
+  mappingName: string
+  mappingFileName: string | null
+  mappingError: string | null
+  selectedEntryID: string | null
+  selectedKeyID: string | null
+  selectedDialDirection: ShortcutDialDirection | null
   keys: ShortcutKeyState[]
   dial: ShortcutDialState[]
+  entries: ShortcutEntryState[]
+  capture: ShortcutCaptureState
+}
+
+export type ShortcutEditorAction =
+  | 'selectEntry'
+  | 'selectKey'
+  | 'selectDial'
+  | 'setPreset'
+  | 'setMode'
+  | 'reload'
+  | 'beginLearn'
+  | 'cancelLearn'
+  | 'removeBindings'
+  | 'confirmOverwrite'
+  | 'cancelOverwrite'
+  | 'rotateDevice'
+
+export interface ShortcutEditorCommand {
+  action: ShortcutEditorAction
+  entryID?: string
+  keyID?: string
+  direction?: ShortcutDialDirection
+  presetID?: string
+  mode?: RekordboxMode
 }
 
 export interface ReorderRequest {
