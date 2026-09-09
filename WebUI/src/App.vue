@@ -1,17 +1,27 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { overcueAPI } from './api/client'
 import { useDevicesStore } from './stores/devices'
 import { useGroupPresetsStore } from './stores/groupPresets'
 import { usePresetsStore } from './stores/presets'
 import { useRuntimeStore } from './stores/runtime'
+import { useSettingsStore } from './stores/settings'
 
 const presets = usePresetsStore()
 const groupPresets = useGroupPresetsStore()
 const devices = useDevicesStore()
 const runtime = useRuntimeStore()
+const settings = useSettingsStore()
 const loadError = ref<string | null>(null)
+
+const bridgeStatusText = computed(() => {
+  const status = runtime.status.bridgeStatus
+  if (status === 'degraded' || status === 'failed') {
+    return settings.text(`app.status.${status}`, '').replace(/[:：]\s*$/, '')
+  }
+  return settings.text(`app.status.${status}`)
+})
 
 async function loadSnapshot() {
   try {
@@ -26,33 +36,35 @@ async function loadSnapshot() {
   }
 }
 
-onMounted(loadSnapshot)
+onMounted(() => {
+  void Promise.all([loadSnapshot(), settings.load()])
+})
 </script>
 
 <template>
   <div class="app-shell">
     <header class="application-header">
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true">OC</div>
+        <img class="brand-mark" src="/OverCUEIcon.png" alt="" aria-hidden="true" />
         <strong>OverCUE</strong>
       </div>
 
       <nav class="section-picker" aria-label="Main navigation">
-        <RouterLink to="/shortcuts">Shortcuts</RouterLink>
-        <RouterLink to="/devices">Devices</RouterLink>
-        <RouterLink to="/group-presets">Group Presets</RouterLink>
-        <RouterLink to="/settings">Settings</RouterLink>
+        <RouterLink to="/shortcuts">{{ settings.text('nav.shortcuts') }}</RouterLink>
+        <RouterLink to="/devices">{{ settings.text('nav.devices') }}</RouterLink>
+        <RouterLink to="/group-presets">{{ settings.text('groupPreset.title') }}</RouterLink>
+        <RouterLink to="/settings">{{ settings.text('nav.settings') }}</RouterLink>
       </nav>
 
       <div class="runtime-status" :data-status="runtime.status.bridgeStatus">
         <span class="status-dot" />
-        <span>{{ runtime.status.bridgeStatus }}</span>
+        <span>{{ bridgeStatusText }}</span>
       </div>
     </header>
 
     <main class="content-shell">
       <div v-if="loadError" class="connection-banner" role="status">
-        Local API is not connected yet: {{ loadError }}
+        Local API: {{ loadError }}
       </div>
       <RouterView />
     </main>
