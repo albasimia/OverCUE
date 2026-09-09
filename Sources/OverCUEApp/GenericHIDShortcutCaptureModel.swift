@@ -29,9 +29,18 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
     @Published private(set) var captureEntryID: String?
     @Published private(set) var captureMessage: String?
     @Published private(set) var errorMessage: String?
+    @Published private(set) var overwriteConfirmation: OverwriteConfirmation?
+
+    private struct PendingGenericAssignment {
+        let logicalDeviceID: String
+        let editorPresetID: String
+        let input: GenericHIDInputBindingKey
+        let target: ActionTarget
+    }
 
     private var learnSession = UnifiedShortcutLearnSession()
     private var finishingCapture = false
+    private var pendingAssignment: PendingGenericAssignment?
     private let diagnosticsEnabled = ProcessInfo.processInfo.environment[
         "OVERCUE_GENERIC_HID_DIAGNOSTICS"
     ] == "1"
@@ -107,6 +116,8 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
             return
         }
         finishingCapture = false
+        pendingAssignment = nil
+        overwriteConfirmation = nil
         errorMessage = nil
 
         guard shortcutModel.availablePresetGroups.indices.contains(shortcutModel.selectedGroup - 1)
@@ -169,8 +180,38 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
     func cancelUnifiedCapture(shortcutModel: ShortcutSettingsModel) {
         diagnosticLog("cancel requested")
         finishingCapture = true
+        pendingAssignment = nil
+        overwriteConfirmation = nil
         learnSession.cancel()
         shortcutModel.endUnifiedCapture()
+        finishCapture()
+    }
+
+    func confirmOverwrite(shortcutModel: ShortcutSettingsModel) {
+        guard let pending = pendingAssignment else { return }
+        pendingAssignment = nil
+        overwriteConfirmation = nil
+
+        let persistenceError = persistGenericAssignment(pending)
+        learnSession.complete(by: .genericHID)
+        shortcutModel.endUnifiedCapture()
+        reload(shortcutModel: shortcutModel)
+        if let persistenceError {
+            errorMessage = persistenceError
+        } else {
+            errorMessage = nil
+        }
+        finishCapture()
+    }
+
+    func cancelOverwrite(shortcutModel: ShortcutSettingsModel) {
+        guard pendingAssignment != nil else { return }
+        pendingAssignment = nil
+        overwriteConfirmation = nil
+        learnSession.complete(by: .genericHID)
+        shortcutModel.endUnifiedCapture()
+        reload(shortcutModel: shortcutModel)
+        errorMessage = nil
         finishCapture()
     }
 
@@ -222,7 +263,6 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
             "commit logical=\(logicalDeviceID) editorPreset=\(context.editorPresetID) target=\(context.target.configurationValue) input=\(input.overCUEStableSortKey)"
         )
 
-        var persistenceError: String?
         do {
             let configuration = try OverCUEConfigurationFileStore.readCurrent(
                 at: OverCUEAppConfigurationLocation.url
@@ -232,24 +272,91 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
             ) != nil else {
                 throw GenericHIDShortcutCaptureError.editorPresetRemoved
             }
-            try GenericHIDMappingStore.assign(
-                logicalDeviceID: logicalDeviceID,
-                presetID: context.editorPresetID,
-                input: input,
-                target: context.target
-            )
-            errorMessage = nil
-            diagnosticLog("assign success")
-        } catch {
-            persistenceError = error.localizedDescription
-            diagnosticLog("assign failed error=\(error.localizedDescription)")
-        }
 
-        learnSession.complete(by: .genericHID)
-        shortcutModel.endUnifiedCapture()
-        reload(shortcutModel: shortcutModel)
-        if let persistenceError { errorMessage = persistenceError }
-        finishCapture()
+            let existingTarget = try GenericHIDMappingStore.mapping(
+                logicalDeviceID: logicalDeviceID,
+                presetID: context.editorPresetID
+            )[input]
+
+            if let existingTarget, existingTarget != context.target {
+                let deviceName = configuration.logicalDevices[logicalDeviceID]?.name ?? logicalDeviceID
+                let inputLabel = "\(deviceName) · \(input.overCUEDisplayName)"
+                let conflictMessage = L10n.text(
+                    "conflict.occupied",
+                    inputLabel,
+                    "",
+                    actionDisplayName(existingTarget, shortcutModel: shortcutModel)
+                )
+                overwriteConfirmation = OverwriteConfirmation(
+                    message: L10n.text(
+                        "message.overwriteQuestion",
+                        conflictMessage,
+                        actionDisplayName(context.target, shortcutModel: shortcutModel)
+                    )
+                )
+                pendingAssignment = PendingGenericAssignment(
+                    logicalDeviceID: logicalDeviceID,
+                    editorPresetID: context.editorPresetID,
+                    input: input,
+                    target: context.target
+                )
+                captureMessage = nil
+                errorMessage = nil
+                shortcutModel.endUnifiedCapture()
+                diagnosticLog("assign paused for overwrite confirmation")
+                return
+            }
+
+            let persistenceError = persistGenericAssignment(
+                PendingGenericAssignment(
+                    logicalDeviceID: logicalDeviceID,
+                    editorPresetID: context.editorPresetID,
+                    input: input,
+                    target: context.target
+                )
+            )
+            learnSession.complete(by: .genericHID)
+            shortcutModel.endUnifiedCapture()
+            reload(shortcutModel: shortcutModel)
+            if let persistenceError {
+                errorMessage = persistenceError
+            } else {
+                errorMessage = nil
+            }
+            finishCapture()
+        } catch {
+            let persistenceError = error.localizedDescription
+            diagnosticLog("assign failed error=\(persistenceError)")
+            learnSession.complete(by: .genericHID)
+            shortcutModel.endUnifiedCapture()
+            reload(shortcutModel: shortcutModel)
+            errorMessage = persistenceError
+            finishCapture()
+        }
+    }
+
+    private func persistGenericAssignment(_ pending: PendingGenericAssignment) -> String? {
+        do {
+            let configuration = try OverCUEConfigurationFileStore.readCurrent(
+                at: OverCUEAppConfigurationLocation.url
+            )
+            guard configuration.profiles[configuration.defaultProfile]?.presetGroup(
+                id: pending.editorPresetID
+            ) != nil else {
+                throw GenericHIDShortcutCaptureError.editorPresetRemoved
+            }
+            try GenericHIDMappingStore.assign(
+                logicalDeviceID: pending.logicalDeviceID,
+                presetID: pending.editorPresetID,
+                input: pending.input,
+                target: pending.target
+            )
+            diagnosticLog("assign success")
+            return nil
+        } catch {
+            diagnosticLog("assign failed error=\(error.localizedDescription)")
+            return error.localizedDescription
+        }
     }
 
     private enum GenericHIDShortcutCaptureError: LocalizedError {
@@ -285,10 +392,22 @@ final class GenericHIDShortcutCaptureModel: ObservableObject {
 
     private func finishCapture() {
         diagnosticLog("finish")
+        pendingAssignment = nil
+        overwriteConfirmation = nil
         captureEntryID = nil
         captureMessage = nil
         isCapturing = false
         finishingCapture = false
+    }
+
+    private func actionDisplayName(
+        _ target: ActionTarget,
+        shortcutModel: ShortcutSettingsModel
+    ) -> String {
+        (shortcutModel.internalEntries + shortcutModel.entries)
+            .first(where: { self.target(for: $0) == target })?
+            .description.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? target.displayName
     }
 
     private func diagnosticLog(_ message: @autoclosure () -> String) {
