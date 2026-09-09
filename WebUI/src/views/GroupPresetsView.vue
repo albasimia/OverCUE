@@ -4,9 +4,11 @@ import type { DeviceSummary, GroupPresetSummary } from '../api/types'
 import { useSortableOrder } from '../composables/useSortableOrder'
 import { useDevicesStore } from '../stores/devices'
 import { useGroupPresetsStore } from '../stores/groupPresets'
+import { useSettingsStore } from '../stores/settings'
 
 const groupPresets = useGroupPresetsStore()
 const devices = useDevicesStore()
+const settings = useSettingsStore()
 const listElement = ref<HTMLElement | null>(null)
 const operationError = ref<string | null>(null)
 const editorMode = ref<'add' | 'rename' | null>(null)
@@ -41,7 +43,7 @@ async function perform(action: () => Promise<unknown>) {
 function beginAdd() {
   editorMode.value = 'add'
   editorTargetID.value = null
-  editorName.value = `Group Preset ${groupPresets.items.length + 1}`
+  editorName.value = settings.text('groupPreset.defaultName', groupPresets.items.length + 1)
   operationError.value = null
   confirmDeleteID.value = null
 }
@@ -118,32 +120,34 @@ function assignPreset(device: DeviceSummary, event: Event) {
   <section class="standard-page group-presets-page">
     <div class="native-page-heading">
       <div class="native-page-title">
-        <h1>Group Presets</h1>
-        <p>Assign Presets to the devices used together in one rig.</p>
-        <p v-if="isSaving" class="page-status">Saving order…</p>
+        <h1>{{ settings.text('groupPreset.title') }}</h1>
+        <p>{{ settings.text('groupPreset.help') }}</p>
+        <p v-if="isSaving" class="page-status">{{ settings.text('common.savingOrder') }}</p>
         <p v-else-if="errorMessage || operationError" class="page-status error" role="alert">
           {{ errorMessage ?? operationError }}
         </p>
       </div>
-      <button class="native-button primary" type="button" @click="beginAdd">Add Group Preset</button>
+      <button class="native-button primary" type="button" @click="beginAdd">
+        {{ settings.text('groupPreset.add') }}
+      </button>
     </div>
 
     <div v-if="editorMode" class="group-preset-editor native-detail-card">
       <div>
-        <strong>{{ editorMode === 'add' ? 'Add Group Preset' : 'Rename Group Preset' }}</strong>
-        <span>Group Preset names are used in the menu bar and rig selector.</span>
+        <strong>{{ editorMode === 'add' ? settings.text('groupPreset.add.title') : settings.text('groupPreset.rename.title') }}</strong>
+        <span>{{ settings.text('groupPreset.help') }}</span>
       </div>
       <input v-model="editorName" class="native-input" type="text" @keyup.enter="saveEditor" />
       <div class="device-actions">
-        <button class="native-button" type="button" @click="cancelEditor">Cancel</button>
+        <button class="native-button" type="button" @click="cancelEditor">{{ settings.text('common.cancel') }}</button>
         <button class="native-button primary" type="button" :disabled="!editorName.trim()" @click="saveEditor">
-          Save
+          {{ settings.text('common.save') }}
         </button>
       </div>
     </div>
 
     <div ref="listElement" class="native-list-card group-preset-list" :class="{ 'is-saving': isSaving }">
-      <div v-if="groupPresets.items.length === 0" class="native-empty-state">No Group Presets loaded.</div>
+      <div v-if="groupPresets.items.length === 0" class="native-empty-state">{{ settings.text('groupPreset.none') }}</div>
       <article
         v-for="groupPreset in groupPresets.items"
         :key="groupPreset.id"
@@ -151,24 +155,28 @@ function assignPreset(device: DeviceSummary, event: Event) {
         :class="{ active: groupPreset.id === groupPresets.activeID }"
         :data-sortable-id="groupPreset.id"
       >
-        <button class="drag-handle" type="button" aria-label="Reorder Group Preset" title="Drag to reorder">⋮⋮</button>
+        <button class="drag-handle" type="button" :aria-label="settings.text('groupPreset.manage')" :title="settings.text('groupPreset.manage')">⋮⋮</button>
         <span class="order-chip">{{ groupPreset.order }}</span>
         <button class="group-preset-main" type="button" @click="activate(groupPreset.id)">
           <span class="row-main">
             <strong>{{ groupPreset.name }}</strong>
-            <span>{{ groupPreset.assignments.length }} device assignments</span>
+            <span>{{ settings.text('groupPreset.assignments', groupPreset.assignments.length) }}</span>
           </span>
         </button>
-        <span v-if="groupPreset.id === groupPresets.activeID" class="active-badge">ACTIVE</span>
-        <button v-else class="native-button compact" type="button" @click="activate(groupPreset.id)">Activate</button>
-        <button class="native-button compact" type="button" @click="beginRename(groupPreset)">Rename</button>
+        <span v-if="groupPreset.id === groupPresets.activeID" class="active-badge">{{ settings.text('common.active') }}</span>
+        <button v-else class="native-button compact" type="button" @click="activate(groupPreset.id)">
+          {{ settings.text('common.activate') }}
+        </button>
+        <button class="native-button compact" type="button" @click="beginRename(groupPreset)">
+          {{ settings.text('groupPreset.rename') }}
+        </button>
         <button
           class="native-button compact danger"
           type="button"
           :disabled="groupPresets.items.length <= 1"
           @click="requestDelete(groupPreset.id)"
         >
-          {{ confirmDeleteID === groupPreset.id ? 'Confirm Delete' : 'Delete' }}
+          {{ confirmDeleteID === groupPreset.id ? settings.text('groupPreset.delete.title') : settings.text('groupPreset.delete') }}
         </button>
         <button
           v-if="confirmDeleteID === groupPreset.id"
@@ -176,7 +184,7 @@ function assignPreset(device: DeviceSummary, event: Event) {
           type="button"
           @click="confirmDeleteID = null"
         >
-          Cancel
+          {{ settings.text('common.cancel') }}
         </button>
       </article>
     </div>
@@ -185,20 +193,20 @@ function assignPreset(device: DeviceSummary, event: Event) {
 
     <section class="group-assignment-section">
       <div class="native-page-title compact">
-        <h2>{{ groupPresets.active?.name ?? 'No Active Group Preset' }}</h2>
-        <p>Choose which Logical Devices participate and which Preset each one starts on.</p>
+        <h2>{{ groupPresets.active?.name ?? settings.text('groupPreset.none') }}</h2>
+        <p>{{ settings.text('groupPreset.device.help') }}</p>
       </div>
 
       <div v-if="devices.items.length === 0" class="native-empty-state assignment-empty">
-        <strong>No Logical Devices</strong>
-        <span>Add a device first, then assign it to this Group Preset.</span>
+        <strong>{{ settings.text('devices.empty') }}</strong>
+        <span>{{ settings.text('devices.empty.help') }}</span>
       </div>
 
       <div v-else class="group-assignment-table">
         <div class="group-assignment-header">
-          <span>Logical Device</span>
-          <span>Include</span>
-          <span>Preset</span>
+          <span>{{ settings.text('devices.logicalDevice') }}</span>
+          <span>{{ settings.text('groupPreset.includeDevice') }}</span>
+          <span>{{ settings.text('groupPreset.preset') }}</span>
         </div>
 
         <article v-for="device in devices.items" :key="device.id" class="group-assignment-row">
@@ -206,7 +214,7 @@ function assignPreset(device: DeviceSummary, event: Event) {
             <strong>{{ device.name }}</strong>
             <span>
               <i class="device-dot" :class="{ online: device.connected }" />
-              {{ device.profileName }} · {{ device.connected ? 'Connected' : 'Disconnected' }}
+              {{ device.profileName }} · {{ settings.text(device.connected ? 'devices.connected' : 'devices.disconnected') }}
             </span>
           </div>
 
