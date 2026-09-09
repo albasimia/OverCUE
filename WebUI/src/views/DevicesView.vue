@@ -3,9 +3,11 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { DeviceKind } from '../api/types'
 import { useDevicesStore } from '../stores/devices'
 import { useGroupPresetsStore } from '../stores/groupPresets'
+import { useSettingsStore } from '../stores/settings'
 
 const devices = useDevicesStore()
 const groupPresets = useGroupPresetsStore()
+const settings = useSettingsStore()
 const selectedID = ref<string | null>(null)
 const nameDraft = ref('')
 const actionError = ref<string | null>(null)
@@ -92,7 +94,7 @@ function forgetBinding() {
 function hardwareLabel(kind: DeviceKind | undefined) {
   if (kind === 'ack05') return 'ACK05'
   if (kind === 'genericHID') return 'Generic HID'
-  return 'Not bound'
+  return settings.text('devices.binding.none')
 }
 
 onMounted(() => devices.resumeIdentifyPolling())
@@ -111,12 +113,12 @@ onBeforeUnmount(() => {
     <div class="device-split">
       <aside class="device-list-pane">
         <div class="native-page-title compact">
-          <h1>Devices</h1>
-          <p>Manage logical controller devices.</p>
+          <h1>{{ settings.text('devices.title') }}</h1>
+          <p>{{ settings.text('devices.subtitle') }}</p>
         </div>
 
         <div class="native-selector-row">
-          <span>Group Preset</span>
+          <span>{{ settings.text('groupPreset.title') }}</span>
           <strong>{{ activeGroupPresetName }}</strong>
         </div>
 
@@ -128,7 +130,7 @@ onBeforeUnmount(() => {
           :disabled="devices.isMutating || devices.isIdentifying"
           @click="beginAdd('ack05')"
         >
-          ＋ Add ACK05
+          ＋ {{ settings.text('devices.addAck05') }}
         </button>
         <button
           class="native-button"
@@ -136,18 +138,18 @@ onBeforeUnmount(() => {
           :disabled="devices.isMutating || devices.isIdentifying"
           @click="beginAdd('genericHID')"
         >
-          ＋ Add Generic HID
+          ＋ {{ settings.text('devices.addGeneric') }}
         </button>
 
         <div v-if="devices.isIdentifying" class="device-identify-panel compact">
           <div>
-            <strong>Identify device</strong>
+            <strong>{{ settings.text('devices.identify.title') }}</strong>
             <span>
-              Waiting for {{ devices.management.identifyKind === 'genericHID' ? 'Generic HID' : 'ACK05' }} input ·
-              {{ devices.management.identifyCandidateCount }} candidates
+              {{ settings.text('devices.identify.prompt') }} ·
+              {{ settings.text('devices.identify.candidates', devices.management.identifyCandidateCount) }}
             </span>
           </div>
-          <button class="native-button" type="button" @click="cancelIdentify">Cancel</button>
+          <button class="native-button" type="button" @click="cancelIdentify">{{ settings.text('common.cancel') }}</button>
         </div>
 
         <p v-if="actionError || devices.management.errorMessage || devices.errorMessage" class="device-status error">
@@ -156,8 +158,8 @@ onBeforeUnmount(() => {
 
         <div v-if="devices.items.length === 0" class="native-empty-state">
           <div class="empty-icon">⌘</div>
-          <strong>No devices loaded.</strong>
-          <span>Registered logical devices will appear here.</span>
+          <strong>{{ settings.text('devices.empty') }}</strong>
+          <span>{{ settings.text('devices.empty.help') }}</span>
         </div>
 
         <div v-else class="device-list">
@@ -174,7 +176,7 @@ onBeforeUnmount(() => {
               <strong>{{ device.name }}</strong>
               <span>
                 <i class="device-dot" :class="{ online: device.connected }" />
-                {{ device.connected ? 'Connected' : 'Disconnected' }}
+                {{ settings.text(device.connected ? 'devices.connected' : 'devices.disconnected') }}
               </span>
             </span>
             <span class="chevron">›</span>
@@ -186,38 +188,38 @@ onBeforeUnmount(() => {
         <div v-if="selectedDevice" class="device-detail-content">
           <div class="native-page-title">
             <h1>{{ selectedDevice.name }}</h1>
-            <p>Logical Device</p>
+            <p>{{ settings.text('devices.logicalDevice') }}</p>
           </div>
 
           <div class="native-detail-card">
             <div class="detail-row">
-              <span>Connection</span>
+              <span>{{ settings.text('devices.connection') }}</span>
               <strong class="connection-value">
                 <i class="device-dot" :class="{ online: selectedDevice.connected }" />
-                {{ selectedDevice.connected ? 'Connected' : 'Disconnected' }}
+                {{ settings.text(selectedDevice.connected ? 'devices.connected' : 'devices.disconnected') }}
               </strong>
             </div>
             <div class="detail-row">
-              <span>Hardware</span>
+              <span>{{ settings.text('devices.hardware') }}</span>
               <strong>{{ hardwareLabel(selectedDevice.binding?.kind) }}</strong>
             </div>
             <div class="detail-row">
-              <span>Profile</span>
+              <span>{{ settings.text('devices.profile') }}</span>
               <strong>{{ selectedDevice.profileName }}</strong>
             </div>
             <div class="detail-row vertical">
-              <span>Logical Device ID</span>
+              <span>{{ settings.text('devices.logicalId') }}</span>
               <code>{{ selectedDevice.id }}</code>
             </div>
             <div class="detail-row vertical">
-              <span>Binding Identifier</span>
-              <code>{{ selectedDevice.binding?.bindingIdentifier ?? 'Not bound' }}</code>
+              <span>{{ settings.text('devices.pairingId') }}</span>
+              <code>{{ selectedDevice.binding?.bindingIdentifier ?? settings.text('devices.binding.none') }}</code>
             </div>
           </div>
 
           <div class="native-detail-card device-settings-card">
             <div class="device-form-row">
-              <label for="device-name">Name</label>
+              <label for="device-name">{{ settings.text('devices.name') }}</label>
               <input id="device-name" v-model="nameDraft" class="native-input" type="text" />
               <button
                 class="native-button"
@@ -225,12 +227,12 @@ onBeforeUnmount(() => {
                 :disabled="!nameDraft.trim() || devices.isMutating"
                 @click="saveName"
               >
-                Save
+                {{ settings.text('common.save') }}
               </button>
             </div>
 
             <div class="device-form-row">
-              <label for="device-profile">Profile</label>
+              <label for="device-profile">{{ settings.text('devices.profile') }}</label>
               <select
                 id="device-profile"
                 class="native-select"
@@ -247,9 +249,9 @@ onBeforeUnmount(() => {
 
           <div class="native-detail-card">
             <div class="binding-copy">
-              <strong>Physical Device Binding</strong>
-              <span v-if="selectedDevice.binding">Re-identify the controller or forget the current binding.</span>
-              <span v-else>Identify a physical controller for this Logical Device.</span>
+              <strong>{{ settings.text('devices.section.binding') }}</strong>
+              <span v-if="selectedDevice.binding">{{ settings.text('devices.binding.ok.help') }}</span>
+              <span v-else>{{ settings.text('devices.binding.missing.help') }}</span>
             </div>
 
             <div class="device-actions">
@@ -260,7 +262,7 @@ onBeforeUnmount(() => {
                   :disabled="devices.isMutating || devices.isIdentifying"
                   @click="beginRebind()"
                 >
-                  Rebind
+                  {{ settings.text('devices.rebind.action') }}
                 </button>
                 <button
                   class="native-button danger"
@@ -268,7 +270,7 @@ onBeforeUnmount(() => {
                   :disabled="devices.isMutating || devices.isIdentifying"
                   @click="forgetBinding"
                 >
-                  {{ confirmForget ? 'Confirm Forget' : 'Forget Binding' }}
+                  {{ confirmForget ? settings.text('devices.forget.title') : settings.text('devices.forget.action') }}
                 </button>
                 <button
                   v-if="confirmForget"
@@ -276,7 +278,7 @@ onBeforeUnmount(() => {
                   type="button"
                   @click="confirmForget = false"
                 >
-                  Cancel
+                  {{ settings.text('common.cancel') }}
                 </button>
               </template>
               <template v-else>
@@ -286,7 +288,7 @@ onBeforeUnmount(() => {
                   :disabled="devices.isMutating || devices.isIdentifying"
                   @click="beginRebind('ack05')"
                 >
-                  Identify ACK05
+                  {{ settings.text('devices.identify.ack05.action') }}
                 </button>
                 <button
                   class="native-button"
@@ -294,7 +296,7 @@ onBeforeUnmount(() => {
                   :disabled="devices.isMutating || devices.isIdentifying"
                   @click="beginRebind('genericHID')"
                 >
-                  Identify Generic HID
+                  {{ settings.text('devices.identify.generic.action') }}
                 </button>
               </template>
             </div>
@@ -306,8 +308,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div v-else class="native-empty-state detail-empty">
-          <strong>Select a device</strong>
-          <span>Device details will appear here.</span>
+          <strong>{{ settings.text('devices.select') }}</strong>
         </div>
       </div>
     </div>
