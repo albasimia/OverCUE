@@ -1,0 +1,28 @@
+.shortcut-action-list {
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+.shortcut-column-header,
+.shortcut-action-row {
+  grid-template-columns: minmax(140px, 1fr) minmax(90px, 120px) minmax(180px, 240px);
+  gap: 8px;
+  padding-inline: 10px;
+}
+
+.shortcut-input-cell {
+  min-width: 180px;
+}
+
+.shortcut-binding-list {
+  min-width: 0;
+}
+
+@media (min-width: 1280px) {
+  .shortcut-column-header,
+  .shortcut-action-row {
+    grid-template-columns: minmax(180px, 1fr) 130px minmax(220px, 280px);
+    gap: 12px;
+    padding-inline: 14px;
+  }
+}
