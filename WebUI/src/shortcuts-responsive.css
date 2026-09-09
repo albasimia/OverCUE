@@ -1,6 +1,22 @@
+.shortcut-list-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.shortcut-editor-fixed {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
 .shortcut-action-list {
-  overflow-x: auto;
-  overflow-y: visible;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .shortcut-column-header,
@@ -16,6 +32,10 @@
 
 .shortcut-binding-list {
   min-width: 0;
+}
+
+.shortcut-device-pane {
+  overflow: hidden;
 }
 
 @media (min-width: 1280px) {
