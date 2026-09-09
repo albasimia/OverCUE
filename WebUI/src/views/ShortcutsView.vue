@@ -1,14 +1,24 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import type {
+  RekordboxMode,
+  ShortcutDialDirection,
+  ShortcutEntryState,
+} from '../api/types'
 import { useShortcutsStore } from '../stores/shortcuts'
 
 const shortcuts = useShortcutsStore()
+const searchText = ref('')
+const expandedCategories = ref(new Set<string>(['OverCUE', 'Deck 1']))
 
 onMounted(() => {
   void shortcuts.startPolling()
 })
 
 onBeforeUnmount(() => {
+  if (shortcuts.panel?.capture.isCapturing) {
+    void shortcuts.cancelLearn()
+  }
   shortcuts.stopPolling()
 })
 
@@ -25,23 +35,83 @@ const mapStyle = computed(() => ({
   '--label-rotation': `${(panel.value?.rotationQuarterTurns ?? 0) * -90}deg`,
 }))
 
-const assignmentRows = computed(() => {
-  const keyRows = (panel.value?.keys ?? []).map((key) => ({
-    id: key.id,
-    label: key.id.toUpperCase(),
-    functionName: key.assignment?.functionName ?? 'Unassigned',
-    shortcut: key.assignment?.shortcut ?? '',
-    active: key.pressed,
-  }))
-  const dialRows = (panel.value?.dial ?? []).map((dial) => ({
-    id: `dial-${dial.direction}`,
-    label: dial.direction === 'clockwise' ? 'DIAL →' : 'DIAL ←',
-    functionName: dial.assignment?.functionName ?? 'Unassigned',
-    shortcut: dial.assignment?.shortcut ?? '',
-    active: dial.active,
-  }))
-  return [...keyRows, ...dialRows]
+const query = computed(() => searchText.value.trim().toLocaleLowerCase())
+
+const filteredEntries = computed(() => {
+  const entries = panel.value?.entries ?? []
+  if (!query.value) return entries
+  return entries.filter((entry) => [
+    entry.description,
+    entry.commandID,
+    entry.shortcut,
+    entry.category,
+    ...entry.bindings,
+  ].some((value) => value.toLocaleLowerCase().includes(query.value)))
 })
+
+const groupedEntries = computed(() => {
+  const groups = new Map<string, ShortcutEntryState[]>()
+  for (const entry of filteredEntries.value) {
+    const values = groups.get(entry.category) ?? []
+    values.push(entry)
+    groups.set(entry.category, values)
+  }
+  return [...groups.entries()].map(([category, entries]) => ({ category, entries }))
+})
+
+const pressedInput = computed(() => {
+  const values = [
+    ...(panel.value?.keys ?? []).filter((key) => key.pressed).map((key) => key.id.toUpperCase()),
+    ...(panel.value?.dial ?? []).filter((dial) => dial.active).map((dial) =>
+      dial.direction === 'clockwise' ? 'DIAL →' : 'DIAL ←'),
+  ]
+  return values.join(' + ') || '—'
+})
+
+function isExpanded(category: string) {
+  return Boolean(query.value) || expandedCategories.value.has(category)
+}
+
+function toggleCategory(category: string) {
+  if (query.value) return
+  const next = new Set(expandedCategories.value)
+  if (next.has(category)) next.delete(category)
+  else next.add(category)
+  expandedCategories.value = next
+}
+
+function perform(action: Promise<unknown>) {
+  void action.catch(() => undefined)
+}
+
+function selectKey(keyID: string) {
+  perform(shortcuts.selectKey(keyID))
+}
+
+function selectDial(direction: ShortcutDialDirection) {
+  perform(shortcuts.selectDial(direction))
+}
+
+function selectEntry(entryID: string) {
+  perform(shortcuts.selectEntry(entryID))
+}
+
+function setPreset(event: Event) {
+  const presetID = (event.target as HTMLSelectElement).value
+  if (presetID) perform(shortcuts.setPreset(presetID))
+}
+
+function setMode(mode: RekordboxMode) {
+  if (panel.value?.mode !== mode) perform(shortcuts.setMode(mode))
+}
+
+function learn(entryID: string) {
+  perform(shortcuts.beginLearn(entryID))
+}
+
+function remove(entryID: string) {
+  perform(shortcuts.removeBindings(entryID))
+}
 </script>
 
 <template>
@@ -53,12 +123,29 @@ const assignmentRows = computed(() => {
             <h2>{{ panel?.deviceName ?? 'ACK05' }}</h2>
             <p>Device Map</p>
           </div>
+          <button
+            class="shortcut-icon-button"
+            type="button"
+            title="Rotate device"
+            :disabled="shortcuts.isMutating || panel?.capture.isCapturing"
+            @click="perform(shortcuts.rotateDevice())"
+          >
+            ↻
+          </button>
         </div>
 
-        <div class="shortcut-preset-row">
+        <label class="shortcut-preset-row">
           <span>Preset</span>
-          <strong>{{ panel?.presetName ?? '—' }}</strong>
-        </div>
+          <select
+            :value="panel?.presetID ?? ''"
+            :disabled="shortcuts.isMutating || panel?.capture.isCapturing"
+            @change="setPreset"
+          >
+            <option v-for="preset in panel?.presets ?? []" :key="preset.id" :value="preset.id">
+              {{ preset.name }}
+            </option>
+          </select>
+        </label>
 
         <div v-if="shortcuts.errorMessage" class="shortcut-panel-error" role="alert">
           {{ shortcuts.errorMessage }}
@@ -69,24 +156,36 @@ const assignmentRows = computed(() => {
             <div class="ack05-body">
               <div class="ack05-dial">
                 <div class="dial-center" />
-                <div
+                <button
                   class="dial-zone dial-zone-left"
-                  :class="{ active: dialByDirection.counterclockwise?.active }"
+                  :class="{
+                    active: dialByDirection.counterclockwise?.active,
+                    selected: dialByDirection.counterclockwise?.selected,
+                    highlighted: dialByDirection.counterclockwise?.highlighted,
+                  }"
+                  type="button"
+                  @click="selectDial('counterclockwise')"
                 >
                   <span class="dial-copy">
                     <b>←</b>
                     <small>{{ dialByDirection.counterclockwise?.assignment?.functionName ?? 'Unassigned' }}</small>
                   </span>
-                </div>
-                <div
+                </button>
+                <button
                   class="dial-zone dial-zone-right"
-                  :class="{ active: dialByDirection.clockwise?.active }"
+                  :class="{
+                    active: dialByDirection.clockwise?.active,
+                    selected: dialByDirection.clockwise?.selected,
+                    highlighted: dialByDirection.clockwise?.highlighted,
+                  }"
+                  type="button"
+                  @click="selectDial('clockwise')"
                 >
                   <span class="dial-copy">
                     <b>→</b>
                     <small>{{ dialByDirection.clockwise?.assignment?.functionName ?? 'Unassigned' }}</small>
                   </span>
-                </div>
+                </button>
               </div>
 
               <div class="ack05-side-mark" />
@@ -95,9 +194,16 @@ const assignmentRows = computed(() => {
                 v-for="id in ['k1','k2','k3','k4','k5','k6','k7','k8','k9','k10']"
                 :key="id"
                 class="ack05-key"
-                :class="[id, { pressed: keyByID[id]?.pressed }]"
+                :class="[
+                  id,
+                  {
+                    pressed: keyByID[id]?.pressed,
+                    selected: keyByID[id]?.selected,
+                    highlighted: keyByID[id]?.highlighted,
+                  },
+                ]"
                 type="button"
-                tabindex="-1"
+                @click="selectKey(id)"
               >
                 <span class="key-copy">
                   <b>{{ id.toUpperCase() }}</b>
@@ -110,31 +216,147 @@ const assignmentRows = computed(() => {
 
         <div class="pressed-readout">
           <span>Input</span>
-          <strong>
-            {{ assignmentRows.filter((row) => row.active).map((row) => row.label).join(' + ') || '—' }}
-          </strong>
+          <strong>{{ pressedInput }}</strong>
         </div>
       </aside>
 
       <div class="shortcut-list-pane">
-        <div class="native-page-title shortcut-list-title">
-          <h1>Shortcuts</h1>
-          <p>Current device assignments</p>
+        <div class="shortcut-editor-header">
+          <div class="native-page-title">
+            <h1>Shortcuts</h1>
+            <p>Assign ACK05 or Generic HID input to rekordbox and OverCUE actions.</p>
+          </div>
+
+          <div class="shortcut-mode-controls">
+            <div class="shortcut-mode-picker" aria-label="rekordbox mode">
+              <button
+                v-for="mode in (['export', 'performance'] as RekordboxMode[])"
+                :key="mode"
+                type="button"
+                :class="{ active: panel?.mode === mode }"
+                :disabled="shortcuts.isMutating || panel?.capture.isCapturing"
+                @click="setMode(mode)"
+              >
+                {{ mode.toUpperCase() }}
+              </button>
+            </div>
+            <button
+              class="native-button"
+              type="button"
+              :disabled="shortcuts.isMutating || panel?.capture.isCapturing"
+              @click="perform(shortcuts.reloadMapping())"
+            >
+              ↻ Reload
+            </button>
+          </div>
         </div>
 
-        <div class="shortcut-assignment-list">
-          <article
-            v-for="row in assignmentRows"
-            :key="row.id"
-            class="shortcut-assignment-row"
-            :class="{ active: row.active }"
-          >
-            <span class="binding-chip">{{ row.label }}</span>
-            <div class="assignment-copy">
-              <strong>{{ row.functionName }}</strong>
-              <span>{{ row.shortcut || 'No rekordbox shortcut' }}</span>
-            </div>
-          </article>
+        <div v-if="panel?.capture.overwriteMessage" class="shortcut-overwrite-panel">
+          <div>
+            <strong>Replace existing assignment?</strong>
+            <span>{{ panel.capture.overwriteMessage }}</span>
+          </div>
+          <div class="shortcut-capture-actions">
+            <button class="native-button" type="button" @click="perform(shortcuts.cancelOverwrite())">Cancel</button>
+            <button class="native-button primary" type="button" @click="perform(shortcuts.confirmOverwrite())">Replace</button>
+          </div>
+        </div>
+
+        <div v-else-if="panel?.capture.isCapturing" class="shortcut-capture-panel">
+          <div>
+            <strong>Learn</strong>
+            <span>{{ panel.capture.message ?? 'Press an ACK05 or Generic HID input…' }}</span>
+          </div>
+          <button class="native-button" type="button" @click="perform(shortcuts.cancelLearn())">Cancel</button>
+        </div>
+
+        <div v-if="panel?.capture.error" class="shortcut-panel-error shortcut-top-error" role="alert">
+          {{ panel.capture.error }}
+        </div>
+
+        <div class="shortcut-search-row">
+          <span aria-hidden="true">⌕</span>
+          <input v-model="searchText" type="search" placeholder="Search shortcuts" />
+          <button v-if="searchText" type="button" @click="searchText = ''">×</button>
+        </div>
+
+        <div class="shortcut-mapping-summary">
+          <span class="mapping-status-dot" :class="{ error: panel?.mappingError }" />
+          <strong>{{ panel?.mappingName ?? 'Loading…' }}</strong>
+          <span>{{ panel?.entries.length ?? 0 }} actions</span>
+          <code v-if="panel?.mappingFileName">{{ panel.mappingFileName }}</code>
+          <span v-if="panel?.mappingError" class="mapping-error">{{ panel.mappingError }}</span>
+        </div>
+
+        <div class="shortcut-action-list">
+          <div v-if="groupedEntries.length === 0" class="native-empty-state">
+            <strong>No shortcuts found.</strong>
+            <span>Try a different search.</span>
+          </div>
+
+          <section v-for="group in groupedEntries" :key="group.category" class="shortcut-category">
+            <button class="shortcut-category-header" type="button" @click="toggleCategory(group.category)">
+              <span>{{ isExpanded(group.category) ? '⌄' : '›' }}</span>
+              <strong>{{ group.category }}</strong>
+              <small>{{ group.entries.length }}</small>
+            </button>
+
+            <template v-if="isExpanded(group.category)">
+              <div class="shortcut-column-header">
+                <span>FUNCTION</span>
+                <span>REKORDBOX</span>
+                <span>INPUT</span>
+              </div>
+
+              <article
+                v-for="entry in group.entries"
+                :key="entry.id"
+                class="shortcut-action-row"
+                :class="{
+                  selected: panel?.selectedEntryID === entry.id,
+                  configured: entry.configured,
+                  learning: panel?.capture.entryID === entry.id,
+                }"
+              >
+                <button class="shortcut-function-cell" type="button" @click="selectEntry(entry.id)">
+                  <span class="configured-mark">{{ entry.configured ? '●' : '○' }}</span>
+                  <span class="shortcut-function-copy">
+                    <strong>{{ entry.description }}</strong>
+                    <small>{{ entry.commandID }}</small>
+                  </span>
+                </button>
+
+                <span class="shortcut-rekordbox-cell">{{ entry.shortcut || '—' }}</span>
+
+                <div class="shortcut-input-cell">
+                  <div class="shortcut-binding-list">
+                    <span v-if="entry.bindings.length === 0" class="shortcut-unassigned">Unassigned</span>
+                    <span v-for="binding in entry.bindings" v-else :key="binding" class="shortcut-binding-chip">
+                      {{ binding }}
+                    </span>
+                  </div>
+                  <button
+                    class="shortcut-row-action edit"
+                    type="button"
+                    title="Learn input"
+                    :disabled="shortcuts.isMutating || panel?.capture.isCapturing"
+                    @click="learn(entry.id)"
+                  >
+                    {{ panel?.capture.entryID === entry.id ? '…' : '✎' }}
+                  </button>
+                  <button
+                    class="shortcut-row-action remove"
+                    type="button"
+                    title="Remove assignments"
+                    :disabled="shortcuts.isMutating || panel?.capture.isCapturing || !entry.configured"
+                    @click="remove(entry.id)"
+                  >
+                    ×
+                  </button>
+                </div>
+              </article>
+            </template>
+          </section>
         </div>
       </div>
     </div>
