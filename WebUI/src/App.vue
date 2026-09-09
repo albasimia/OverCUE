@@ -49,7 +49,7 @@ onMounted(() => {
         <strong>OverCUE</strong>
       </div>
 
-      <nav class="section-picker" aria-label="Main navigation">
+      <nav class="section-picker" :aria-label="settings.text('nav.shortcuts')">
         <RouterLink to="/shortcuts">{{ settings.text('nav.shortcuts') }}</RouterLink>
         <RouterLink to="/devices">{{ settings.text('nav.devices') }}</RouterLink>
         <RouterLink to="/group-presets">{{ settings.text('groupPreset.title') }}</RouterLink>
@@ -64,7 +64,7 @@ onMounted(() => {
 
     <main class="content-shell">
       <div v-if="loadError" class="connection-banner" role="status">
-        Local API: {{ loadError }}
+        {{ settings.text('app.localAPI') }}: {{ loadError }}
       </div>
       <RouterView />
     </main>
