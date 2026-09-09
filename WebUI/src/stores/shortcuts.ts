@@ -7,6 +7,10 @@ import type {
   ShortcutPanelState,
 } from '../api/types'
 
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
 export const useShortcutsStore = defineStore('shortcuts', {
   state: () => ({
     panel: null as ShortcutPanelState | null,
@@ -22,6 +26,41 @@ export const useShortcutsStore = defineStore('shortcuts', {
       try {
         this.panel = await overcueAPI.shortcutPanel()
         this.errorMessage = null
+      } catch (error) {
+        this.errorMessage = error instanceof Error ? error.message : String(error)
+      }
+    },
+
+    async refreshLive() {
+      if (this.isMutating) return
+      if (!this.panel) {
+        await this.refresh()
+        return
+      }
+
+      try {
+        const previousCapture = this.panel.capture.isCapturing
+        const live = await overcueAPI.shortcutLive()
+        const pressedByID = new Map(live.keys.map((key) => [key.id, key.pressed]))
+        const activeByDirection = new Map(live.dial.map((dial) => [dial.direction, dial.active]))
+
+        this.panel = {
+          ...this.panel,
+          keys: this.panel.keys.map((key) => ({
+            ...key,
+            pressed: pressedByID.get(key.id) ?? false,
+          })),
+          dial: this.panel.dial.map((dial) => ({
+            ...dial,
+            active: activeByDirection.get(dial.direction) ?? false,
+          })),
+          capture: live.capture,
+        }
+        this.errorMessage = null
+
+        if (previousCapture && !live.capture.isCapturing) {
+          await this.refresh()
+        }
       } catch (error) {
         this.errorMessage = error instanceof Error ? error.message : String(error)
       }
@@ -57,16 +96,22 @@ export const useShortcutsStore = defineStore('shortcuts', {
       return this.command({ action: 'setPreset', presetID })
     },
 
-    addPreset(name: string) {
-      return this.command({ action: 'addPreset', name })
+    async addPreset(name: string) {
+      await this.command({ action: 'addPreset', name })
+      await delay(180)
+      await this.refresh()
     },
 
-    renamePreset(presetID: string, name: string) {
-      return this.command({ action: 'renamePreset', presetID, name })
+    async renamePreset(presetID: string, name: string) {
+      await this.command({ action: 'renamePreset', presetID, name })
+      await delay(80)
+      await this.refresh()
     },
 
-    deletePreset(presetID: string) {
-      return this.command({ action: 'deletePreset', presetID })
+    async deletePreset(presetID: string) {
+      await this.command({ action: 'deletePreset', presetID })
+      await delay(80)
+      await this.refresh()
     },
 
     setMode(mode: RekordboxMode) {
@@ -105,9 +150,10 @@ export const useShortcutsStore = defineStore('shortcuts', {
       if (this.isPolling) return
       this.isPolling = true
       const generation = ++this.pollGeneration
+      await this.refresh()
       while (this.isPolling && generation === this.pollGeneration) {
-        await this.refresh()
-        await new Promise((resolve) => window.setTimeout(resolve, 50))
+        await this.refreshLive()
+        await delay(50)
       }
     },
 
