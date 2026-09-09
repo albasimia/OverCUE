@@ -42,6 +42,7 @@ The native app exposes:
 - `GET /api/v1/session`
 - `GET /api/v1/snapshot`
 - `GET /api/v1/shortcuts/panel`
+- `GET /api/v1/shortcuts/live`
 - `PUT /api/v1/shortcuts/panel`
 - `PUT /api/v1/presets/order`
 - `PUT /api/v1/group-presets/order`
@@ -58,7 +59,9 @@ The native app exposes:
 - `PUT /api/v1/devices/profile`
 - `PUT /api/v1/devices/forget-binding`
 
-The Shortcuts panel reuses `ShortcutSettingsModel` plus `GenericHIDShortcutCaptureModel` instead of introducing Web-only mapping logic. The same endpoint exposes Action selection, ACK05 key/dial selection, Preset switching and management, rekordbox mode switching, unified ACK05 + Generic HID Learn, overwrite confirmation, binding removal, rotation, mapping status, and physical pressed-state feedback. Learn pins the editor Preset using the existing native capture lifecycle.
+The Shortcuts editor reuses `ShortcutSettingsModel` plus `GenericHIDShortcutCaptureModel` instead of introducing Web-only mapping logic. The editor panel exposes Action selection, ACK05 key/dial selection, Preset switching and management, rekordbox mode switching, unified ACK05 + Generic HID Learn, overwrite confirmation, binding removal, rotation, and mapping status. Learn pins the editor Preset using the existing native capture lifecycle.
+
+`GET /api/v1/shortcuts/panel` returns the full editor model only for initial load and mutations. `GET /api/v1/shortcuts/live` is the lightweight 50 ms polling path and contains only physical pressed/dial state plus Learn status, so live visualization does not repeatedly serialize the complete rekordbox Action list.
 
 Group Preset writes reuse `GroupPresetManagementModel`, so native SwiftUI and Web UI share the same validation and configuration mutation rules. Snapshot device entries include the Presets available for that Logical Device's profile so assignment UIs do not need a second lookup API.
 
