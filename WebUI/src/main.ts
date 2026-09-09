@@ -5,6 +5,7 @@ import { router } from './router'
 import './styles.css'
 import './shortcuts.css'
 import './shortcuts-preset.css'
+import './shortcuts-responsive.css'
 import './group-presets.css'
 
 createApp(App)
