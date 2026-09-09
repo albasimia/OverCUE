@@ -19,7 +19,8 @@ export function useSortableOrder(options: SortableOrderOptions) {
   async function persistDOMOrder() {
     if (!sortable || isSaving.value) return
 
-    const nextIDs = sortable.toArray()
+    const activeSortable = sortable
+    const nextIDs = activeSortable.toArray()
     const currentIDs = options.currentIDs()
     if (nextIDs.length !== currentIDs.length || new Set(nextIDs).size !== nextIDs.length) {
       restoreDOMOrder()
@@ -29,16 +30,16 @@ export function useSortableOrder(options: SortableOrderOptions) {
 
     isSaving.value = true
     errorMessage.value = null
-    sortable.option('disabled', true)
+    activeSortable.option('disabled', true)
     try {
       await options.persist(nextIDs)
     } catch (error) {
       errorMessage.value = error instanceof Error ? error.message : String(error)
       await nextTick()
-      restoreDOMOrder()
+      if (sortable === activeSortable) restoreDOMOrder()
     } finally {
       isSaving.value = false
-      sortable.option('disabled', false)
+      if (sortable === activeSortable) activeSortable.option('disabled', false)
     }
   }
 
