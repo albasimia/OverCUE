@@ -97,12 +97,30 @@ struct WebShortcutEditorPanel: Encodable {
     let capture: WebShortcutCaptureSummary
 }
 
+struct WebShortcutLiveKeySummary: Encodable {
+    let id: String
+    let pressed: Bool
+}
+
+struct WebShortcutLiveDialSummary: Encodable {
+    let direction: String
+    let active: Bool
+}
+
+struct WebShortcutLiveState: Encodable {
+    let keys: [WebShortcutLiveKeySummary]
+    let dial: [WebShortcutLiveDialSummary]
+    let capture: WebShortcutCaptureSummary
+}
+
 @MainActor
 final class WebShortcutEditingCoordinator {
     private let genericHIDModel = GenericHIDShortcutCaptureModel()
     private var loadedGenericPresetID: String?
 
-    var isCapturing: Bool { genericHIDModel.isCapturing }
+    func hasActiveCapture(shortcutModel: ShortcutSettingsModel) -> Bool {
+        shortcutModel.isCapturing || genericHIDModel.isCapturing
+    }
 
     func makePanel(shortcutModel: ShortcutSettingsModel) -> WebShortcutEditorPanel {
         ensureGenericBindingsLoaded(shortcutModel: shortcutModel)
@@ -126,11 +144,7 @@ final class WebShortcutEditingCoordinator {
             )
         }
 
-        let dialDirections: [(DialDirection, String)] = [
-            (.counterclockwise, "counterclockwise"),
-            (.clockwise, "clockwise"),
-        ]
-        let dial = dialDirections.map { direction, value in
+        let dial = dialDirections(shortcutModel: shortcutModel).map { direction, value in
             WebShortcutDialSummary(
                 direction: value,
                 assignment: shortcutModel.dialAssignment(direction).map {
@@ -190,13 +204,25 @@ final class WebShortcutEditingCoordinator {
             keys: keys,
             dial: dial,
             entries: entries,
-            capture: WebShortcutCaptureSummary(
-                isCapturing: shortcutModel.isCapturing || genericHIDModel.isCapturing,
-                entryID: genericHIDModel.captureEntryID ?? shortcutModel.editingEntryID,
-                message: genericHIDModel.captureMessage ?? shortcutModel.captureMessage,
-                error: genericHIDModel.errorMessage ?? shortcutModel.captureError,
-                overwriteMessage: shortcutModel.overwriteConfirmation?.message
-            )
+            capture: captureSummary(shortcutModel: shortcutModel)
+        )
+    }
+
+    func makeLiveState(shortcutModel: ShortcutSettingsModel) -> WebShortcutLiveState {
+        WebShortcutLiveState(
+            keys: ACK05Key.allCases.map { key in
+                WebShortcutLiveKeySummary(
+                    id: key.rawValue,
+                    pressed: shortcutModel.pressedDeviceKeys.contains(key)
+                )
+            },
+            dial: dialDirections(shortcutModel: shortcutModel).map { direction, value in
+                WebShortcutLiveDialSummary(
+                    direction: value,
+                    active: shortcutModel.activeDialDirection == direction
+                )
+            },
+            capture: captureSummary(shortcutModel: shortcutModel)
         )
     }
 
@@ -225,18 +251,20 @@ final class WebShortcutEditingCoordinator {
             guard let presetID = command.presetID,
                   let index = shortcutModel.availablePresetGroups.firstIndex(where: { $0.id == presetID })
             else { throw WebShortcutEditingError.presetMissing }
-            guard !isCapturing(shortcutModel) else {
+            guard !hasActiveCapture(shortcutModel: shortcutModel) else {
                 throw WebShortcutEditingError.captureInProgress
             }
             shortcutModel.setGroup(index + 1)
             reloadGenericBindings(shortcutModel: shortcutModel)
 
         case .addPreset:
-            guard !isCapturing(shortcutModel) else {
+            guard !hasActiveCapture(shortcutModel: shortcutModel) else {
                 throw WebShortcutEditingError.captureInProgress
             }
             guard let name = command.name else { throw WebShortcutEditingError.invalidPresetName }
-            let result = try PresetGroupStore.add(name: name, mode: shortcutModel.mode)
+            let result = try presetMutation {
+                try PresetGroupStore.add(name: name, mode: shortcutModel.mode)
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self, weak shortcutModel] in
                 guard let self, let shortcutModel else { return }
                 shortcutModel.setGroup(result.index)
@@ -244,32 +272,36 @@ final class WebShortcutEditingCoordinator {
             }
 
         case .renamePreset:
-            guard !isCapturing(shortcutModel) else {
+            guard !hasActiveCapture(shortcutModel: shortcutModel) else {
                 throw WebShortcutEditingError.captureInProgress
             }
             guard let presetID = command.presetID else { throw WebShortcutEditingError.presetMissing }
             guard let name = command.name else { throw WebShortcutEditingError.invalidPresetName }
-            try PresetGroupStore.rename(id: presetID, name: name)
+            try presetMutation {
+                try PresetGroupStore.rename(id: presetID, name: name)
+            }
 
         case .deletePreset:
-            guard !isCapturing(shortcutModel) else {
+            guard !hasActiveCapture(shortcutModel: shortcutModel) else {
                 throw WebShortcutEditingError.captureInProgress
             }
             guard let presetID = command.presetID else { throw WebShortcutEditingError.presetMissing }
-            _ = try PresetGroupStore.delete(id: presetID)
+            _ = try presetMutation {
+                try PresetGroupStore.delete(id: presetID)
+            }
 
         case .setMode:
             guard let rawMode = command.mode,
                   let mode = RekordboxMappingMode(rawValue: rawMode)
             else { throw WebShortcutEditingError.invalidMode }
-            guard !isCapturing(shortcutModel) else {
+            guard !hasActiveCapture(shortcutModel: shortcutModel) else {
                 throw WebShortcutEditingError.captureInProgress
             }
             shortcutModel.setMode(mode)
             reloadGenericBindings(shortcutModel: shortcutModel)
 
         case .reload:
-            guard !isCapturing(shortcutModel) else {
+            guard !hasActiveCapture(shortcutModel: shortcutModel) else {
                 throw WebShortcutEditingError.captureInProgress
             }
             shortcutModel.reloadAndRestartBridge()
@@ -277,7 +309,7 @@ final class WebShortcutEditingCoordinator {
 
         case .beginLearn:
             let entry = try requireEntry(id: command.entryID, shortcutModel: shortcutModel)
-            guard !isCapturing(shortcutModel) else {
+            guard !hasActiveCapture(shortcutModel: shortcutModel) else {
                 throw WebShortcutEditingError.captureInProgress
             }
             genericHIDModel.beginUnifiedCapture(for: entry, shortcutModel: shortcutModel)
@@ -292,7 +324,7 @@ final class WebShortcutEditingCoordinator {
 
         case .removeBindings:
             let entry = try requireEntry(id: command.entryID, shortcutModel: shortcutModel)
-            guard !isCapturing(shortcutModel) else {
+            guard !hasActiveCapture(shortcutModel: shortcutModel) else {
                 throw WebShortcutEditingError.captureInProgress
             }
             genericHIDModel.removeBindings(for: entry, shortcutModel: shortcutModel)
@@ -312,11 +344,30 @@ final class WebShortcutEditingCoordinator {
             shortcutModel.cancelOverwrite()
 
         case .rotateDevice:
-            guard !isCapturing(shortcutModel) else {
+            guard !hasActiveCapture(shortcutModel: shortcutModel) else {
                 throw WebShortcutEditingError.captureInProgress
             }
             shortcutModel.rotateDevice()
         }
+    }
+
+    private func captureSummary(shortcutModel: ShortcutSettingsModel) -> WebShortcutCaptureSummary {
+        WebShortcutCaptureSummary(
+            isCapturing: hasActiveCapture(shortcutModel: shortcutModel),
+            entryID: genericHIDModel.captureEntryID ?? shortcutModel.editingEntryID,
+            message: genericHIDModel.captureMessage ?? shortcutModel.captureMessage,
+            error: genericHIDModel.errorMessage ?? shortcutModel.captureError,
+            overwriteMessage: shortcutModel.overwriteConfirmation?.message
+        )
+    }
+
+    private func dialDirections(
+        shortcutModel _: ShortcutSettingsModel
+    ) -> [(DialDirection, String)] {
+        [
+            (.counterclockwise, "counterclockwise"),
+            (.clockwise, "clockwise"),
+        ]
     }
 
     private func selectedPreset(_ shortcutModel: ShortcutSettingsModel) -> OverCUEPresetGroup? {
@@ -336,10 +387,6 @@ final class WebShortcutEditingCoordinator {
         return entry
     }
 
-    private func isCapturing(_ shortcutModel: ShortcutSettingsModel) -> Bool {
-        shortcutModel.isCapturing || genericHIDModel.isCapturing
-    }
-
     private func ensureGenericBindingsLoaded(shortcutModel: ShortcutSettingsModel) {
         let presetID = selectedPreset(shortcutModel)?.id
         guard loadedGenericPresetID != presetID else { return }
@@ -349,6 +396,14 @@ final class WebShortcutEditingCoordinator {
     private func reloadGenericBindings(shortcutModel: ShortcutSettingsModel) {
         genericHIDModel.reload(shortcutModel: shortcutModel)
         loadedGenericPresetID = selectedPreset(shortcutModel)?.id
+    }
+
+    private func presetMutation<Result>(_ operation: () throws -> Result) throws -> Result {
+        do {
+            return try operation()
+        } catch let error as PresetGroupStoreError {
+            throw WebShortcutEditingError.presetMutationFailed(error.localizedDescription)
+        }
     }
 }
 
@@ -362,6 +417,7 @@ enum WebShortcutEditingError: LocalizedError {
     case captureInProgress
     case noOverwriteConfirmation
     case deviceIdentifyInProgress
+    case presetMutationFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -383,6 +439,8 @@ enum WebShortcutEditingError: LocalizedError {
             "There is no pending overwrite confirmation."
         case .deviceIdentifyInProgress:
             "Finish or cancel device identification before starting Learn."
+        case let .presetMutationFailed(message):
+            message
         }
     }
 }
