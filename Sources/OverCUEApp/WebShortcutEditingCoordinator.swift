@@ -140,6 +140,7 @@ final class WebShortcutEditingCoordinator {
         ensureGenericBindingsLoaded(shortcutModel: shortcutModel)
 
         let preset = selectedPreset(shortcutModel)
+        let ack05Name = ack05DeviceName(shortcutModel: shortcutModel)
         let highlightedKeys = shortcutModel.highlightedKeys
         let highlightedDialDirections = shortcutModel.highlightedDialDirections
 
@@ -175,7 +176,9 @@ final class WebShortcutEditingCoordinator {
 
         let internalIDs = Set(shortcutModel.internalEntries.map(\.id))
         let entries = (shortcutModel.internalEntries + shortcutModel.entries).map { entry in
-            let ack05Bindings = shortcutModel.bindingLabels(for: entry)
+            let ack05Bindings = shortcutModel.bindingLabels(for: entry).map {
+                "\(ack05Name) · \($0)"
+            }
             let genericBindings = genericHIDModel.labels(for: entry)
             return WebShortcutEntrySummary(
                 id: entry.id,
@@ -195,7 +198,7 @@ final class WebShortcutEditingCoordinator {
 
         return WebShortcutEditorPanel(
             deviceKind: "ack05",
-            deviceName: "ACK05",
+            deviceName: ack05Name,
             rotationQuarterTurns: shortcutModel.rotationQuarterTurns,
             presetID: preset?.id,
             presetName: preset?.name,
@@ -418,6 +421,31 @@ final class WebShortcutEditingCoordinator {
         guard shortcutModel.availablePresetGroups.indices.contains(shortcutModel.selectedGroup - 1)
         else { return nil }
         return shortcutModel.availablePresetGroups[shortcutModel.selectedGroup - 1]
+    }
+
+    private func ack05DeviceName(shortcutModel: ShortcutSettingsModel) -> String {
+        guard let configuration = try? OverCUEConfigurationFileStore.readCurrent(
+            at: OverCUEAppConfigurationLocation.url
+        ) else { return "ACK05" }
+
+        if let logicalDeviceID = shortcutModel.runtimeLogicalDeviceID,
+           let logicalDevice = configuration.logicalDevices[logicalDeviceID] {
+            let name = logicalDevice.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty { return name }
+        }
+
+        let ack05LogicalDeviceIDs = Set(
+            configuration.physicalDeviceBindings.compactMap { binding in
+                binding.kind == .ack05 ? binding.logicalDeviceID : nil
+            }
+        )
+        if ack05LogicalDeviceIDs.count == 1,
+           let logicalDeviceID = ack05LogicalDeviceIDs.first,
+           let logicalDevice = configuration.logicalDevices[logicalDeviceID] {
+            let name = logicalDevice.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty { return name }
+        }
+        return "ACK05"
     }
 
     private func requireEntry(
