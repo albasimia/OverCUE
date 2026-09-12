@@ -213,26 +213,58 @@ public struct OverCUEProfile: Codable, Equatable, Sendable {
         presetGroups[index].mapping = mapping
     }
 
+    /// Presets now contain only Preset-scoped mappings. OverCUE Control is owned
+    /// by the Logical Device and is overlaid by each hardware runtime.
     public func mapping(for group: Int) -> OverCUEGroupMapping {
-        var result = storedMapping(for: group)
-        guard group != 1, let global = orderedPresetGroups.first?.mapping else { return result }
-        for (input, action) in global.keyMap where Self.isGroupCycle(action) {
-            result.keyMap[input] = action
-        }
-        for (input, action) in global.chordMap where Self.isGroupCycle(action) {
-            result.chordMap[input] = action
-        }
-        for (input, action) in global.dialMap where Self.isGroupCycle(action) {
-            result.dialMap[input] = action
-        }
-        for (input, action) in global.dialChordMap where Self.isGroupCycle(action) {
-            result.dialChordMap[input] = action
+        storedMapping(for: group)
+    }
+
+    /// Deterministically extracts the legacy internal-command assignments that
+    /// used to live inside Presets. Earlier Presets win when the same input was
+    /// configured differently. Used by v11 migration and new-device defaults.
+    public var controlMappingTemplate: OverCUEControlMapping {
+        var result = OverCUEControlMapping()
+        for preset in orderedPresetGroups {
+            let mapping = preset.mapping
+            for (input, rawTarget) in mapping.keyMap
+            where result.keyMap[input] == nil && Self.isInternalTarget(rawTarget) {
+                result.keyMap[input] = rawTarget
+            }
+            for (input, rawTarget) in mapping.chordMap
+            where result.chordMap[input] == nil && Self.isInternalTarget(rawTarget) {
+                result.chordMap[input] = rawTarget
+            }
+            for (input, rawTarget) in mapping.dialMap
+            where result.dialMap[input] == nil && Self.isInternalTarget(rawTarget) {
+                result.dialMap[input] = rawTarget
+            }
+            for (input, rawTarget) in mapping.dialChordMap
+            where result.dialChordMap[input] == nil && Self.isInternalTarget(rawTarget) {
+                result.dialChordMap[input] = rawTarget
+            }
         }
         return result
     }
 
-    private static func isGroupCycle(_ rawAction: String) -> Bool {
-        ActionID(rawValue: rawAction)?.isGroupCycle == true
+    public mutating func removeInternalControlMappings() {
+        for index in presetGroups.indices {
+            presetGroups[index].mapping.keyMap = presetGroups[index].mapping.keyMap.filter {
+                !Self.isInternalTarget($0.value)
+            }
+            presetGroups[index].mapping.chordMap = presetGroups[index].mapping.chordMap.filter {
+                !Self.isInternalTarget($0.value)
+            }
+            presetGroups[index].mapping.dialMap = presetGroups[index].mapping.dialMap.filter {
+                !Self.isInternalTarget($0.value)
+            }
+            presetGroups[index].mapping.dialChordMap = presetGroups[index].mapping.dialChordMap.filter {
+                !Self.isInternalTarget($0.value)
+            }
+        }
+    }
+
+    private static func isInternalTarget(_ rawValue: String) -> Bool {
+        ActionTarget(configurationValue: rawValue)?.behavior.isInternal == true
     }
 
     public func storedMapping(for group: Int) -> OverCUEGroupMapping {
@@ -421,7 +453,7 @@ private struct DefaultKeyMappingResource: Decodable {
 }
 
 public struct OverCUEConfiguration: Codable, Equatable, Sendable {
-    public static let currentVersion = 10
+    public static let currentVersion = 11
 
     public var version: Int
     public var defaultProfile: String
