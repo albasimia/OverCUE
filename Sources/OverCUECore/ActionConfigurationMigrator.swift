@@ -16,7 +16,38 @@ public enum ActionConfigurationMigrator {
     public static func migrateToCurrentVersion(
         _ source: OverCUEConfiguration
     ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
-        migrateToVersion10(source)
+        migrateToVersion11(source)
+    }
+
+    public static func migrateToVersion11(
+        _ source: OverCUEConfiguration
+    ) -> (configuration: OverCUEConfiguration, warnings: [ActionMigrationWarning]) {
+        var result = source.version < 10
+            ? migrateToVersion10(source)
+            : (configuration: source, warnings: [])
+
+        let templates = result.configuration.profiles.mapValues(\.controlMappingTemplate)
+
+        // Existing ACK05 internal commands were Profile/Preset scoped. Copy the
+        // deterministic legacy template into every Logical Device so each device
+        // starts with the same behavior but can diverge independently afterward.
+        for logicalDeviceID in result.configuration.logicalDevices.keys.sorted() {
+            guard var logicalDevice = result.configuration.logicalDevices[logicalDeviceID],
+                  logicalDevice.controlMapping.isEmpty
+            else { continue }
+            logicalDevice.controlMapping = templates[logicalDevice.profileName] ?? OverCUEControlMapping()
+            result.configuration.logicalDevices[logicalDeviceID] = logicalDevice
+        }
+
+        // v11 Presets no longer own OverCUE Control inputs.
+        for profileName in result.configuration.profiles.keys.sorted() {
+            guard var profile = result.configuration.profiles[profileName] else { continue }
+            profile.removeInternalControlMappings()
+            result.configuration.profiles[profileName] = profile
+        }
+
+        result.configuration.version = 11
+        return result
     }
 
     public static func migrateToVersion10(
