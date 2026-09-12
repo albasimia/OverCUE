@@ -15,11 +15,32 @@ const editorMode = ref<'add' | 'rename' | null>(null)
 const editorTargetID = ref<string | null>(null)
 const editorName = ref('')
 const confirmDeleteID = ref<string | null>(null)
+const reorderDraftIDs = ref<string[] | null>(null)
+const reorderSaving = ref(false)
 
-const { isSaving, errorMessage } = useSortableOrder({
+const persistedGroupPresetIDs = computed(() => groupPresets.items.map((groupPreset) => groupPreset.id))
+const currentGroupPresetIDs = computed(() => reorderDraftIDs.value ?? persistedGroupPresetIDs.value)
+const isReorderDirty = computed(() => {
+  if (!reorderDraftIDs.value) return false
+  const persisted = persistedGroupPresetIDs.value
+  return reorderDraftIDs.value.length !== persisted.length
+    || reorderDraftIDs.value.some((id, index) => id !== persisted[index])
+})
+const draftGroupPresets = computed(() => {
+  const byID = new Map(groupPresets.items.map((groupPreset) => [groupPreset.id, groupPreset]))
+  return currentGroupPresetIDs.value.flatMap((id, index) => {
+    const groupPreset = byID.get(id)
+    return groupPreset ? [{ ...groupPreset, order: index + 1 }] : []
+  })
+})
+
+useSortableOrder({
   element: listElement,
-  currentIDs: () => groupPresets.items.map((groupPreset) => groupPreset.id),
-  persist: (ids) => groupPresets.reorder(ids),
+  currentIDs: () => currentGroupPresetIDs.value,
+  onChange: (ids) => {
+    reorderDraftIDs.value = ids
+    operationError.value = null
+  },
 })
 
 const activeAssignments = computed(() =>
@@ -92,6 +113,27 @@ function requestDelete(id: string) {
   void perform(() => groupPresets.remove(id))
 }
 
+function cancelReorder() {
+  if (reorderSaving.value) return
+  reorderDraftIDs.value = null
+  operationError.value = null
+}
+
+async function saveReorder() {
+  if (!isReorderDirty.value || reorderSaving.value) return
+  reorderSaving.value = true
+  operationError.value = null
+  const ids = [...currentGroupPresetIDs.value]
+  try {
+    await groupPresets.reorder(ids)
+    reorderDraftIDs.value = null
+  } catch (error) {
+    operationError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    reorderSaving.value = false
+  }
+}
+
 function isIncluded(device: DeviceSummary) {
   return activeAssignments.value.has(device.id)
 }
@@ -122,14 +164,24 @@ function assignPreset(device: DeviceSummary, event: Event) {
       <div class="native-page-title">
         <h1>{{ settings.text('groupPreset.title') }}</h1>
         <p>{{ settings.text('groupPreset.help') }}</p>
-        <p v-if="isSaving" class="page-status">{{ settings.text('common.savingOrder') }}</p>
-        <p v-else-if="errorMessage || operationError" class="page-status error" role="alert">
-          {{ errorMessage ?? operationError }}
+        <p v-if="reorderSaving" class="page-status">{{ settings.text('common.savingOrder') }}</p>
+        <p v-else-if="operationError" class="page-status error" role="alert">
+          {{ operationError }}
         </p>
       </div>
-      <button class="native-button primary" type="button" @click="beginAdd">
-        {{ settings.text('groupPreset.add') }}
-      </button>
+      <div class="device-actions">
+        <template v-if="isReorderDirty">
+          <button class="native-button" type="button" :disabled="reorderSaving" @click="cancelReorder">
+            {{ settings.text('common.cancel') }}
+          </button>
+          <button class="native-button primary" type="button" :disabled="reorderSaving" @click="saveReorder">
+            {{ settings.text('common.save') }}
+          </button>
+        </template>
+        <button class="native-button primary" type="button" :disabled="reorderSaving || isReorderDirty" @click="beginAdd">
+          {{ settings.text('groupPreset.add') }}
+        </button>
+      </div>
     </div>
 
     <div v-if="editorMode" class="group-preset-editor native-detail-card">
@@ -146,34 +198,34 @@ function assignPreset(device: DeviceSummary, event: Event) {
       </div>
     </div>
 
-    <div ref="listElement" class="native-list-card group-preset-list" :class="{ 'is-saving': isSaving }">
-      <div v-if="groupPresets.items.length === 0" class="native-empty-state">{{ settings.text('groupPreset.none') }}</div>
+    <div ref="listElement" class="native-list-card group-preset-list" :class="{ 'is-saving': reorderSaving }">
+      <div v-if="draftGroupPresets.length === 0" class="native-empty-state">{{ settings.text('groupPreset.none') }}</div>
       <article
-        v-for="groupPreset in groupPresets.items"
+        v-for="groupPreset in draftGroupPresets"
         :key="groupPreset.id"
         class="native-list-row group-preset-row"
         :class="{ active: groupPreset.id === groupPresets.activeID }"
         :data-sortable-id="groupPreset.id"
       >
-        <button class="drag-handle" type="button" :aria-label="settings.text('groupPreset.manage')" :title="settings.text('groupPreset.manage')">⋮⋮</button>
+        <button class="drag-handle" type="button" :disabled="reorderSaving" :aria-label="settings.text('groupPreset.manage')" :title="settings.text('groupPreset.manage')">⋮⋮</button>
         <span class="order-chip">{{ groupPreset.order }}</span>
-        <button class="group-preset-main" type="button" @click="activate(groupPreset.id)">
+        <button class="group-preset-main" type="button" :disabled="isReorderDirty || reorderSaving" @click="activate(groupPreset.id)">
           <span class="row-main">
             <strong>{{ groupPreset.name }}</strong>
             <span>{{ settings.text('groupPreset.assignments', groupPreset.assignments.length) }}</span>
           </span>
         </button>
         <span v-if="groupPreset.id === groupPresets.activeID" class="active-badge">{{ settings.text('common.active') }}</span>
-        <button v-else class="native-button compact" type="button" @click="activate(groupPreset.id)">
+        <button v-else class="native-button compact" type="button" :disabled="isReorderDirty || reorderSaving" @click="activate(groupPreset.id)">
           {{ settings.text('common.activate') }}
         </button>
-        <button class="native-button compact" type="button" @click="beginRename(groupPreset)">
+        <button class="native-button compact" type="button" :disabled="isReorderDirty || reorderSaving" @click="beginRename(groupPreset)">
           {{ settings.text('groupPreset.rename') }}
         </button>
         <button
           class="native-button compact danger"
           type="button"
-          :disabled="groupPresets.items.length <= 1"
+          :disabled="groupPresets.items.length <= 1 || isReorderDirty || reorderSaving"
           @click="requestDelete(groupPreset.id)"
         >
           {{ confirmDeleteID === groupPreset.id ? settings.text('groupPreset.delete.title') : settings.text('groupPreset.delete') }}
@@ -182,6 +234,7 @@ function assignPreset(device: DeviceSummary, event: Event) {
           v-if="confirmDeleteID === groupPreset.id"
           class="native-button compact"
           type="button"
+          :disabled="isReorderDirty || reorderSaving"
           @click="confirmDeleteID = null"
         >
           {{ settings.text('common.cancel') }}
@@ -222,7 +275,7 @@ function assignPreset(device: DeviceSummary, event: Event) {
             <input
               type="checkbox"
               :checked="isIncluded(device)"
-              :disabled="!groupPresets.active"
+              :disabled="!groupPresets.active || isReorderDirty || reorderSaving"
               @change="setIncluded(device, $event)"
             />
             <span aria-hidden="true" />
@@ -231,7 +284,7 @@ function assignPreset(device: DeviceSummary, event: Event) {
           <select
             class="native-select"
             :value="assignedPresetID(device)"
-            :disabled="!isIncluded(device) || device.presets.length === 0"
+            :disabled="!isIncluded(device) || device.presets.length === 0 || isReorderDirty || reorderSaving"
             @change="assignPreset(device, $event)"
           >
             <option v-for="preset in device.presets" :key="preset.id" :value="preset.id">
