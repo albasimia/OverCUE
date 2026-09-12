@@ -14,6 +14,10 @@ export const useGroupPresetsStore = defineStore('groupPresets', () => {
     activeID.value = nextActiveID
   }
 
+  function setActiveID(nextActiveID: string | null) {
+    activeID.value = nextActiveID
+  }
+
   function applySnapshot(snapshot: OverCUESnapshot) {
     replace(snapshot.groupPresets, snapshot.runtime.activeGroupPresetID)
   }
@@ -78,6 +82,7 @@ export const useGroupPresetsStore = defineStore('groupPresets', () => {
     activeID,
     active,
     replace,
+    setActiveID,
     reorder,
     activate,
     add,
