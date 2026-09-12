@@ -36,6 +36,11 @@ enum GenericHIDMappingStore {
     static let url = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/OverCUE/generic-hid.json")
 
+    /// OverCUE Control is device-scoped, not Preset-scoped. Keep the existing
+    /// sidecar shape for compatibility and reserve one synthetic Preset key for
+    /// device-level internal actions.
+    static let controlPresetID = "__overcue-control__"
+
     private static let lock = NSLock()
 
     static func read(at documentURL: URL = url) throws -> GenericHIDMappingDocument {
@@ -50,10 +55,45 @@ enum GenericHIDMappingStore {
         presetID: String,
         in document: GenericHIDMappingDocument
     ) -> [GenericHIDInputBindingKey: ActionTarget] {
-        let records = document.logicalDevices[logicalDeviceID]?[presetID] ?? []
+        let presetMappings = document.logicalDevices[logicalDeviceID] ?? [:]
+        let presetRecords = presetMappings[presetID] ?? []
+        let explicitControlRecords = presetMappings[controlPresetID] ?? []
+
+        // Before device-level OverCUE Control existed, internal actions lived in
+        // whichever Preset happened to be edited. Preserve those users by taking
+        // one deterministic legacy internal mapping whenever the new device-level
+        // bucket has not been written yet. Once a Control is edited, assign()
+        // persists it in controlPresetID and it becomes independent of Presets.
+        let legacyControlRecords: [GenericHIDStoredAssignment]
+        if explicitControlRecords.isEmpty {
+            legacyControlRecords = presetMappings
+                .filter { $0.key != controlPresetID }
+                .sorted { $0.key < $1.key }
+                .flatMap(\.value)
+                .filter { record in
+                    ActionTarget(configurationValue: record.target)?.behavior.isInternal == true
+                }
+                .reduce(into: [GenericHIDInputBindingKey: GenericHIDStoredAssignment]()) {
+                    result, record in
+                    if result[record.input] == nil { result[record.input] = record }
+                }
+                .values
+                .sorted { $0.input.overCUEStableSortKey < $1.input.overCUEStableSortKey }
+        } else {
+            legacyControlRecords = []
+        }
+
         var result: [GenericHIDInputBindingKey: ActionTarget] = [:]
-        for record in records {
-            guard let target = ActionTarget(configurationValue: record.target) else { continue }
+        for record in presetRecords {
+            guard let target = ActionTarget(configurationValue: record.target),
+                  !target.behavior.isInternal
+            else { continue }
+            result[record.input] = target
+        }
+        for record in explicitControlRecords + legacyControlRecords {
+            guard let target = ActionTarget(configurationValue: record.target),
+                  target.behavior.isInternal
+            else { continue }
             result[record.input] = target
         }
         return result
@@ -80,7 +120,8 @@ enum GenericHIDMappingStore {
     ) throws {
         try update(at: documentURL) { document in
             var presetMappings = document.logicalDevices[logicalDeviceID] ?? [:]
-            var records = presetMappings[presetID] ?? []
+            let storagePresetID = target.behavior.isInternal ? controlPresetID : presetID
+            var records = presetMappings[storagePresetID] ?? []
             records.removeAll { $0.input == input }
             records.append(
                 GenericHIDStoredAssignment(
@@ -91,7 +132,7 @@ enum GenericHIDMappingStore {
             records.sort { lhs, rhs in
                 lhs.input.overCUEStableSortKey < rhs.input.overCUEStableSortKey
             }
-            presetMappings[presetID] = records
+            presetMappings[storagePresetID] = records
             document.logicalDevices[logicalDeviceID] = presetMappings
         }
         if postsNotification { GenericHIDMappingChangedNotification.post() }
@@ -103,14 +144,15 @@ enum GenericHIDMappingStore {
         input: GenericHIDInputBindingKey
     ) throws {
         try update { document in
-            guard var presetMappings = document.logicalDevices[logicalDeviceID],
-                  var records = presetMappings[presetID]
-            else { return }
-            records.removeAll { $0.input == input }
-            if records.isEmpty {
-                presetMappings.removeValue(forKey: presetID)
-            } else {
-                presetMappings[presetID] = records
+            guard var presetMappings = document.logicalDevices[logicalDeviceID] else { return }
+            for storagePresetID in [presetID, controlPresetID] {
+                guard var records = presetMappings[storagePresetID] else { continue }
+                records.removeAll { $0.input == input }
+                if records.isEmpty {
+                    presetMappings.removeValue(forKey: storagePresetID)
+                } else {
+                    presetMappings[storagePresetID] = records
+                }
             }
             if presetMappings.isEmpty {
                 document.logicalDevices.removeValue(forKey: logicalDeviceID)
@@ -130,14 +172,24 @@ enum GenericHIDMappingStore {
     ) throws {
         try update(at: documentURL) { document in
             for logicalDeviceID in logicalDeviceIDs {
-                guard var presetMappings = document.logicalDevices[logicalDeviceID],
-                      var records = presetMappings[presetID]
-                else { continue }
-                records.removeAll { $0.target == target.configurationValue }
-                if records.isEmpty {
-                    presetMappings.removeValue(forKey: presetID)
+                guard var presetMappings = document.logicalDevices[logicalDeviceID] else { continue }
+                let storagePresetIDs: [String]
+                if target.behavior.isInternal {
+                    // Delete both the new device-level Control mapping and any
+                    // legacy Preset-scoped copies so a removed Control cannot
+                    // reappear through compatibility fallback.
+                    storagePresetIDs = Array(presetMappings.keys)
                 } else {
-                    presetMappings[presetID] = records
+                    storagePresetIDs = [presetID]
+                }
+                for storagePresetID in storagePresetIDs {
+                    guard var records = presetMappings[storagePresetID] else { continue }
+                    records.removeAll { $0.target == target.configurationValue }
+                    if records.isEmpty {
+                        presetMappings.removeValue(forKey: storagePresetID)
+                    } else {
+                        presetMappings[storagePresetID] = records
+                    }
                 }
                 if presetMappings.isEmpty {
                     document.logicalDevices.removeValue(forKey: logicalDeviceID)
