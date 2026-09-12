@@ -11,7 +11,6 @@ enum PresetGroupStoreError: @preconcurrency LocalizedError {
     case maximumReached
     case invalidName
     case presetMissing
-    case cannotDeleteFirst
     case cannotDeleteLast
 
     @MainActor var errorDescription: String? {
@@ -24,8 +23,6 @@ enum PresetGroupStoreError: @preconcurrency LocalizedError {
             return L10n.text("preset.error.name")
         case .presetMissing:
             return L10n.text("preset.error.missing")
-        case .cannotDeleteFirst:
-            return L10n.text("preset.error.first")
         case .cannotDeleteLast:
             return L10n.text("preset.error.last")
         }
@@ -114,10 +111,6 @@ enum PresetGroupStore {
             guard let deletedIndex = ordered.firstIndex(where: { $0.id == id }) else {
                 throw PresetGroupStoreError.presetMissing
             }
-            // The first Preset currently owns the global Cycle Preset bindings that
-            // are overlaid onto the other Presets. Do not make that implicit source
-            // mutable until those bindings are promoted to their own global scope.
-            guard deletedIndex != 0 else { throw PresetGroupStoreError.cannotDeleteFirst }
 
             profile.presetGroups.removeAll { $0.id == id }
             let normalized = profile.orderedPresetGroups.enumerated().map { offset, preset in
