@@ -37,13 +37,17 @@ public enum ActionMappingConflictDetector {
         for input: ACK05PhysicalInput,
         target: ActionTarget,
         profile: OverCUEProfile,
-        selectedGroup: Int
+        selectedGroup: Int,
+        controlMapping: OverCUEControlMapping? = nil
     ) -> ActionMappingConflict? {
-        let groups = isGroupCycle(target)
+        let groups = isOverCUEControl(target)
             ? profile.presetGroups.indices.map { $0 + 1 }
             : [selectedGroup]
         for group in groups {
-            let mapping = profile.mapping(for: group)
+            var mapping = profile.storedMapping(for: group)
+            if let controlMapping {
+                mapping = overlay(controlMapping, on: mapping)
+            }
             if let existing = existingTarget(for: input, mapping: mapping, group: group),
                existing != target {
                 return ActionMappingConflict(input: input, group: group, kind: .occupied(existing: existing))
@@ -108,8 +112,20 @@ public enum ActionMappingConflictDetector {
         return nil
     }
 
-    private static func isGroupCycle(_ target: ActionTarget) -> Bool {
-        target.semanticAction?.isGroupCycle == true
+    private static func isOverCUEControl(_ target: ActionTarget) -> Bool {
+        target.behavior.isInternal
+    }
+
+    private static func overlay(
+        _ control: OverCUEControlMapping,
+        on mapping: OverCUEGroupMapping
+    ) -> OverCUEGroupMapping {
+        var result = mapping
+        result.keyMap.merge(control.keyMap) { _, control in control }
+        result.chordMap.merge(control.chordMap) { _, control in control }
+        result.dialMap.merge(control.dialMap) { _, control in control }
+        result.dialChordMap.merge(control.dialChordMap) { _, control in control }
+        return result
     }
 
     private static func existingTarget(
