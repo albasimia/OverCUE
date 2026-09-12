@@ -118,7 +118,7 @@ private struct GroupPresetOverviewDeviceRow: View {
                         get: { isIncluded },
                         set: { included in
                             perform {
-                                try model.setIncluded(
+                                try await model.setIncluded(
                                     logicalDeviceID: device.id,
                                     included: included
                                 )
@@ -139,7 +139,7 @@ private struct GroupPresetOverviewDeviceRow: View {
                         },
                         set: { presetID in
                             perform {
-                                try model.assignPreset(
+                                try await model.assignPreset(
                                     logicalDeviceID: device.id,
                                     presetID: presetID
                                 )
@@ -173,12 +173,14 @@ private struct GroupPresetOverviewDeviceRow: View {
         }
     }
 
-    private func perform(_ action: () throws -> Void) {
+    private func perform(_ action: @escaping @MainActor () async throws -> Void) {
         operationError = nil
-        do {
-            try action()
-        } catch {
-            operationError = error.localizedDescription
+        Task { @MainActor in
+            do {
+                try await action()
+            } catch {
+                operationError = error.localizedDescription
+            }
         }
     }
 }

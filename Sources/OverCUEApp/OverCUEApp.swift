@@ -194,7 +194,7 @@ private struct ContentView: View {
                 message: Text(confirmation.message),
                 primaryButton: .destructive(
                     Text(localization.text("alert.overwrite.action")),
-                    action: model.confirmOverwrite
+                    action: { Task { await model.confirmOverwrite() } }
                 ),
                 secondaryButton: .cancel(
                     Text(localization.text("common.cancel")),

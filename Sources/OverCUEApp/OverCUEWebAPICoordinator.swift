@@ -175,7 +175,9 @@ final class OverCUEWebAPICoordinator: ObservableObject {
         isRunning = false
     }
 
-    private func handle(_ request: OverCUELocalHTTPRequest) -> OverCUELocalHTTPResponse {
+    private func handle(_ request: OverCUELocalHTTPRequest) async -> OverCUELocalHTTPResponse {
+        let span = request.method == "GET" ? nil : OverCUEPerformanceSpan(request.method + " " + request.path)
+        defer { span?.mark("operation end") }
         do {
             switch (request.method, request.path) {
             case ("GET", "/api/v1/session"):
@@ -197,7 +199,7 @@ final class OverCUEWebAPICoordinator: ObservableObject {
                     if payload.action == .beginLearn, deviceModel?.isIdentifying == true {
                         throw WebShortcutEditingError.deviceIdentifyInProgress
                     }
-                    try shortcutEditingModel.perform(payload, shortcutModel: shortcutModel)
+                    try await shortcutEditingModel.perform(payload, shortcutModel: shortcutModel)
                     return try jsonResponse(shortcutEditingModel.makePanel(shortcutModel: shortcutModel))
                 }
                 return rejection
@@ -205,7 +207,7 @@ final class OverCUEWebAPICoordinator: ObservableObject {
             case ("PUT", "/api/v1/presets/order"):
                 guard let rejection = validateWrite(request) else {
                     let payload = try JSONDecoder().decode(WebAPIReorderRequest.self, from: request.body)
-                    try reorderPresets(ids: payload.ids)
+                    try await reorderPresets(ids: payload.ids)
                     return try jsonResponse(makeSnapshot())
                 }
                 return rejection
@@ -213,7 +215,7 @@ final class OverCUEWebAPICoordinator: ObservableObject {
             case ("PUT", "/api/v1/group-presets/order"):
                 guard let rejection = validateWrite(request) else {
                     let payload = try JSONDecoder().decode(WebAPIReorderRequest.self, from: request.body)
-                    try reorderGroupPresets(ids: payload.ids)
+                    try await reorderGroupPresets(ids: payload.ids)
                     return try jsonResponse(makeSnapshot())
                 }
                 return rejection
@@ -221,7 +223,7 @@ final class OverCUEWebAPICoordinator: ObservableObject {
             case ("PUT", "/api/v1/group-presets/active"):
                 guard let rejection = validateWrite(request) else {
                     let payload = try JSONDecoder().decode(WebAPIIDRequest.self, from: request.body)
-                    try groupPresetModel.activate(id: payload.id)
+                    try await groupPresetModel.activate(id: payload.id)
                     return try jsonResponse(makeSnapshot())
                 }
                 return rejection
@@ -229,7 +231,7 @@ final class OverCUEWebAPICoordinator: ObservableObject {
             case ("PUT", "/api/v1/group-presets/add"):
                 guard let rejection = validateWrite(request) else {
                     let payload = try JSONDecoder().decode(WebAPINameRequest.self, from: request.body)
-                    _ = try groupPresetModel.add(name: payload.name)
+                    _ = try await groupPresetModel.add(name: payload.name)
                     return try jsonResponse(makeSnapshot())
                 }
                 return rejection
@@ -237,7 +239,7 @@ final class OverCUEWebAPICoordinator: ObservableObject {
             case ("PUT", "/api/v1/group-presets/rename"):
                 guard let rejection = validateWrite(request) else {
                     let payload = try JSONDecoder().decode(WebAPIRenameRequest.self, from: request.body)
-                    try groupPresetModel.rename(id: payload.id, name: payload.name)
+                    try await groupPresetModel.rename(id: payload.id, name: payload.name)
                     return try jsonResponse(makeSnapshot())
                 }
                 return rejection
@@ -245,7 +247,7 @@ final class OverCUEWebAPICoordinator: ObservableObject {
             case ("PUT", "/api/v1/group-presets/delete"):
                 guard let rejection = validateWrite(request) else {
                     let payload = try JSONDecoder().decode(WebAPIIDRequest.self, from: request.body)
-                    try groupPresetModel.delete(id: payload.id)
+                    try await groupPresetModel.delete(id: payload.id)
                     return try jsonResponse(makeSnapshot())
                 }
                 return rejection
@@ -253,7 +255,7 @@ final class OverCUEWebAPICoordinator: ObservableObject {
             case ("PUT", "/api/v1/group-presets/include"):
                 guard let rejection = validateWrite(request) else {
                     let payload = try JSONDecoder().decode(WebAPIGroupPresetIncludeRequest.self, from: request.body)
-                    try groupPresetModel.setIncluded(
+                    try await groupPresetModel.setIncluded(
                         groupPresetID: payload.groupPresetID,
                         logicalDeviceID: payload.logicalDeviceID,
                         included: payload.included
@@ -265,7 +267,7 @@ final class OverCUEWebAPICoordinator: ObservableObject {
             case ("PUT", "/api/v1/group-presets/assignment"):
                 guard let rejection = validateWrite(request) else {
                     let payload = try JSONDecoder().decode(WebAPIGroupPresetAssignmentRequest.self, from: request.body)
-                    try groupPresetModel.assignPreset(
+                    try await groupPresetModel.assignPreset(
                         groupPresetID: payload.groupPresetID,
                         logicalDeviceID: payload.logicalDeviceID,
                         presetID: payload.presetID
@@ -523,22 +525,26 @@ final class OverCUEWebAPICoordinator: ObservableObject {
         }
     }
 
-    private func reorderPresets(ids: [String]) throws {
-        _ = try OverCUEConfigurationFileStore.updateCurrent(
-            at: OverCUEAppConfigurationLocation.url,
-            fallback: .defaultValue
-        ) { latest in
-            try OverCUEConfigurationOrdering.reorderPresets(ids: ids, in: &latest)
+    private func reorderPresets(ids: [String]) async throws {
+        try await OverCUEPersistenceWorker.run {
+            _ = try OverCUEConfigurationFileStore.updateCurrent(
+                at: OverCUEAppConfigurationLocation.url,
+                fallback: .defaultValue
+            ) { latest in
+                try OverCUEConfigurationOrdering.reorderPresets(ids: ids, in: &latest)
+            }
         }
         OverCUEConfigurationChangedNotification.post()
     }
 
-    private func reorderGroupPresets(ids: [String]) throws {
-        _ = try OverCUEConfigurationFileStore.updateCurrent(
-            at: OverCUEAppConfigurationLocation.url,
-            fallback: .defaultValue
-        ) { latest in
-            try OverCUEConfigurationOrdering.reorderGroupPresets(ids: ids, in: &latest)
+    private func reorderGroupPresets(ids: [String]) async throws {
+        try await OverCUEPersistenceWorker.run {
+            _ = try OverCUEConfigurationFileStore.updateCurrent(
+                at: OverCUEAppConfigurationLocation.url,
+                fallback: .defaultValue
+            ) { latest in
+                try OverCUEConfigurationOrdering.reorderGroupPresets(ids: ids, in: &latest)
+            }
         }
         OverCUEConfigurationChangedNotification.post()
     }

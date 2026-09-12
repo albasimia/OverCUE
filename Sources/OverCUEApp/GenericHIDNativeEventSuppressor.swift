@@ -44,6 +44,9 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
     private var eventTapRunLoop: CFRunLoop?
     private var eventTapThreadExit: DispatchSemaphore?
     private var configurationObserver: ObserverToken?
+    // Written only by the dedicated lifecycle queue; callbacks keep their
+    // existing HID/event-tap runloops and locks.
+    private var configuredBindings: [OverCUEPhysicalDeviceBinding]?
     private var pendingEvents: [PendingEvent] = []
     private var isOpen = false
     private var hidThread: Thread?
@@ -53,7 +56,7 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
         "OVERCUE_HID_SUPPRESSION_DIAGNOSTICS"
     ] == "1"
 
-    var isRunning: Bool { isOpen && eventTap != nil }
+    private var isRunning: Bool { isOpen && eventTap != nil }
 
     init() {
         manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
@@ -69,7 +72,30 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
         stop()
     }
 
-    func start() throws {
+    private let lifecycleQueue = DispatchQueue(label: "com.overcue.suppression-lifecycle", qos: .userInitiated)
+
+    func startAsync() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            lifecycleQueue.async {
+                continuation.resume(with: Result { try self.start() })
+            }
+        }
+    }
+
+    func stopAsync() async {
+        await withCheckedContinuation { continuation in
+            lifecycleQueue.async {
+                self.stop()
+                continuation.resume()
+            }
+        }
+    }
+
+    func requestStop() {
+        lifecycleQueue.async { self.stop() }
+    }
+
+    private func start() throws {
         diagnosticLog(
             "start requested listenAccess=\(CGPreflightListenEventAccess()) "
                 + "accessibility=\(AXIsProcessTrusted())"
@@ -121,13 +147,18 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
                     object: nil,
                     queue: .main
                 ) { [weak self] _ in
-                    try? self?.configureDeviceMatching()
+                    guard let self else { return }
+                    self.lifecycleQueue.async {
+                        guard self.isRunning else { return }
+                        try? self.configureDeviceMatching()
+                    }
                 }
             )
         }
     }
 
-    func stop() {
+    private func stop() {
+        configuredBindings = nil
         diagnosticLog("stop requested")
         clearPendingEvents()
 
@@ -454,7 +485,14 @@ final class GenericHIDNativeEventSuppressor: @unchecked Sendable {
         let configuration = try OverCUEConfigurationFileStore.readCurrent(
             at: OverCUEAppConfigurationLocation.url
         )
-        let matches: [[String: Any]] = configuration.physicalDeviceBindings.compactMap { binding in
+        configureDeviceMatching(configuration: configuration)
+    }
+
+    private func configureDeviceMatching(configuration: OverCUEConfiguration) {
+        let bindings = configuration.physicalDeviceBindings.filter { $0.kind == .genericHID }
+        guard configuredBindings != bindings else { return }
+        configuredBindings = bindings
+        let matches: [[String: Any]] = bindings.compactMap { binding in
             guard binding.kind == .genericHID,
                   let serial = binding.serialNumber
             else { return nil }

@@ -26,6 +26,22 @@ final class OverCUECLIRuntime {
     var onStatusChanged: ((Status) -> Void)?
 
     private var process: Process?
+    // All HID operations remain on MainActor. Only waits suspend; later lifecycle
+    // requests invalidate stale starts and wait for the previous handoff to finish.
+    private var lifecycleTask: Task<Void, Never>?
+    private var lifecycleGeneration = 0
+
+    private func enqueue(_ operation: @escaping @MainActor (Int) async -> Void) {
+        lifecycleGeneration += 1
+        let generation = lifecycleGeneration
+        let previous = lifecycleTask
+        lifecycleTask = Task { @MainActor in
+            await previous?.value
+            guard generation == self.lifecycleGeneration else { return }
+            await operation(generation)
+        }
+    }
+
     private let genericHIDRuntime = GenericHIDRuntimeCoordinator()
     private let genericHIDNativeEventSuppressor = GenericHIDNativeEventSuppressor()
     private let genericHIDSuppressionDisabledForDiagnostics = ProcessInfo.processInfo.environment[
@@ -38,15 +54,22 @@ final class OverCUECLIRuntime {
     }
 
     func start(mode: RekordboxMappingMode, group: Int) {
+        enqueue { generation in
+            await self.startImpl(mode: mode, group: group, generation: generation)
+        }
+    }
+
+    private func startImpl(mode: RekordboxMappingMode, group: Int, generation: Int) async {
         // Existing ShortcutSettingsModel resumes runtime by calling start().
         // If this was a unified capture, resume only ACK05 and leave the same
         // Generic HID runtime / native-event suppressor alive.
         if isShortcutCaptureActive {
-            endShortcutCapture(mode: mode, group: group, resumeRuntime: true)
+            await endShortcutCaptureImpl(mode: mode, group: group, resumeRuntime: true, generation: generation)
             return
         }
 
-        stop()
+        await stopImpl()
+        guard generation == lifecycleGeneration else { return }
         status = .starting
 
         var failures: [String] = []
@@ -56,13 +79,14 @@ final class OverCUECLIRuntime {
             failures.append(error.localizedDescription)
         }
         do {
-            try startGenericHIDNativeEventSuppressorIfEnabled()
-            try startGenericHIDRuntimeWithHandoffRetry()
+            try await startGenericHIDNativeEventSuppressorIfEnabled()
+            try await startGenericHIDRuntimeWithHandoffRetry(generation: generation)
         } catch {
             genericHIDRuntime.stop()
-            genericHIDNativeEventSuppressor.stop()
+            await genericHIDNativeEventSuppressor.stopAsync()
             failures.append(error.localizedDescription)
         }
+        guard generation == lifecycleGeneration else { return }
         if process != nil || genericHIDRuntime.isRunning {
             status = failures.isEmpty ? .running : .degraded(failures.joined(separator: " "))
         } else {
@@ -72,18 +96,37 @@ final class OverCUECLIRuntime {
 
     func beginShortcutCapture(
         onGenericHIDCaptured: @escaping (String, GenericHIDInputBindingKey) -> Void
-    ) throws {
+    ) async throws {
+        lifecycleGeneration += 1
+        let generation = lifecycleGeneration
+        let previous = lifecycleTask
+        let task = Task { @MainActor in
+            await previous?.value
+            guard generation == self.lifecycleGeneration else { throw CancellationError() }
+            try await self.beginShortcutCaptureImpl(onGenericHIDCaptured: onGenericHIDCaptured, generation: generation)
+            guard generation == self.lifecycleGeneration else { throw CancellationError() }
+        }
+        lifecycleTask = Task { _ = try? await task.value }
+        try await task.value
+    }
+
+    private func beginShortcutCaptureImpl(
+        onGenericHIDCaptured: @escaping (String, GenericHIDInputBindingKey) -> Void,
+        generation: Int
+    ) async throws {
         if isShortcutCaptureActive {
             genericHIDRuntime.beginCapture(onCaptured: onGenericHIDCaptured)
             return
         }
 
-        stopACK05Process()
+        await stopACK05Process()
+        guard generation == lifecycleGeneration else { throw CancellationError() }
         genericRuntimeStartedForCapture = !genericHIDRuntime.isRunning
         do {
-            try startGenericHIDNativeEventSuppressorIfEnabled()
+            try await startGenericHIDNativeEventSuppressorIfEnabled()
+            guard generation == lifecycleGeneration else { throw CancellationError() }
             if genericRuntimeStartedForCapture {
-                try startGenericHIDRuntimeWithHandoffRetry()
+                try await startGenericHIDRuntimeWithHandoffRetry(generation: generation)
             }
             genericHIDRuntime.beginCapture(onCaptured: onGenericHIDCaptured)
             isShortcutCaptureActive = true
@@ -91,7 +134,7 @@ final class OverCUECLIRuntime {
         } catch {
             if genericRuntimeStartedForCapture {
                 genericHIDRuntime.stop()
-                genericHIDNativeEventSuppressor.stop()
+                await genericHIDNativeEventSuppressor.stopAsync()
             }
             genericRuntimeStartedForCapture = false
             isShortcutCaptureActive = false
@@ -104,10 +147,18 @@ final class OverCUECLIRuntime {
         group: Int,
         resumeRuntime: Bool
     ) {
+        enqueue { generation in
+            await self.endShortcutCaptureImpl(mode: mode, group: group, resumeRuntime: resumeRuntime, generation: generation)
+        }
+    }
+
+    private func endShortcutCaptureImpl(
+        mode: RekordboxMappingMode, group: Int, resumeRuntime: Bool, generation: Int
+    ) async {
         guard isShortcutCaptureActive else {
             if !resumeRuntime, genericRuntimeStartedForCapture {
                 genericHIDRuntime.stop()
-                genericHIDNativeEventSuppressor.stop()
+                await genericHIDNativeEventSuppressor.stopAsync()
                 genericRuntimeStartedForCapture = false
             }
             if resumeRuntime, process == nil {
@@ -129,9 +180,9 @@ final class OverCUECLIRuntime {
         isShortcutCaptureActive = false
 
         guard resumeRuntime else {
-            stopACK05Process()
+            await stopACK05Process()
             genericHIDRuntime.stop()
-            genericHIDNativeEventSuppressor.stop()
+            await genericHIDNativeEventSuppressor.stopAsync()
             genericRuntimeStartedForCapture = false
             status = .stopped
             return
@@ -140,7 +191,8 @@ final class OverCUECLIRuntime {
         genericRuntimeStartedForCapture = false
         var failure: String?
         do {
-            try startGenericHIDNativeEventSuppressorIfEnabled()
+            try await startGenericHIDNativeEventSuppressorIfEnabled()
+            guard generation == lifecycleGeneration else { return }
             if process == nil {
                 try startACK05Process(mode: mode, group: group)
             }
@@ -154,18 +206,16 @@ final class OverCUECLIRuntime {
         }
     }
 
-    private func startGenericHIDNativeEventSuppressorIfEnabled() throws {
+    private func startGenericHIDNativeEventSuppressorIfEnabled() async throws {
         guard !genericHIDSuppressionDisabledForDiagnostics else { return }
-        if !genericHIDNativeEventSuppressor.isRunning {
-            try genericHIDNativeEventSuppressor.start()
-        }
+        try await genericHIDNativeEventSuppressor.startAsync()
     }
 
-    private func startGenericHIDRuntimeWithHandoffRetry() throws {
+    private func startGenericHIDRuntimeWithHandoffRetry(generation: Int) async throws {
         let maximumAttempts = 16
-        let retryInterval: TimeInterval = 0.10
 
         for attempt in 1...maximumAttempts {
+            guard generation == lifecycleGeneration else { throw CancellationError() }
             do {
                 try genericHIDRuntime.start()
                 return
@@ -177,7 +227,7 @@ final class OverCUECLIRuntime {
                     throw error
                 }
                 genericHIDRuntime.stop()
-                Thread.sleep(forTimeInterval: retryInterval)
+                try await Task.sleep(for: .milliseconds(100))
             }
         }
     }
@@ -201,12 +251,14 @@ final class OverCUECLIRuntime {
         process.standardError = errorPipe
         process.terminationHandler = { [weak self] terminatedProcess in
             let exitStatus = terminatedProcess.terminationStatus
+            let detail = Self.errorDetail(from: errorPipe)
             Task { @MainActor in
                 guard let self, self.process === terminatedProcess else { return }
                 self.process = nil
                 guard !self.isShortcutCaptureActive else { return }
-                let detail = Self.errorDetail(from: errorPipe)
-                    ?? L10n.text("cli.exited", exitStatus)
+                let detail = detail?.localizedCaseInsensitiveContains("HID access was denied") == true
+                    ? L10n.text("cli.inputPermission")
+                    : (detail ?? L10n.text("cli.exited", exitStatus))
                 if self.genericHIDRuntime.isRunning {
                     self.status = .degraded(detail)
                 } else if exitStatus == 0 {
@@ -220,16 +272,18 @@ final class OverCUECLIRuntime {
         self.process = process
     }
 
-    private func stopACK05Process() {
+    private func stopACK05Process() async {
         guard let process else { return }
         self.process = nil
         if process.isRunning {
             process.terminate()
-            process.waitUntilExit()
+            // Process stays retained through termination. Never block the HID/UI
+            // runloop while the helper releases its exclusive device claims.
+            await OverCUEProcessTermination.waitForExit(process)
         }
     }
 
-    private static func errorDetail(from pipe: Pipe) -> String? {
+    nonisolated private static func errorDetail(from pipe: Pipe) -> String? {
         guard let data = try? pipe.fileHandleForReading.readToEnd(),
               let output = String(data: data, encoding: .utf8)
         else { return nil }
@@ -237,9 +291,6 @@ final class OverCUECLIRuntime {
             .split(whereSeparator: \.isNewline)
             .map(String.init)
             .first(where: { !$0.isEmpty })
-        if firstLine?.localizedCaseInsensitiveContains("HID access was denied") == true {
-            return L10n.text("cli.inputPermission")
-        }
         return firstLine
     }
 
@@ -248,12 +299,21 @@ final class OverCUECLIRuntime {
     }
 
     func stop() {
+        if process?.isRunning == true { process?.terminate() }
+        // Stop input and suppression immediately, even while a process is exiting.
+        genericHIDRuntime.endCapture()
+        genericHIDRuntime.stop()
+        genericHIDNativeEventSuppressor.requestStop()
+        enqueue { _ in await self.stopImpl() }
+    }
+
+    private func stopImpl() async {
         isShortcutCaptureActive = false
         genericRuntimeStartedForCapture = false
         genericHIDRuntime.endCapture()
         genericHIDRuntime.stop()
-        genericHIDNativeEventSuppressor.stop()
-        stopACK05Process()
+        await genericHIDNativeEventSuppressor.stopAsync()
+        await stopACK05Process()
         status = .stopped
     }
 

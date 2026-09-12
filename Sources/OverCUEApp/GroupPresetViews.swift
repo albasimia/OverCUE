@@ -24,7 +24,7 @@ struct GroupPresetSelectorView: View {
                         localization.text("groupPreset.title"),
                         selection: Binding(
                             get: { model.activeGroupPresetID ?? model.groupPresets.first?.id ?? "" },
-                            set: { id in perform { try model.activate(id: id) } }
+                            set: { id in perform { try await model.activate(id: id) } }
                         )
                     ) {
                         ForEach(model.groupPresets) { preset in
@@ -85,7 +85,7 @@ struct GroupPresetSelectorView: View {
             Button(localization.text("common.cancel"), role: .cancel) {}
             Button(localization.text("groupPreset.delete"), role: .destructive) {
                 guard let id = model.activeGroupPresetID else { return }
-                perform { try model.delete(id: id) }
+                perform { try await model.delete(id: id) }
             }
         } message: {
             Text(localization.text(
@@ -116,12 +116,12 @@ struct GroupPresetSelectorView: View {
                     perform {
                         switch editor {
                         case .add:
-                            _ = try model.add(name: nameDraft)
+                            _ = try await model.add(name: nameDraft)
                         case let .rename(id):
-                            try model.rename(id: id, name: nameDraft)
+                            try await model.rename(id: id, name: nameDraft)
                         }
+                        self.editor = nil
                     }
-                    if operationError == nil { self.editor = nil }
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(nameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -130,12 +130,14 @@ struct GroupPresetSelectorView: View {
         .padding(24)
     }
 
-    private func perform(_ action: () throws -> Void) {
+    private func perform(_ action: @escaping @MainActor () async throws -> Void) {
         operationError = nil
-        do {
-            try action()
-        } catch {
-            operationError = error.localizedDescription
+        Task { @MainActor in
+            do {
+                try await action()
+            } catch {
+                operationError = error.localizedDescription
+            }
         }
     }
 }
@@ -158,7 +160,7 @@ struct GroupPresetDeviceAssignmentView: View {
                     get: { model.isIncluded(logicalDeviceID: device.id) },
                     set: { included in
                         perform {
-                            try model.setIncluded(
+                            try await model.setIncluded(
                                 logicalDeviceID: device.id,
                                 included: included
                             )
@@ -183,7 +185,7 @@ struct GroupPresetDeviceAssignmentView: View {
                             },
                             set: { presetID in
                                 perform {
-                                    try model.assignPreset(
+                                    try await model.assignPreset(
                                         logicalDeviceID: device.id,
                                         presetID: presetID
                                     )
@@ -216,12 +218,14 @@ struct GroupPresetDeviceAssignmentView: View {
         }
     }
 
-    private func perform(_ action: () throws -> Void) {
+    private func perform(_ action: @escaping @MainActor () async throws -> Void) {
         operationError = nil
-        do {
-            try action()
-        } catch {
-            operationError = error.localizedDescription
+        Task { @MainActor in
+            do {
+                try await action()
+            } catch {
+                operationError = error.localizedDescription
+            }
         }
     }
 }

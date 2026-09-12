@@ -53,14 +53,14 @@ final class DeviceManagementModel: ObservableObject {
                 queue: .main
             ) { [weak self] _ in
                 Task { @MainActor in self?.reload() }
-            }
-        )
-        runtimeObserver = DeviceManagementObserverToken(
-            DistributedNotificationCenter.default().addObserver(
-                forName: OverCUERuntimeStatusNotification.name,
-                object: nil,
-                queue: .main
-            ) { [weak self] notification in
+                }
+            )
+            runtimeObserver = DeviceManagementObserverToken(
+                DistributedNotificationCenter.default().addObserver(
+                    forName: OverCUERuntimeStatusNotification.name,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] notification in
                 let logicalDeviceID = notification.userInfo?[
                     OverCUERuntimeStatusNotification.logicalDeviceIDKey
                 ] as? String
@@ -244,6 +244,8 @@ final class DeviceManagementModel: ObservableObject {
         reload()
     }
 
+    private var identifyStartTask: Task<Void, Never>?
+
     private func beginIdentify(_ purpose: IdentifyPurpose, kind: HIDDeviceKind) throws {
         cancelIdentify()
         errorMessage = nil
@@ -252,11 +254,11 @@ final class DeviceManagementModel: ObservableObject {
 
         let devicesChanged: ([HIDPhysicalDeviceDescriptor]) -> Void = { [weak self] devices in
             Task { @MainActor in self?.identifyCandidateCount = devices.count }
-        }
-        let identified: (
-            HIDPhysicalDeviceDescriptor,
-            [HIDPhysicalDeviceDescriptor]
-        ) -> Void = { [weak self] descriptor, connectedDevices in
+            }
+            let identified: (
+                HIDPhysicalDeviceDescriptor,
+                [HIDPhysicalDeviceDescriptor]
+            ) -> Void = { [weak self] descriptor, connectedDevices in
             Task { @MainActor in
                 self?.finishIdentify(
                     descriptor: descriptor,
@@ -265,26 +267,29 @@ final class DeviceManagementModel: ObservableObject {
             }
         }
 
-        do {
-            switch kind {
-            case .ack05:
-                let monitor = ACK05DeviceIdentifierMonitor()
-                monitor.onDevicesChanged = devicesChanged
-                monitor.onIdentified = identified
-                try monitor.start()
-                ack05Monitor = monitor
-            case .genericHID:
-                let monitor = GenericHIDDeviceIdentifierMonitor()
-                monitor.onDevicesChanged = devicesChanged
-                monitor.onIdentified = identified
-                try monitor.start()
-                genericHIDMonitor = monitor
+        identifyStartTask = Task { @MainActor in
+            do {
+                switch kind {
+                case .ack05:
+                    let monitor = ACK05DeviceIdentifierMonitor()
+                    monitor.onDevicesChanged = devicesChanged
+                    monitor.onIdentified = identified
+                    try await monitor.start()
+                    ack05Monitor = monitor
+                case .genericHID:
+                    let monitor = GenericHIDDeviceIdentifierMonitor()
+                    monitor.onDevicesChanged = devicesChanged
+                    monitor.onIdentified = identified
+                    try await monitor.start()
+                    genericHIDMonitor = monitor
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                stopIdentifierMonitors()
+                identifyPurpose = nil
+                statusMessage = nil
+                errorMessage = error.localizedDescription
             }
-        } catch {
-            stopIdentifierMonitors()
-            identifyPurpose = nil
-            statusMessage = nil
-            throw error
         }
     }
 
@@ -448,6 +453,8 @@ final class DeviceManagementModel: ObservableObject {
     }
 
     private func stopIdentifierMonitors() {
+        identifyStartTask?.cancel()
+        identifyStartTask = nil
         ack05Monitor?.stop()
         ack05Monitor = nil
         genericHIDMonitor?.stop()

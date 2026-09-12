@@ -117,8 +117,8 @@ final class ShortcutSettingsModel: ObservableObject {
 
     private let loader = RekordboxKeyMappingLoader()
     private let runtimeBridge = OverCUECLIRuntime()
-    private let configurationURL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Application Support/OverCUE/config.json")
+    private let configurationURL: URL
+    private let postsNotifications: Bool
     private var configuration: OverCUEConfiguration = .defaultValue
     private var persistedConfiguration: OverCUEConfiguration = .defaultValue
     private var inputMonitor: ACK05InputMonitor?
@@ -151,8 +151,14 @@ final class ShortcutSettingsModel: ObservableObject {
         ]
     }
 
-    init() {
-        let defaults = UserDefaults.standard
+    init(
+        configurationURL: URL = OverCUEAppConfigurationLocation.url,
+        defaults: UserDefaults = .standard,
+        startsRuntime: Bool = true,
+        postsNotifications: Bool = true
+    ) {
+        self.configurationURL = configurationURL
+        self.postsNotifications = postsNotifications
         if defaults.bool(forKey: "deviceRotationClockwiseDefaultV2") {
             rotationQuarterTurns = defaults.integer(forKey: "deviceRotationQuarterTurns") % 4
         } else {
@@ -243,9 +249,11 @@ final class ShortcutSettingsModel: ObservableObject {
             ) { [weak self] _ in
                 Task { @MainActor in
                     guard let self, self.refreshConfigurationFromDisk() else { return }
-                    self.mode = self.configuredMode(for: self.selectedGroup)
+                    let nextMode = self.configuredMode(for: self.selectedGroup)
+                    let modeChanged = self.mode != nextMode
+                    self.mode = nextMode
                     self.rebuildBindings()
-                    self.reload()
+                    if modeChanged { self.reload() }
                 }
             }
         )
@@ -256,8 +264,12 @@ final class ShortcutSettingsModel: ObservableObject {
             }
         }
         loadConfiguration()
-        reload()
-        startRuntimeIfEnabled()
+        if startsRuntime {
+            reload()
+            startRuntimeIfEnabled()
+        } else {
+            isBridgeEnabled = false
+        }
     }
 
     deinit {
@@ -357,9 +369,20 @@ final class ShortcutSettingsModel: ObservableObject {
 
     var isCapturing: Bool { editingEntryID != nil }
 
+    private var mappingLoadGeneration = 0
+
     func reload() {
+        Task { @MainActor in await reloadMapping() }
+        }
+
+        private func reloadMapping() async {
+        mappingLoadGeneration += 1
+        let generation = mappingLoadGeneration
+        let selectedMode = mode
+        let loader = loader
         do {
-            let loaded = try loader.load(mode: mode)
+            let loaded = try await OverCUEPersistenceWorker.run { try loader.load(mode: selectedMode) }
+            guard generation == mappingLoadGeneration, selectedMode == mode else { return }
             mappingName = loaded.mapping.name
             mappingURL = loaded.url
             entries = loaded.mapping.entries
@@ -368,6 +391,7 @@ final class ShortcutSettingsModel: ObservableObject {
             if let selectedEntryID, allEntries.contains(where: { $0.id == selectedEntryID }) { return }
             selectedEntryID = initialSelection(in: entries)?.id
         } catch {
+            guard generation == mappingLoadGeneration, selectedMode == mode else { return }
             mappingName = L10n.text("message.loadFailureName")
             mappingURL = nil
             entries = []
@@ -377,19 +401,21 @@ final class ShortcutSettingsModel: ObservableObject {
     }
 
     func reloadAndRestartBridge() {
-        reload()
-        guard !isCapturing else { return }
-        restartRuntimeIfEnabled()
-        if let errorMessage {
-            showToast(L10n.text("message.loadFailed", errorMessage), style: .error)
-        } else {
-            showToast(L10n.text("message.reloadSuccess"), style: .success)
+        Task { @MainActor in
+            await reloadMapping()
+            guard !isCapturing else { return }
+            restartRuntimeIfEnabled()
+            if let errorMessage {
+                showToast(L10n.text("message.loadFailed", errorMessage), style: .error)
+            } else {
+                showToast(L10n.text("message.reloadSuccess"), style: .success)
+            }
         }
     }
 
-    func setMode(_ newMode: RekordboxMappingMode) {
+    func setMode(_ newMode: RekordboxMappingMode) async {
         guard mode != newMode else { return }
-        saveMode(newMode, for: selectedGroup)
+        await saveMode(newMode, for: selectedGroup)
         mode = newMode
         UserDefaults.standard.set(newMode.rawValue, forKey: "rekordboxMappingMode")
         selectedEntryID = nil
@@ -397,7 +423,7 @@ final class ShortcutSettingsModel: ObservableObject {
         selectedDialDirection = nil
         captureMessage = nil
         captureError = nil
-        reload()
+        await reloadMapping()
         showToast(L10n.text("message.modeUpdated", newMode.displayName), style: .success)
     }
 
@@ -577,8 +603,9 @@ final class ShortcutSettingsModel: ObservableObject {
         onGenericHIDCaptured: @escaping (String, GenericHIDInputBindingKey) -> Void,
         claimACK05: @escaping () -> Bool,
         onACK05Completed: @escaping (String?) -> Void
-    ) -> UnifiedShortcutCaptureAvailability {
+    ) async -> UnifiedShortcutCaptureAvailability {
         stopCaptureMonitor()
+        let generation = captureGeneration
         select(entry)
         capturePresetGroupID = selectedPresetGroupID ?? (
             availablePresetGroups.indices.contains(selectedGroup - 1)
@@ -602,16 +629,18 @@ final class ShortcutSettingsModel: ObservableObject {
 
         var availability = UnifiedShortcutCaptureAvailability()
         do {
-            try runtimeBridge.beginShortcutCapture(onGenericHIDCaptured: onGenericHIDCaptured)
+            try await runtimeBridge.beginShortcutCapture(onGenericHIDCaptured: onGenericHIDCaptured)
             availability.startedBackends.insert(.genericHID)
         } catch {
             availability.errors[.genericHID] = error.localizedDescription
         }
 
+        guard !Task.isCancelled, generation == captureGeneration else { return availability }
         let monitor = ACK05InputMonitor()
         monitor.onConnectionChanged = { [weak self] deviceID, connected in
             guard let self else { return }
             Task { @MainActor in
+                guard generation == self.captureGeneration else { return }
                 if connected {
                     if self.captureDeviceLock.deviceID == nil {
                         self.captureMessage = L10n.text("message.capturePrompt")
@@ -628,6 +657,7 @@ final class ShortcutSettingsModel: ObservableObject {
         monitor.onPressedKeysChanged = { [weak self] deviceID, keys in
             guard let self else { return }
             Task { @MainActor in
+                guard generation == self.captureGeneration else { return }
                 let accepted = keys.isEmpty
                     ? self.captureDeviceLock.acceptsStateChange(from: deviceID)
                     : self.captureDeviceLock.acceptsInput(from: deviceID)
@@ -638,19 +668,20 @@ final class ShortcutSettingsModel: ObservableObject {
                 }
                 guard self.ack05OwnsUnifiedSession else { return }
                 self.pressedDeviceKeys = keys
-                self.handleCapturedKeys(keys)
+                await self.handleCapturedKeys(keys)
             }
         }
         monitor.onDialTurned = { [weak self] deviceID, direction in
             guard let self else { return }
             Task { @MainActor in
+                guard generation == self.captureGeneration else { return }
                 guard self.captureDeviceLock.acceptsInput(from: deviceID) else { return }
                 guard self.ack05OwnsUnifiedSession
                         || (self.claimACK05Capture?() ?? true)
                 else { return }
                 self.ack05OwnsUnifiedSession = true
                 self.showDialInput(direction)
-                self.commitDialCapture(direction, heldKeys: self.capturedKeyOrder)
+                await self.commitDialCapture(direction, heldKeys: self.capturedKeyOrder)
             }
         }
 
@@ -683,7 +714,7 @@ final class ShortcutSettingsModel: ObservableObject {
         showToast(L10n.text("message.editCancelled"), style: .info)
     }
 
-    func removeBindings(for entry: RekordboxShortcutEntry) {
+    func removeBindings(for entry: RekordboxShortcutEntry) async {
         guard var profile = configuration.profiles[configuration.defaultProfile] else { return }
         let target = target(for: entry)
         let editedGroup = isGroupCycle(target) ? 1 : selectedGroup
@@ -705,7 +736,7 @@ final class ShortcutSettingsModel: ObservableObject {
         configuration.profiles[configuration.defaultProfile] = profile
 
         do {
-            try saveConfiguration()
+            try await saveConfiguration()
             rebuildBindings()
             selectedDeviceKey = nil
             selectedDialDirection = nil
@@ -715,7 +746,7 @@ final class ShortcutSettingsModel: ObservableObject {
                 entry.description.trimmingCharacters(in: .whitespacesAndNewlines)
             )
             showToast(captureMessage ?? L10n.text("message.removed"), style: .success)
-            restartRuntimeIfEnabled()
+            if postsNotifications { OverCUEConfigurationChangedNotification.post() }
         } catch {
             captureMessage = nil
             captureError = L10n.text("message.saveFailed", error.localizedDescription)
@@ -723,7 +754,8 @@ final class ShortcutSettingsModel: ObservableObject {
         }
     }
 
-    private func handleCapturedKeys(_ keys: Set<ACK05Key>) {
+    private func handleCapturedKeys(_ keys: Set<ACK05Key>) async {
+        guard !captureSaveInProgress else { return }
         guard editingEntryID != nil else { return }
         let newlyPressed = keys.subtracting(previousCaptureKeys).sorted(by: keyOrder)
         for key in newlyPressed where !capturedKeyOrder.contains(key) {
@@ -738,10 +770,17 @@ final class ShortcutSettingsModel: ObservableObject {
             )
         }
         guard keys.isEmpty, !capturedKeyOrder.isEmpty else { return }
-        commitCapture()
+        await commitCapture()
     }
 
-    private func commitCapture(allowOverwrite: Bool = false) {
+    private var captureSaveInProgress = false
+    private var captureGeneration = 0
+
+    private func commitCapture(allowOverwrite: Bool = false) async {
+        guard !captureSaveInProgress else { return }
+        captureSaveInProgress = true
+        defer { captureSaveInProgress = false }
+        let generation = captureGeneration
         guard let target = captureTarget,
               let entryDescription = captureEntryDescription,
               let editedGroup = captureGroup,
@@ -799,7 +838,8 @@ final class ShortcutSettingsModel: ObservableObject {
         profile.setMapping(mapping, for: mappingGroup)
         configuration.profiles[configuration.defaultProfile] = profile
         do {
-            try saveConfiguration()
+            try await saveConfiguration()
+            guard generation == captureGeneration else { return }
             rebuildBindings()
             selectedEntryID = editingEntryID
             selectedDeviceKey = highlightedKeys.sorted(by: keyOrder).first
@@ -813,6 +853,7 @@ final class ShortcutSettingsModel: ObservableObject {
             showToast(captureMessage ?? L10n.text("message.bindingUpdated"), style: .success)
             finishACK05Capture(nil)
         } catch {
+            guard generation == captureGeneration else { return }
             captureError = L10n.text("message.saveFailed", error.localizedDescription)
             showToast(captureError ?? error.localizedDescription, style: .error)
             let message = captureError
@@ -824,7 +865,11 @@ final class ShortcutSettingsModel: ObservableObject {
         _ direction: DialDirection,
         heldKeys: [ACK05Key],
         allowOverwrite: Bool = false
-    ) {
+    ) async {
+        guard !captureSaveInProgress else { return }
+        captureSaveInProgress = true
+        defer { captureSaveInProgress = false }
+        let generation = captureGeneration
         guard let target = captureTarget,
               let entryDescription = captureEntryDescription,
               let editedGroup = captureGroup,
@@ -876,7 +921,8 @@ final class ShortcutSettingsModel: ObservableObject {
         configuration.profiles[configuration.defaultProfile] = profile
 
         do {
-            try saveConfiguration()
+            try await saveConfiguration()
+            guard generation == captureGeneration else { return }
             rebuildBindings()
             selectedEntryID = editingEntryID
             selectedDeviceKey = highlightedKeys.sorted(by: keyOrder).first
@@ -886,6 +932,7 @@ final class ShortcutSettingsModel: ObservableObject {
             showToast(captureMessage ?? L10n.text("message.dialUpdated"), style: .success)
             finishACK05Capture(nil)
         } catch {
+            guard generation == captureGeneration else { return }
             captureError = L10n.text("message.saveFailed", error.localizedDescription)
             showToast(captureError ?? error.localizedDescription, style: .error)
             let message = captureError
@@ -957,7 +1004,7 @@ final class ShortcutSettingsModel: ObservableObject {
         cancelCaptureKeepingError()
     }
 
-    func confirmOverwrite() {
+    func confirmOverwrite() async {
         guard let pending = pendingAssignment else { return }
         pendingAssignment = nil
         overwriteConfirmation = nil
@@ -965,11 +1012,11 @@ final class ShortcutSettingsModel: ObservableObject {
         case let .keys(entryID, keys):
             editingEntryID = entryID
             capturedKeyOrder = keys
-            commitCapture(allowOverwrite: true)
+            await commitCapture(allowOverwrite: true)
         case let .dial(entryID, direction, heldKeys):
             editingEntryID = entryID
             capturedKeyOrder = heldKeys
-            commitDialCapture(direction, heldKeys: heldKeys, allowOverwrite: true)
+            await commitDialCapture(direction, heldKeys: heldKeys, allowOverwrite: true)
         }
     }
 
@@ -1055,6 +1102,7 @@ final class ShortcutSettingsModel: ObservableObject {
     }
 
     private func stopCaptureMonitor() {
+        captureGeneration += 1
         inputMonitor?.stop()
         inputMonitor = nil
         pendingAssignment = nil
@@ -1105,20 +1153,29 @@ final class ShortcutSettingsModel: ObservableObject {
         runtimeProfileName = nil
     }
 
-    private func saveConfiguration() throws {
+    private func saveConfiguration() async throws {
         let localConfiguration = configuration
         let baseConfiguration = persistedConfiguration
-        configuration = try OverCUEConfigurationFileStore.updateCurrent(
-            at: configurationURL,
-            fallback: localConfiguration
-        ) { remoteConfiguration in
-            remoteConfiguration = OverCUEConfigurationMerger.merge(
-                base: baseConfiguration,
-                local: localConfiguration,
-                remote: remoteConfiguration
-            )
+        let url = configurationURL
+        let span = OverCUEPerformanceSpan("shortcut config save")
+        let saved = try await OverCUEPersistenceWorker.run {
+            let saved = try OverCUEConfigurationFileStore.updateCurrent(
+                at: url, fallback: localConfiguration
+            ) { remoteConfiguration in
+                remoteConfiguration = OverCUEConfigurationMerger.merge(
+                    base: baseConfiguration, local: localConfiguration, remote: remoteConfiguration
+                )
+            }
+            span.mark("config saved")
+            return saved
         }
-        persistedConfiguration = configuration
+        // Local edits made while I/O was suspended remain pending; never replace
+        // newer UI edits with the snapshot captured before the await.
+        configuration = OverCUEConfigurationMerger.merge(
+            base: localConfiguration, local: configuration, remote: saved
+        )
+        persistedConfiguration = saved
+        span.mark("operation end")
     }
 
     @discardableResult
@@ -1210,7 +1267,7 @@ final class ShortcutSettingsModel: ObservableObject {
             }
             configuration.profiles[profileName] = profile
         }
-        if changed { try? saveConfiguration() }
+        if changed { Task { try? await saveConfiguration() } }
     }
 
     private func configuredMode(for group: Int) -> RekordboxMappingMode {
@@ -1223,15 +1280,15 @@ final class ShortcutSettingsModel: ObservableObject {
         return availablePresetGroups[group - 1].name
     }
 
-    private func saveMode(_ newMode: RekordboxMappingMode, for group: Int) {
+    private func saveMode(_ newMode: RekordboxMappingMode, for group: Int) async {
         guard var profile = configuration.profiles[configuration.defaultProfile] else { return }
         var mapping = profile.storedMapping(for: group)
         mapping.rekordboxMode = newMode
         profile.setMapping(mapping, for: group)
         configuration.profiles[configuration.defaultProfile] = profile
         do {
-            try saveConfiguration()
-            OverCUEConfigurationChangedNotification.post()
+            try await saveConfiguration()
+            if postsNotifications { OverCUEConfigurationChangedNotification.post() }
         } catch {
             showToast(L10n.text("message.modeSaveFailed", error.localizedDescription), style: .error)
         }

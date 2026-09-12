@@ -61,12 +61,12 @@ final class ACK05DeviceIdentifierMonitor: @unchecked Sendable {
         )
     }
 
-    func start() throws {
+    @MainActor func start() async throws {
         guard !isOpen else { return }
         didIdentify = false
         devicesBySessionID = [:]
         previousKeysBySessionID = [:]
-        let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
+        let result = try await HIDManagerOpenRetry.open(manager, options: IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
         guard result == kIOReturnSuccess else {
             throw ACK05DeviceIdentifierMonitorError.openFailed(result)
         }

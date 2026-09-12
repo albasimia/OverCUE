@@ -18,7 +18,12 @@ final class GroupPresetManagementModel: ObservableObject {
     private var configuration: OverCUEConfiguration = .defaultValue
     private var configurationObserver: GroupPresetObserverToken?
 
-    init() {
+    private let configurationURL: URL
+    private let postsNotifications: Bool
+
+    init(configurationURL: URL = OverCUEAppConfigurationLocation.url, postsNotifications: Bool = true) {
+        self.configurationURL = configurationURL
+        self.postsNotifications = postsNotifications
         configurationObserver = GroupPresetObserverToken(
             DistributedNotificationCenter.default().addObserver(
                 forName: OverCUEConfigurationChangedNotification.name,
@@ -45,7 +50,7 @@ final class GroupPresetManagementModel: ObservableObject {
     func reload() {
         do {
             let latest = try OverCUEConfigurationFileStore.readCurrent(
-                at: OverCUEAppConfigurationLocation.url
+                at: configurationURL
             )
             configuration = latest
             groupPresets = latest.orderedGroupPresets
@@ -54,7 +59,7 @@ final class GroupPresetManagementModel: ObservableObject {
             } ?? groupPresets.first?.id
             errorMessage = nil
         } catch {
-            if !FileManager.default.fileExists(atPath: OverCUEAppConfigurationLocation.url.path) {
+            if !FileManager.default.fileExists(atPath: configurationURL.path) {
                 configuration = .defaultValue
                 groupPresets = configuration.orderedGroupPresets
                 activeGroupPresetID = configuration.activeGroupPresetID
@@ -65,8 +70,8 @@ final class GroupPresetManagementModel: ObservableObject {
         }
     }
 
-    func activate(id: String) throws {
-        _ = try updateConfiguration { latest in
+    func activate(id: String) async throws {
+        _ = try await updateConfiguration { latest in
             guard latest.groupPresets.contains(where: { $0.id == id }) else {
                 throw GroupPresetManagementError.groupPresetMissing
             }
@@ -75,11 +80,10 @@ final class GroupPresetManagementModel: ObservableObject {
     }
 
     @discardableResult
-    func add(name rawName: String) throws -> String {
+    func add(name rawName: String) async throws -> String {
         let name = try normalizedName(rawName)
-        var createdID = ""
-        _ = try updateConfiguration { latest in
-            createdID = "gp-\(UUID().uuidString.lowercased())"
+        let createdID = "gp-\(UUID().uuidString.lowercased())"
+        _ = try await updateConfiguration { latest in
             let nextOrder = (latest.groupPresets.map(\.order).max() ?? 0) + 1
             latest.groupPresets.append(
                 OverCUEGroupPreset(
@@ -93,9 +97,9 @@ final class GroupPresetManagementModel: ObservableObject {
         return createdID
     }
 
-    func rename(id: String, name rawName: String) throws {
+    func rename(id: String, name rawName: String) async throws {
         let name = try normalizedName(rawName)
-        _ = try updateConfiguration { latest in
+        _ = try await updateConfiguration { latest in
             guard let index = latest.groupPresets.firstIndex(where: { $0.id == id }) else {
                 throw GroupPresetManagementError.groupPresetMissing
             }
@@ -103,8 +107,8 @@ final class GroupPresetManagementModel: ObservableObject {
         }
     }
 
-    func delete(id: String) throws {
-        _ = try updateConfiguration { latest in
+    func delete(id: String) async throws {
+        _ = try await updateConfiguration { latest in
             let ordered = latest.orderedGroupPresets
             guard ordered.count > 1 else {
                 throw GroupPresetManagementError.cannotDeleteLast
@@ -138,11 +142,11 @@ final class GroupPresetManagementModel: ObservableObject {
         activeGroupPreset?.devicePresetAssignments[logicalDeviceID]
     }
 
-    func setIncluded(logicalDeviceID: String, included: Bool) throws {
+    func setIncluded(logicalDeviceID: String, included: Bool) async throws {
         guard let activeGroupPresetID else {
             throw GroupPresetManagementError.groupPresetMissing
         }
-        try setIncluded(
+        try await setIncluded(
             groupPresetID: activeGroupPresetID,
             logicalDeviceID: logicalDeviceID,
             included: included
@@ -153,8 +157,8 @@ final class GroupPresetManagementModel: ObservableObject {
         groupPresetID: String,
         logicalDeviceID: String,
         included: Bool
-    ) throws {
-        _ = try updateConfiguration { latest in
+    ) async throws {
+        _ = try await updateConfiguration { latest in
             guard let groupPresetIndex = latest.groupPresets.firstIndex(where: { $0.id == groupPresetID }) else {
                 throw GroupPresetManagementError.groupPresetMissing
             }
@@ -180,11 +184,11 @@ final class GroupPresetManagementModel: ObservableObject {
         }
     }
 
-    func assignPreset(logicalDeviceID: String, presetID: String) throws {
+    func assignPreset(logicalDeviceID: String, presetID: String) async throws {
         guard let activeGroupPresetID else {
             throw GroupPresetManagementError.groupPresetMissing
         }
-        try assignPreset(
+        try await assignPreset(
             groupPresetID: activeGroupPresetID,
             logicalDeviceID: logicalDeviceID,
             presetID: presetID
@@ -195,8 +199,8 @@ final class GroupPresetManagementModel: ObservableObject {
         groupPresetID: String,
         logicalDeviceID: String,
         presetID: String
-    ) throws {
-        _ = try updateConfiguration { latest in
+    ) async throws {
+        _ = try await updateConfiguration { latest in
             guard let groupPresetIndex = latest.groupPresets.firstIndex(where: { $0.id == groupPresetID }) else {
                 throw GroupPresetManagementError.groupPresetMissing
             }
@@ -219,18 +223,26 @@ final class GroupPresetManagementModel: ObservableObject {
 
     @discardableResult
     private func updateConfiguration(
-        _ update: (inout OverCUEConfiguration) throws -> Void
-    ) throws -> OverCUEConfiguration {
-        let latest = try OverCUEConfigurationFileStore.updateCurrent(
-            at: OverCUEAppConfigurationLocation.url,
-            fallback: configuration,
-            update
-        )
+        _ update: @escaping @Sendable (inout OverCUEConfiguration) throws -> Void
+    ) async throws -> OverCUEConfiguration {
+        let span = OverCUEPerformanceSpan("group preset update")
+        let fallback = configuration
+        let url = configurationURL
+        let latest = try await OverCUEPersistenceWorker.run {
+            let latest = try OverCUEConfigurationFileStore.updateCurrent(
+                at: url,
+                fallback: fallback,
+                update
+            )
+            span.mark("config saved")
+            return latest
+        }
         configuration = latest
         groupPresets = latest.orderedGroupPresets
         activeGroupPresetID = latest.activeGroupPresetID
         errorMessage = nil
-        OverCUEConfigurationChangedNotification.post()
+        if postsNotifications { OverCUEConfigurationChangedNotification.post() }
+        span.mark("operation end")
         return latest
     }
 }

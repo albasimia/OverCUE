@@ -76,13 +76,13 @@ final class GenericHIDDeviceIdentifierMonitor: @unchecked Sendable {
         )
     }
 
-    func start() throws {
+    @MainActor func start() async throws {
         guard !isOpen else { return }
         groups = [:]
         groupKeyByInterfaceID = [:]
         didIdentify = false
 
-        let result = HIDManagerOpenRetry.open(
+        let result = try await HIDManagerOpenRetry.open(
             manager,
             options: IOOptionBits(kIOHIDOptionsTypeNone)
         )

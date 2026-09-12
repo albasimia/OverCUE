@@ -132,6 +132,10 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     private let keyboardOutput = GenericHIDKeyboardOutput()
     private let repeatProfile = AcceleratingKeyRepeatProfile()
     private var configuration: OverCUEConfiguration = .defaultValue
+    private var reloadGeneration = 0
+    private var reloadPending = false
+    private var pendingControls: [Notification] = []
+    private var mappingDocument = GenericHIDMappingDocument()
     private var groups: [LiveGroupKey: LiveGroup] = [:]
     private var groupKeyByInterfaceID: [UInt: LiveGroupKey] = [:]
     private var statesBySessionID: [String: GenericHIDDeviceRuntimeState] = [:]
@@ -181,6 +185,7 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
         metadataCatalogs.removeAll()
         interfacesByID = [:]
         parsedShortcuts = [:]
+        mappingDocument = (try? GenericHIDMappingStore.read()) ?? GenericHIDMappingDocument()
         configureDeviceMatching()
         installObservers()
 
@@ -231,6 +236,9 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     }
 
     func stop() {
+        reloadGeneration += 1
+        reloadPending = false
+        pendingControls.removeAll()
         guard isOpen || configurationObserver != nil else { return }
         endCapture()
         for state in statesBySessionID.values {
@@ -439,30 +447,60 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     }
 
     private func reloadConfigurationAndMappings() {
-        guard let latest = try? OverCUEConfigurationFileStore.readCurrent(
-            at: OverCUEAppConfigurationLocation.url
-        ) else { return }
-        configuration = latest
-        configureDeviceMatching()
-        registerCurrentInterfaces(source: "config-reload")
-        // Retry failed enumeration only at a lifecycle/config refresh boundary.
-        // Ready catalogs are immutable and reused until interface removal.
-        for device in interfacesByID.values { preloadMetadata(for: device) }
-        keyMappingsByMode = [:]
-        parsedShortcuts = [:]
-        refreshRuntimeStates()
-        reloadLearnedMappings()
+        reloadGeneration += 1
+        let generation = reloadGeneration
+        reloadPending = true
+        let span = OverCUEPerformanceSpan("generic runtime reload")
+        span.mark("runtime reload start")
+        Task { @MainActor [weak self] in
+            do {
+                let snapshot = try await OverCUEPersistenceWorker.run {
+                    (try OverCUEConfigurationFileStore.readCurrent(at: OverCUEAppConfigurationLocation.url),
+                     try GenericHIDMappingStore.read())
+                }
+                guard let self, self.isOpen, generation == self.reloadGeneration else { return }
+                let plan = OverCUEConfigurationReloadPlan(previous: self.configuration, latest: snapshot.0)
+                let mappingsChanged = self.mappingDocument != snapshot.1
+                self.configuration = snapshot.0
+                self.mappingDocument = snapshot.1
+                if plan.requiresHIDEnumeration {
+                    self.configureDeviceMatching()
+                    self.registerCurrentInterfaces(source: "config-reload")
+                    for device in self.interfacesByID.values { self.preloadMetadata(for: device) }
+                }
+                // XML shortcut catalogs are independent of Group Preset/config
+                // assignments. Preserve them until explicit runtime restart.
+                self.refreshRuntimeStates()
+                if mappingsChanged || plan.requiresHIDEnumeration { self.applyLearnedMappings() }
+                self.reloadPending = false
+                let controls = self.pendingControls
+                self.pendingControls.removeAll()
+                for control in controls { self.applyRuntimeControl(control) }
+                span.mark("runtime reload end")
+            } catch {
+                guard let self, generation == self.reloadGeneration else { return }
+                self.reloadPending = false
+                self.pendingControls.removeAll()
+                span.mark("runtime reload failed")
+            }
+        }
     }
 
     private func reloadLearnedMappings() {
+        // A single consistent sidecar snapshot serves all connected devices.
+        reloadConfigurationAndMappings()
+    }
+
+    private func applyLearnedMappings() {
         keyboardOutput.releaseAll()
         for state in statesBySessionID.values {
             _ = state.resolver.reset(mapping: state.mapping)
             stopRepeat(state)
-            state.mapping = (try? GenericHIDMappingStore.mapping(
+            state.mapping = GenericHIDMappingStore.mapping(
                 logicalDeviceID: state.logicalDeviceID,
-                presetID: state.presetID
-            )) ?? [:]
+                presetID: state.presetID,
+                in: mappingDocument
+            )
         }
     }
 
@@ -499,11 +537,17 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
                 if state.logicalDeviceID == logicalDeviceID,
                    state.profileName == logicalDevice.profileName,
                    profile.presetGroup(id: state.presetID) != nil {
-                    state.mode = modeForPreset(
+                    let nextMode = modeForPreset(
                         presetID: state.presetID,
                         profile: profile,
                         fallback: state.mode
                     )
+                    if state.mode != nextMode {
+                        keyboardOutput.releaseAll()
+                        _ = state.resolver.reset(mapping: state.mapping)
+                        stopRepeat(state)
+                        state.mode = nextMode
+                    }
                     publishRuntimeStatus(state, connected: true)
                     continue
                 }
@@ -517,10 +561,11 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
                 profile: profile,
                 fallback: .performance
             )
-            let mapping = (try? GenericHIDMappingStore.mapping(
+            let mapping = GenericHIDMappingStore.mapping(
                 logicalDeviceID: logicalDeviceID,
-                presetID: presetID
-            )) ?? [:]
+                presetID: presetID,
+                in: mappingDocument
+            )
             let state = GenericHIDDeviceRuntimeState(
                 descriptor: descriptor,
                 logicalDeviceID: logicalDeviceID,
@@ -550,6 +595,10 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
     }
 
     private func applyRuntimeControl(_ notification: Notification) {
+        if reloadPending {
+            pendingControls.append(notification)
+            return
+        }
         guard let deviceID = notification.userInfo?[
             OverCUERuntimeControlNotification.deviceIDKey
         ] as? String,
@@ -597,10 +646,11 @@ final class GenericHIDRuntimeCoordinator: @unchecked Sendable {
             profile: profile,
             fallback: state.mode
         )
-        state.mapping = (try? GenericHIDMappingStore.mapping(
+        state.mapping = GenericHIDMappingStore.mapping(
             logicalDeviceID: state.logicalDeviceID,
-            presetID: presetID
-        )) ?? [:]
+            presetID: presetID,
+            in: mappingDocument
+        )
         publishRuntimeStatus(state, connected: true)
     }
 

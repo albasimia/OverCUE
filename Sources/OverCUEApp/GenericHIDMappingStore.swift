@@ -38,10 +38,11 @@ enum GenericHIDMappingStore {
 
     private static let lock = NSLock()
 
-    static func read() throws -> GenericHIDMappingDocument {
-        lock.lock()
-        defer { lock.unlock() }
-        return try readUnlocked()
+    static func read(at documentURL: URL = url) throws -> GenericHIDMappingDocument {
+        // Atomic replacement guarantees one complete old/new document. A reader
+        // must not wait behind an unrelated sidecar writer on the UI runloop.
+        // Read-modify-write transactions still hold the lock in update().
+        return try readUnlocked(at: documentURL)
     }
 
     static func mapping(
@@ -73,9 +74,11 @@ enum GenericHIDMappingStore {
         logicalDeviceID: String,
         presetID: String,
         input: GenericHIDInputBindingKey,
-        target: ActionTarget
+        target: ActionTarget,
+        at documentURL: URL = url,
+        postsNotification: Bool = true
     ) throws {
-        try update { document in
+        try update(at: documentURL) { document in
             var presetMappings = document.logicalDevices[logicalDeviceID] ?? [:]
             var records = presetMappings[presetID] ?? []
             records.removeAll { $0.input == input }
@@ -91,7 +94,7 @@ enum GenericHIDMappingStore {
             presetMappings[presetID] = records
             document.logicalDevices[logicalDeviceID] = presetMappings
         }
-        GenericHIDMappingChangedNotification.post()
+        if postsNotification { GenericHIDMappingChangedNotification.post() }
     }
 
     static func remove(
@@ -121,9 +124,11 @@ enum GenericHIDMappingStore {
     static func removeTarget(
         logicalDeviceIDs: Set<String>,
         presetID: String,
-        target: ActionTarget
+        target: ActionTarget,
+        at documentURL: URL = url,
+        postsNotification: Bool = true
     ) throws {
-        try update { document in
+        try update(at: documentURL) { document in
             for logicalDeviceID in logicalDeviceIDs {
                 guard var presetMappings = document.logicalDevices[logicalDeviceID],
                       var records = presetMappings[presetID]
@@ -141,20 +146,21 @@ enum GenericHIDMappingStore {
                 }
             }
         }
-        GenericHIDMappingChangedNotification.post()
+        if postsNotification { GenericHIDMappingChangedNotification.post() }
     }
 
     private static func update(
+        at documentURL: URL = url,
         _ body: (inout GenericHIDMappingDocument) throws -> Void
     ) throws {
         lock.lock()
         defer { lock.unlock() }
-        var document = try readUnlocked()
+        var document = try readUnlocked(at: documentURL)
         try body(&document)
-        try writeUnlocked(document)
+        try writeUnlocked(document, at: documentURL)
     }
 
-    private static func readUnlocked() throws -> GenericHIDMappingDocument {
+    private static func readUnlocked(at url: URL) throws -> GenericHIDMappingDocument {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return GenericHIDMappingDocument()
         }
@@ -168,7 +174,7 @@ enum GenericHIDMappingStore {
         return document
     }
 
-    private static func writeUnlocked(_ document: GenericHIDMappingDocument) throws {
+    private static func writeUnlocked(_ document: GenericHIDMappingDocument, at url: URL) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true

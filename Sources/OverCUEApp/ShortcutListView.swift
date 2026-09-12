@@ -90,7 +90,7 @@ struct ShortcutListView: View {
                         "",
                         selection: Binding(
                             get: { model.mode },
-                            set: { newMode in model.setMode(newMode) }
+                            set: { newMode in Task { await model.setMode(newMode) } }
                         )
                     ) {
                         ForEach(modeOrder) { mode in
@@ -372,9 +372,11 @@ struct ShortcutListView: View {
                 .help(localization.text("shortcuts.edit.help"))
 
                 Button {
-                    genericHIDModel.removeBindings(for: entry, shortcutModel: model)
-                    model.removeBindings(for: entry)
-                    genericHIDModel.reload(shortcutModel: model)
+                    Task { @MainActor in
+                        await genericHIDModel.removeBindings(for: entry, shortcutModel: model)
+                        await model.removeBindings(for: entry)
+                        genericHIDModel.reload(shortcutModel: model)
+                    }
                 } label: {
                     Image(systemName: "trash")
                         .foregroundStyle(configured ? Color.red : Color.secondary.opacity(0.35))

@@ -63,6 +63,10 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "OverCUEAppTests",
+            dependencies: ["OverCUEApp", "OverCUECore"]
+        ),
+        .testTarget(
             name: "OverCUECoreTests",
             dependencies: ["OverCUECore"]
         ),

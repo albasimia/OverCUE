@@ -16,6 +16,12 @@ AALはglobal CLI / localとも`d807f62`へ更新済み。projectは現在仕様�
 
 今回の自動検証：46 unit tests（4追加）/ 412 Core checks全件成功、debug/release Universal app/helper、ad-hoc codesign deep/strict成功。AAL doctor 0/0。テストはCore syntheticと実装配線の構造checkで、OS callback/UI Learnの実機成功を証明したものではない。
 
+## UI操作のMainActor blocking対策（2026-09-12）
+
+`codex/web-ui`上で、process終了待ち/HID retryをsuspend化、suppressor lifecycleを専用queueへ移し、Shortcut削除の全restartを既存通知reloadへ置換。Group切替ではGeneric physical binding差分がない限り再列挙せず、config/sidecar保存とXML読込をworkerへ移した。保存schema・reorderのdraft/Save・remote order優先は維持。
+
+自動検証は61 tests / 412 checks、Universal app/helper・ad-hoc署名まで成功。実機のビーチボール不在・連続Learn・cancel/start競合・hotplug/native suppressionは未確認。起動/実topology変更のmain-runloop metadata preload等は残る。call chain、診断環境変数、synthetic ms、変更範囲とQAは`docs/main-actor-blocking-audit.md`を参照。
+
 ## 最優先：実機入力待ち
 
 1. アプリ起動→Controller Input ON→Deck2対象ActionのLearnでRight/Left/Clickを別々に登録。各回snapshot/matched/metadata ready/state ready→callback→capture captured、Deck2 Logical Deviceとeditor Preset保存先を確認。3回連続Learn、ON/OFF、再接続でも維持されること。保存仕様やユーザーmappingは今回変更していない。

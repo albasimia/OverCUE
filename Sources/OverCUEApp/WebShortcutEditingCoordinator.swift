@@ -244,7 +244,7 @@ final class WebShortcutEditingCoordinator {
     func perform(
         _ command: WebShortcutEditorCommand,
         shortcutModel: ShortcutSettingsModel
-    ) throws {
+    ) async throws {
         switch command.action {
         case .selectEntry:
             let entry = try requireEntry(id: command.entryID, shortcutModel: shortcutModel)
@@ -312,7 +312,7 @@ final class WebShortcutEditingCoordinator {
             guard !hasActiveCapture(shortcutModel: shortcutModel) else {
                 throw WebShortcutEditingError.captureInProgress
             }
-            shortcutModel.setMode(mode)
+            await shortcutModel.setMode(mode)
             reloadGenericBindings(shortcutModel: shortcutModel)
 
         case .reload:
@@ -342,15 +342,15 @@ final class WebShortcutEditingCoordinator {
             guard !hasActiveCapture(shortcutModel: shortcutModel) else {
                 throw WebShortcutEditingError.captureInProgress
             }
-            genericHIDModel.removeBindings(for: entry, shortcutModel: shortcutModel)
-            shortcutModel.removeBindings(for: entry)
+            await genericHIDModel.removeBindings(for: entry, shortcutModel: shortcutModel)
+            await shortcutModel.removeBindings(for: entry)
             reloadGenericBindings(shortcutModel: shortcutModel)
 
         case .confirmOverwrite:
             if genericHIDModel.overwriteConfirmation != nil {
-                genericHIDModel.confirmOverwrite(shortcutModel: shortcutModel)
+                await genericHIDModel.confirmOverwrite(shortcutModel: shortcutModel)
             } else if shortcutModel.overwriteConfirmation != nil {
-                shortcutModel.confirmOverwrite()
+                await shortcutModel.confirmOverwrite()
             } else {
                 throw WebShortcutEditingError.noOverwriteConfirmation
             }
