@@ -63,8 +63,11 @@ public enum ActionID: String, Codable, CaseIterable, Equatable, Hashable, Sendab
         }
     }
 
+    /// Historical name retained because existing editor/configuration code uses
+    /// this flag to choose the shared control-mapping scope. OverCUE Control is
+    /// now Preset-independent, so every internal command uses that scope.
     public var isGroupCycle: Bool {
-        self == .cycleGroup || self == .cycleGroupBackward
+        behavior.isInternal
     }
 
     public var groupPresetCycleStep: Int? {
