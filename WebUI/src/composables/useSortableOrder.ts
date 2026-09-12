@@ -4,7 +4,8 @@ import { nextTick, onBeforeUnmount, ref, watch, type Ref } from 'vue'
 interface SortableOrderOptions {
   element: Ref<HTMLElement | null>
   currentIDs: () => string[]
-  persist: (ids: string[]) => Promise<void>
+  persist?: (ids: string[]) => Promise<void>
+  onChange?: (ids: string[]) => void
 }
 
 export function useSortableOrder(options: SortableOrderOptions) {
@@ -16,7 +17,7 @@ export function useSortableOrder(options: SortableOrderOptions) {
     sortable?.sort(options.currentIDs(), false)
   }
 
-  async function persistDOMOrder() {
+  async function handleDOMOrder() {
     if (!sortable || isSaving.value) return
 
     const activeSortable = sortable
@@ -28,8 +29,20 @@ export function useSortableOrder(options: SortableOrderOptions) {
     }
     if (nextIDs.every((id, index) => id === currentIDs[index])) return
 
-    isSaving.value = true
     errorMessage.value = null
+    if (options.onChange) {
+      options.onChange(nextIDs)
+      await nextTick()
+      if (sortable === activeSortable) restoreDOMOrder()
+      return
+    }
+
+    if (!options.persist) {
+      restoreDOMOrder()
+      return
+    }
+
+    isSaving.value = true
     activeSortable.option('disabled', true)
     try {
       await options.persist(nextIDs)
@@ -56,7 +69,7 @@ export function useSortableOrder(options: SortableOrderOptions) {
       ghostClass: 'drag-ghost',
       chosenClass: 'drag-chosen',
       onEnd: () => {
-        void persistDOMOrder()
+        void handleDOMOrder()
       },
     })
     restoreDOMOrder()
@@ -86,5 +99,5 @@ export function useSortableOrder(options: SortableOrderOptions) {
     sortable = null
   })
 
-  return { isSaving, errorMessage }
+  return { isSaving, errorMessage, restoreDOMOrder }
 }
