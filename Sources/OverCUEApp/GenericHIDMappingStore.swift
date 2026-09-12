@@ -69,7 +69,7 @@ enum GenericHIDMappingStore {
             legacyControlRecords = presetMappings
                 .filter { $0.key != controlPresetID }
                 .sorted { $0.key < $1.key }
-                .flatMap(\.value)
+                .flatMap { $0.value }
                 .filter { record in
                     ActionTarget(configurationValue: record.target)?.behavior.isInternal == true
                 }
@@ -121,8 +121,27 @@ enum GenericHIDMappingStore {
         try update(at: documentURL) { document in
             var presetMappings = document.logicalDevices[logicalDeviceID] ?? [:]
             let storagePresetID = target.behavior.isInternal ? controlPresetID : presetID
+
+            // A physical input has exactly one meaning for a device. A Control
+            // assignment is global across Presets, so replacing across the scope
+            // boundary must remove the stale opposite assignment as well.
+            let affectedPresetIDs: [String]
+            if target.behavior.isInternal {
+                affectedPresetIDs = Array(presetMappings.keys)
+            } else {
+                affectedPresetIDs = [presetID, controlPresetID]
+            }
+            for affectedPresetID in affectedPresetIDs {
+                guard var records = presetMappings[affectedPresetID] else { continue }
+                records.removeAll { $0.input == input }
+                if records.isEmpty {
+                    presetMappings.removeValue(forKey: affectedPresetID)
+                } else {
+                    presetMappings[affectedPresetID] = records
+                }
+            }
+
             var records = presetMappings[storagePresetID] ?? []
-            records.removeAll { $0.input == input }
             records.append(
                 GenericHIDStoredAssignment(
                     input: input,
