@@ -318,7 +318,8 @@ public enum OverCUEConfigurationMerger {
             }
             var merged = remoteValue
             if localValue.name != baseValue.name { merged.name = localValue.name }
-            if localValue.order != baseValue.order { merged.order = localValue.order }
+            // Ordering is persisted by the dedicated reorder transaction. A stale
+            // in-memory snapshot must never override the latest on-disk order.
             merged.mapping = mergeGroupMapping(
                 base: baseValue.mapping,
                 local: localValue.mapping,
@@ -354,7 +355,7 @@ public enum OverCUEConfigurationMerger {
             }
             var merged = remoteValue
             if localValue.name != baseValue.name { merged.name = localValue.name }
-            if localValue.order != baseValue.order { merged.order = localValue.order }
+            // Group Preset ordering has the same persisted ownership semantics.
             merged.devicePresetAssignments = mergeSimpleDictionary(
                 base: baseValue.devicePresetAssignments,
                 local: localValue.devicePresetAssignments,
