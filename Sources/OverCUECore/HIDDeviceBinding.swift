@@ -120,13 +120,59 @@ public enum PhysicalDeviceBindingResolution: Equatable, Sendable {
     case ambiguous(logicalDeviceIDs: [String])
 }
 
+/// Preset-independent OverCUE commands owned by one Logical Device.
+/// rekordbox actions remain in the Profile/Preset mapping; only internal
+/// OverCUE Control actions are persisted here.
+public struct OverCUEControlMapping: Codable, Equatable, Sendable {
+    public var keyMap: [String: String]
+    public var chordMap: [String: String]
+    public var dialMap: [String: String]
+    public var dialChordMap: [String: String]
+
+    public init(
+        keyMap: [String: String] = [:],
+        chordMap: [String: String] = [:],
+        dialMap: [String: String] = [:],
+        dialChordMap: [String: String] = [:]
+    ) {
+        self.keyMap = keyMap
+        self.chordMap = chordMap
+        self.dialMap = dialMap
+        self.dialChordMap = dialChordMap
+    }
+
+    public var isEmpty: Bool {
+        keyMap.isEmpty && chordMap.isEmpty && dialMap.isEmpty && dialChordMap.isEmpty
+    }
+}
+
 public struct OverCUELogicalDevice: Codable, Equatable, Sendable {
     public var name: String
     public var profileName: String
+    public var controlMapping: OverCUEControlMapping
 
-    public init(name: String, profileName: String) {
+    public init(
+        name: String,
+        profileName: String,
+        controlMapping: OverCUEControlMapping = OverCUEControlMapping()
+    ) {
         self.name = name
         self.profileName = profileName
+        self.controlMapping = controlMapping
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, profileName, controlMapping
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        profileName = try container.decode(String.self, forKey: .profileName)
+        controlMapping = try container.decodeIfPresent(
+            OverCUEControlMapping.self,
+            forKey: .controlMapping
+        ) ?? OverCUEControlMapping()
     }
 }
 
@@ -181,74 +227,13 @@ public struct OverCUEPhysicalDeviceBinding: Codable, Equatable, Sendable {
     }
 
     public func isLocationHint(for device: HIDPhysicalDeviceDescriptor) -> Bool {
-        kind == device.kind
-            && vendorID == device.vendorID
-            && productID == device.productID
-            && serialNumber == nil
-            && legacyDeviceIdentifier == nil
-            && lastKnownLocationID != nil
-            && lastKnownLocationID == device.locationID
-    }
-}
-
-public struct DeviceScopedStateStore<State> {
-    private var states: [String: State] = [:]
-
-    public init() {}
-
-    public var count: Int { states.count }
-    public var values: [State] { Array(states.values) }
-
-    public mutating func state(
-        for deviceID: String,
-        create: () throws -> State
-    ) rethrows -> State {
-        if let state = states[deviceID] { return state }
-        let state = try create()
-        states[deviceID] = state
-        return state
-    }
-
-    @discardableResult
-    public mutating func removeState(for deviceID: String) -> State? {
-        states.removeValue(forKey: deviceID)
-    }
-
-    public mutating func withState<Result>(
-        for deviceID: String,
-        create: () throws -> State,
-        _ operation: (inout State) throws -> Result
-    ) rethrows -> Result {
-        var state = try self.state(for: deviceID, create: create)
-        defer { states[deviceID] = state }
-        return try operation(&state)
-    }
-}
-
-public struct PhysicalDeviceCaptureLock: Equatable, Sendable {
-    public private(set) var deviceID: String?
-
-    public init() {}
-
-    public mutating func acceptsInput(from candidateDeviceID: String) -> Bool {
-        if let deviceID { return deviceID == candidateDeviceID }
-        deviceID = candidateDeviceID
-        return true
-    }
-
-    public func acceptsStateChange(from candidateDeviceID: String) -> Bool {
-        deviceID == candidateDeviceID
-    }
-
-    @discardableResult
-    public mutating func deviceDisconnected(_ candidateDeviceID: String) -> Bool {
-        guard deviceID == candidateDeviceID else { return false }
-        deviceID = nil
-        return true
-    }
-
-    public mutating func reset() {
-        deviceID = nil
+        guard kind == device.kind,
+              vendorID == device.vendorID,
+              productID == device.productID,
+              let lastKnownLocationID,
+              let locationID = device.locationID
+        else { return false }
+        return lastKnownLocationID == locationID
     }
 }
 
