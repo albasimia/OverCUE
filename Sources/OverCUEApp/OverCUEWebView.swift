@@ -1,15 +1,25 @@
 import AppKit
+import Foundation
 import SwiftUI
 import WebKit
+
+private struct ActiveGroupPresetPayload: Encodable {
+    let activeGroupPresetID: String?
+}
 
 struct OverCUEWebRootView: View {
     let serverReady: Bool
     let errorMessage: String?
 
+    @EnvironmentObject private var groupPresetRuntimeCoordinator: GroupPresetRuntimeCoordinator
+
     var body: some View {
         Group {
             if serverReady {
-                OverCUEWebView(serverReady: true)
+                OverCUEWebView(
+                    serverReady: true,
+                    activeGroupPresetID: groupPresetRuntimeCoordinator.activeGroupPresetID
+                )
             } else {
                 VStack(spacing: 14) {
                     ProgressView()
@@ -33,6 +43,7 @@ struct OverCUEWebRootView: View {
 
 private struct OverCUEWebView: NSViewRepresentable {
     let serverReady: Bool
+    let activeGroupPresetID: String?
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -51,14 +62,18 @@ private struct OverCUEWebView: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {
         guard serverReady else { return }
         context.coordinator.loadRootIfNeeded(in: webView)
+        context.coordinator.syncActiveGroupPreset(activeGroupPresetID, in: webView)
     }
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
         private let rootURL = URL(string: "http://127.0.0.1:4173/")!
         private var loadedRoot = false
+        private var pageReady = false
         private var retryCount = 0
         private let maximumRetries = 12
+        private var pendingActiveGroupPreset = ActiveGroupPresetPayload(activeGroupPresetID: nil)
+        private var lastSentActiveGroupPresetJSON: String?
 
         func loadRootIfNeeded(in webView: WKWebView) {
             guard !loadedRoot else { return }
@@ -67,8 +82,19 @@ private struct OverCUEWebView: NSViewRepresentable {
             loadRoot(in: webView)
         }
 
+        func syncActiveGroupPreset(_ activeGroupPresetID: String?, in webView: WKWebView) {
+            pendingActiveGroupPreset = ActiveGroupPresetPayload(
+                activeGroupPresetID: activeGroupPresetID
+            )
+            guard pageReady else { return }
+            sendActiveGroupPreset(pendingActiveGroupPreset, to: webView)
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             retryCount = 0
+            pageReady = true
+            lastSentActiveGroupPresetJSON = nil
+            sendActiveGroupPreset(pendingActiveGroupPreset, to: webView)
         }
 
         func webView(
@@ -76,6 +102,7 @@ private struct OverCUEWebView: NSViewRepresentable {
             didFailProvisionalNavigation navigation: WKNavigation!,
             withError error: Error
         ) {
+            pageReady = false
             guard retryCount < maximumRetries else { return }
             retryCount += 1
             Task { @MainActor [weak webView] in
@@ -114,6 +141,8 @@ private struct OverCUEWebView: NSViewRepresentable {
         }
 
         private func loadRoot(in webView: WKWebView) {
+            pageReady = false
+            lastSentActiveGroupPresetJSON = nil
             webView.load(
                 URLRequest(
                     url: rootURL,
@@ -121,6 +150,24 @@ private struct OverCUEWebView: NSViewRepresentable {
                     timeoutInterval: 5
                 )
             )
+        }
+
+        private func sendActiveGroupPreset(
+            _ payload: ActiveGroupPresetPayload,
+            to webView: WKWebView
+        ) {
+            guard let data = try? JSONEncoder().encode(payload),
+                  let json = String(data: data, encoding: .utf8),
+                  json != lastSentActiveGroupPresetJSON
+            else { return }
+
+            let script = """
+            window.dispatchEvent(new CustomEvent('overcue:active-group-preset-changed', { detail: \(json) }));
+            """
+            webView.evaluateJavaScript(script) { [weak self] _, error in
+                guard error == nil else { return }
+                self?.lastSentActiveGroupPresetJSON = json
+            }
         }
     }
 }
