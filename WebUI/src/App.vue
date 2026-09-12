@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import { overcueAPI } from './api/client'
 import { useDevicesStore } from './stores/devices'
@@ -36,8 +36,19 @@ async function loadSnapshot() {
   }
 }
 
+function handleActiveGroupPresetChanged(event: Event) {
+  const detail = (event as CustomEvent<{ activeGroupPresetID?: string | null }>).detail
+  if (!detail || !Object.prototype.hasOwnProperty.call(detail, 'activeGroupPresetID')) return
+  groupPresets.setActiveID(detail.activeGroupPresetID ?? null)
+}
+
 onMounted(() => {
+  window.addEventListener('overcue:active-group-preset-changed', handleActiveGroupPresetChanged)
   void Promise.all([loadSnapshot(), settings.load()])
+})
+
+onUnmounted(() => {
+  window.removeEventListener('overcue:active-group-preset-changed', handleActiveGroupPresetChanged)
 })
 </script>
 
