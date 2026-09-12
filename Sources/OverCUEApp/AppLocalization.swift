@@ -27,8 +27,13 @@ final class AppLocalization: ObservableObject {
         let saved = UserDefaults.standard.string(forKey: "appLanguage")
         language = saved.flatMap(AppLanguage.init(rawValue:)) ?? .japanese
         for language in AppLanguage.allCases {
-            tables[language] = Self.load(language: language)
+            var table = Self.load(language: language)
+            if let additions = Self.webInterfaceAdditions[language] {
+                table.merge(additions) { _, interfaceValue in interfaceValue }
+            }
+            tables[language] = table
         }
+        GroupPresetCycleRequestHandler.install()
     }
 
     func setLanguage(_ language: AppLanguage) {
@@ -49,9 +54,9 @@ final class AppLocalization: ObservableObject {
         )
     }
 
-    /// The Web UI consumes the same localization table as SwiftUI. A small set
-    /// of Web-only UI labels is merged here so translated copy remains owned by
-    /// the native localization boundary rather than duplicated in Vue.
+    /// The Web UI consumes the same localization table as SwiftUI. Shared
+    /// interface overrides and Web-only labels are merged here so both surfaces
+    /// use the same terminology.
     var currentTable: [String: String] {
         var table = tables[language] ?? tables[.english] ?? [:]
         let additions = Self.webInterfaceAdditions[language]
@@ -75,6 +80,8 @@ final class AppLocalization: ObservableObject {
             "shortcuts.learn": "Learn",
             "shortcuts.actions": "%d actions",
             "shortcuts.column.input": "入力",
+            "internal.cycleAscending": "次のGroup Preset",
+            "internal.cycleDescending": "前のGroup Preset",
         ],
         .english: [
             "app.localAPI": "Local API",
@@ -89,6 +96,8 @@ final class AppLocalization: ObservableObject {
             "shortcuts.learn": "Learn",
             "shortcuts.actions": "%d actions",
             "shortcuts.column.input": "Input",
+            "internal.cycleAscending": "Next Group Preset",
+            "internal.cycleDescending": "Previous Group Preset",
         ],
         .simplifiedChinese: [
             "app.localAPI": "Local API",
@@ -103,6 +112,8 @@ final class AppLocalization: ObservableObject {
             "shortcuts.learn": "Learn",
             "shortcuts.actions": "%d 个操作",
             "shortcuts.column.input": "输入",
+            "internal.cycleAscending": "下一个组预设",
+            "internal.cycleDescending": "上一个组预设",
         ],
     ]
 

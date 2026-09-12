@@ -1,3 +1,5 @@
+import Foundation
+
 public enum ActionID: String, Codable, CaseIterable, Equatable, Hashable, Sendable {
     case hotCue1 = "hot_cue_1"
     case hotCue2 = "hot_cue_2"
@@ -45,8 +47,8 @@ public enum ActionID: String, Codable, CaseIterable, Equatable, Hashable, Sendab
         case .captureWaveformPosition: "Capture Waveform Position"
         case .jogSearchLeft: "Jog Search Left"
         case .jogSearchRight: "Jog Search Right"
-        case .cycleGroup: "Next Preset Group"
-        case .cycleGroupBackward: "Previous Preset Group"
+        case .cycleGroup: "Next Group Preset"
+        case .cycleGroupBackward: "Previous Group Preset"
         case .toggleRekordboxMode: "Toggle EXPORT / PERFORMANCE"
         }
     }
@@ -65,7 +67,25 @@ public enum ActionID: String, Codable, CaseIterable, Equatable, Hashable, Sendab
         self == .cycleGroup || self == .cycleGroupBackward
     }
 
+    public var groupPresetCycleStep: Int? {
+        switch self {
+        case .cycleGroup: 1
+        case .cycleGroupBackward: -1
+        default: nil
+        }
+    }
+
     public init?(legacyDisplayName: String) {
+        switch legacyDisplayName {
+        case "Next Preset Group":
+            self = .cycleGroup
+            return
+        case "Previous Preset Group":
+            self = .cycleGroupBackward
+            return
+        default:
+            break
+        }
         guard let action = Self.allCases.first(where: { $0.displayName == legacyDisplayName }) else {
             return nil
         }
@@ -80,6 +100,28 @@ public enum ActionBehavior: Equatable, Sendable {
     case internalCommand
 
     public var isInternal: Bool { self == .internalCommand }
+}
+
+/// Hardware backends still persist the historical `cycle_group` action IDs,
+/// but Group Preset selection is now owned globally by OverCUE.app. Creating a
+/// cycle ActionEvent emits this request and consumes the device-local event.
+public enum OverCUEGroupPresetCycleRequestNotification {
+    public static let name = Notification.Name("com.overcue.group-preset-cycle-requested")
+    public static let stepKey = "step"
+
+    public static func post(step: Int) {
+        guard step != 0 else { return }
+        // ActionEvent is also exercised by checks and unit tests. Never let those
+        // auxiliary processes mutate a concurrently running user's configuration.
+        let processName = ProcessInfo.processInfo.processName
+        guard processName == "OverCUE" || processName == "overcue-cli" else { return }
+        DistributedNotificationCenter.default().postNotificationName(
+            name,
+            object: nil,
+            userInfo: [stepKey: step < 0 ? -1 : 1],
+            deliverImmediately: true
+        )
+    }
 }
 
 public enum ActionTarget: Equatable, Hashable, Sendable {
@@ -211,7 +253,16 @@ public struct ActionEvent: Equatable, Sendable {
         activationCount: Int = 1
     ) {
         self.target = target
-        self.phase = phase
+        if (phase == .triggered || phase == .repeated),
+           let step = target.semanticAction?.groupPresetCycleStep {
+            OverCUEGroupPresetCycleRequestNotification.post(step: step)
+            // Both runtime backends consume internal-command release phases
+            // without changing the Device Preset. The app will apply the new
+            // Group Preset baseline through the existing runtime-control path.
+            self.phase = .released
+        } else {
+            self.phase = phase
+        }
         self.sourceID = sourceID
         self.sourceLabel = sourceLabel
         self.activationCount = max(1, activationCount)
