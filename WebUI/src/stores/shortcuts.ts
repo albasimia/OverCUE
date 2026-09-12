@@ -13,6 +13,12 @@ function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
+function orderedPresetIDs(presets: Array<{ id: string; order: number }>) {
+  return [...presets]
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+    .map((preset) => preset.id)
+}
+
 export const useShortcutsStore = defineStore('shortcuts', {
   state: () => ({
     panel: null as ShortcutPanelState | null,
@@ -20,15 +26,74 @@ export const useShortcutsStore = defineStore('shortcuts', {
     isPolling: false,
     pollGeneration: 0,
     isMutating: false,
+    pendingPresetSync: null as PresetSummary[] | null,
   }),
 
   actions: {
+    adoptPanel(nextPanel: ShortcutPanelState) {
+      this.panel = nextPanel
+
+      const pending = this.pendingPresetSync
+      if (!pending) return
+
+      const panelIDs = new Set(nextPanel.presets.map((preset) => preset.id))
+      const pendingIDs = new Set(pending.map((preset) => preset.id))
+      const samePresetSet = panelIDs.size === pendingIDs.size
+        && [...pendingIDs].every((id) => panelIDs.has(id))
+
+      if (!samePresetSet) {
+        this.pendingPresetSync = null
+        return
+      }
+
+      const nativeOrder = orderedPresetIDs(nextPanel.presets)
+      const confirmedOrder = orderedPresetIDs(pending)
+      if (nativeOrder.every((id, index) => id === confirmedOrder[index])) {
+        this.pendingPresetSync = null
+        return
+      }
+
+      this.applyPresetOrder(pending)
+    },
+
+    applyPresetOrder(presets: PresetSummary[]) {
+      if (!this.panel) return
+      const panelIDs = new Set(this.panel.presets.map((preset) => preset.id))
+      const presetIDs = new Set(presets.map((preset) => preset.id))
+      if (panelIDs.size !== presetIDs.size || ![...presetIDs].every((id) => panelIDs.has(id))) return
+
+      const currentPresetID = this.panel.presetID
+      const ordered = [...presets]
+        .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+        .map((preset) => ({
+          id: preset.id,
+          name: preset.name,
+          order: preset.order,
+          mode: preset.rekordboxMode as RekordboxMode | null,
+        }))
+      const selected = currentPresetID
+        ? ordered.find((preset) => preset.id === currentPresetID) ?? null
+        : null
+
+      this.panel = {
+        ...this.panel,
+        presets: ordered,
+        presetName: selected?.name ?? this.panel.presetName,
+        presetOrder: selected?.order ?? this.panel.presetOrder,
+      }
+    },
+
+    syncPresetOrder(presets: PresetSummary[]) {
+      this.pendingPresetSync = presets.map((preset) => ({ ...preset }))
+      this.applyPresetOrder(this.pendingPresetSync)
+    },
+
     async refresh() {
       if (this.isMutating) return
       try {
         const nextPanel = await overcueAPI.shortcutPanel()
         if (this.isMutating) return
-        this.panel = nextPanel
+        this.adoptPanel(nextPanel)
         useSettingsStore().replace(nextPanel.localization)
         this.errorMessage = null
       } catch (error) {
@@ -81,7 +146,7 @@ export const useShortcutsStore = defineStore('shortcuts', {
       this.isMutating = true
       try {
         const nextPanel = await overcueAPI.shortcutCommand(command)
-        this.panel = nextPanel
+        this.adoptPanel(nextPanel)
         useSettingsStore().replace(nextPanel.localization)
         this.errorMessage = null
       } catch (error) {
@@ -89,29 +154,6 @@ export const useShortcutsStore = defineStore('shortcuts', {
         throw error
       } finally {
         this.isMutating = false
-      }
-    },
-
-    syncPresetOrder(presets: PresetSummary[]) {
-      if (!this.panel) return
-      const currentPresetID = this.panel.presetID
-      const ordered = [...presets]
-        .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
-        .map((preset) => ({
-          id: preset.id,
-          name: preset.name,
-          order: preset.order,
-          mode: preset.rekordboxMode as RekordboxMode | null,
-        }))
-      const selected = currentPresetID
-        ? ordered.find((preset) => preset.id === currentPresetID) ?? null
-        : null
-
-      this.panel = {
-        ...this.panel,
-        presets: ordered,
-        presetName: selected?.name ?? this.panel.presetName,
-        presetOrder: selected?.order ?? this.panel.presetOrder,
       }
     },
 
