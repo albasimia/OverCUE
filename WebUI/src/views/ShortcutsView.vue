@@ -25,13 +25,32 @@ const confirmPresetDelete = ref(false)
 const presetReorderOpen = ref(false)
 const presetReorderElement = ref<HTMLElement | null>(null)
 const presetReorderLoadError = ref<string | null>(null)
+const presetReorderSaveError = ref<string | null>(null)
+const presetReorderDraftIDs = ref<string[] | null>(null)
+const presetReorderSaving = ref(false)
 
-const { isSaving: isReorderingPresets, errorMessage: presetReorderError } = useSortableOrder({
+const persistedPresetIDs = computed(() => presets.items.map((preset) => preset.id))
+const currentPresetReorderIDs = computed(() => presetReorderDraftIDs.value ?? persistedPresetIDs.value)
+const presetReorderDirty = computed(() => {
+  if (!presetReorderDraftIDs.value) return false
+  const persisted = persistedPresetIDs.value
+  return presetReorderDraftIDs.value.length !== persisted.length
+    || presetReorderDraftIDs.value.some((id, index) => id !== persisted[index])
+})
+const presetReorderItems = computed(() => {
+  const byID = new Map(presets.items.map((preset) => [preset.id, preset]))
+  return currentPresetReorderIDs.value.flatMap((id, index) => {
+    const preset = byID.get(id)
+    return preset ? [{ ...preset, order: index + 1 }] : []
+  })
+})
+
+useSortableOrder({
   element: presetReorderElement,
-  currentIDs: () => presets.items.map((preset) => preset.id),
-  persist: async (ids) => {
-    await presets.reorder(ids)
-    await shortcuts.refresh()
+  currentIDs: () => currentPresetReorderIDs.value,
+  onChange: (ids) => {
+    presetReorderDraftIDs.value = ids
+    presetReorderSaveError.value = null
   },
 })
 
@@ -232,11 +251,42 @@ async function openPresetReorder() {
   presetMenuOpen.value = false
   confirmPresetDelete.value = false
   presetReorderLoadError.value = null
+  presetReorderSaveError.value = null
   try {
     await refreshPresetStore()
+    presetReorderDraftIDs.value = presets.items.map((preset) => preset.id)
     presetReorderOpen.value = true
   } catch (error) {
     presetReorderLoadError.value = error instanceof Error ? error.message : String(error)
+  }
+}
+
+function cancelPresetReorder() {
+  if (presetReorderSaving.value) return
+  presetReorderOpen.value = false
+  presetReorderDraftIDs.value = null
+  presetReorderLoadError.value = null
+  presetReorderSaveError.value = null
+}
+
+async function savePresetReorder() {
+  if (presetReorderSaving.value) return
+  if (!presetReorderDirty.value) {
+    cancelPresetReorder()
+    return
+  }
+
+  presetReorderSaving.value = true
+  presetReorderSaveError.value = null
+  const ids = [...currentPresetReorderIDs.value]
+  try {
+    await presets.reorder(ids)
+    presetReorderOpen.value = false
+    presetReorderDraftIDs.value = null
+  } catch (error) {
+    presetReorderSaveError.value = error instanceof Error ? error.message : String(error)
+  } finally {
+    presetReorderSaving.value = false
   }
 }
 
@@ -530,26 +580,36 @@ function remove(entryID: string) {
             <strong>{{ settings.text('preset.reorder') }}</strong>
             <span>{{ settings.text('preset.reorder.help') }}</span>
           </div>
-          <button
-            class="native-button"
-            type="button"
-            :disabled="isReorderingPresets"
-            @click="presetReorderOpen = false"
-          >
-            {{ settings.text('common.close') }}
-          </button>
+          <div class="device-actions">
+            <button
+              class="native-button"
+              type="button"
+              :disabled="presetReorderSaving"
+              @click="cancelPresetReorder"
+            >
+              {{ settings.text('common.cancel') }}
+            </button>
+            <button
+              class="native-button primary"
+              type="button"
+              :disabled="presetReorderSaving || !presetReorderDirty"
+              @click="savePresetReorder"
+            >
+              {{ settings.text('common.save') }}
+            </button>
+          </div>
         </div>
 
-        <p v-if="presetReorderError" class="shortcut-panel-error" role="alert">{{ presetReorderError }}</p>
+        <p v-if="presetReorderSaveError" class="shortcut-panel-error" role="alert">{{ presetReorderSaveError }}</p>
 
-        <div ref="presetReorderElement" class="preset-reorder-list" :class="{ 'is-saving': isReorderingPresets }">
+        <div ref="presetReorderElement" class="preset-reorder-list" :class="{ 'is-saving': presetReorderSaving }">
           <article
-            v-for="preset in presets.items"
+            v-for="preset in presetReorderItems"
             :key="preset.id"
             class="native-list-row"
             :data-sortable-id="preset.id"
           >
-            <button class="drag-handle" type="button" :aria-label="settings.text('preset.reorder')">⋮⋮</button>
+            <button class="drag-handle" type="button" :disabled="presetReorderSaving" :aria-label="settings.text('preset.reorder')">⋮⋮</button>
             <span class="order-chip">{{ preset.order }}</span>
             <div class="row-main">
               <strong>{{ preset.name }}</strong>
