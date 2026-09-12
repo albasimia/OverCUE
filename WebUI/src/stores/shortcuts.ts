@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { overcueAPI } from '../api/client'
 import type {
+  PresetSummary,
   RekordboxMode,
   ShortcutDialDirection,
   ShortcutEditorCommand,
@@ -88,6 +89,29 @@ export const useShortcutsStore = defineStore('shortcuts', {
         throw error
       } finally {
         this.isMutating = false
+      }
+    },
+
+    syncPresetOrder(presets: PresetSummary[]) {
+      if (!this.panel) return
+      const currentPresetID = this.panel.presetID
+      const ordered = [...presets]
+        .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+        .map((preset) => ({
+          id: preset.id,
+          name: preset.name,
+          order: preset.order,
+          mode: preset.rekordboxMode as RekordboxMode | null,
+        }))
+      const selected = currentPresetID
+        ? ordered.find((preset) => preset.id === currentPresetID) ?? null
+        : null
+
+      this.panel = {
+        ...this.panel,
+        presets: ordered,
+        presetName: selected?.name ?? this.panel.presetName,
+        presetOrder: selected?.order ?? this.panel.presetOrder,
       }
     },
 
